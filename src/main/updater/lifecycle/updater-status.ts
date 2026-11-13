@@ -1,12 +1,17 @@
 import { loadElectronAutoUpdater, type ElectronAutoUpdater } from '../electron-updater-loader'
 import { statusesEqual } from '../releases/updater-fallback'
 import type { UpdateCheckOptions, UpdateStatus } from '../../../shared/update-status-types'
-import { UpdaterState as BaseUpdaterState } from './updater-state'
+import { UpdaterState as BaseUpdaterState, isAutoUpdateDisabledForBuild } from './updater-state'
 
 export abstract class UpdaterStatus extends BaseUpdaterState {
   protected getAutoUpdater(): ElectronAutoUpdater {
     if (!this.autoUpdater) {
       this.autoUpdater = loadElectronAutoUpdater()
+      if (isAutoUpdateDisabledForBuild()) {
+        // electron-updater defaults to installing a downloaded update on quit.
+        this.autoUpdater.autoDownload = false
+        this.autoUpdater.autoInstallOnAppQuit = false
+      }
     }
     return this.autoUpdater
   }

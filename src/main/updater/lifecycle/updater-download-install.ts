@@ -7,13 +7,14 @@ import {
 import { recordUpdaterLifecycle } from '../updater-lifecycle-diagnostics'
 import { isExternallyManagedLinuxInstall } from '../linux-package/linux-update-package-type'
 import { updaterCodedMessage } from '../../../shared/updater-failure-copy'
-import { QUIT_AND_INSTALL_DELAY_MS } from './updater-state'
+import { QUIT_AND_INSTALL_DELAY_MS, isAutoUpdateDisabledForBuild } from './updater-state'
 import { UpdaterRemoteStatus } from './updater-remote-status'
 import { prepareThisProcessShipItStaging } from '../mac-install/shipit-leftover-recovery'
 
 export abstract class UpdaterDownloadInstall extends UpdaterRemoteStatus {
   protected quitAndInstall(): void {
     if (
+      isAutoUpdateDisabledForBuild() ||
       this.localBuildSelectionInProgress ||
       this.pinnedBuildSelectionInProgress ||
       this.pendingQuitAndInstallTimer ||
@@ -52,6 +53,7 @@ export abstract class UpdaterDownloadInstall extends UpdaterRemoteStatus {
 
   protected downloadUpdate(): void {
     if (
+      isAutoUpdateDisabledForBuild() ||
       this.localBuildSelectionInProgress ||
       this.pinnedBuildSelectionInProgress ||
       this.pendingQuitAndInstallTimer ||

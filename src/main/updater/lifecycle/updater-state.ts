@@ -1,3 +1,4 @@
+import { app } from 'electron'
 import type { BrowserWindow } from 'electron'
 import type { ElectronAutoUpdater } from '../electron-updater-loader'
 import type { LocalBuildFeed } from '../../local-builds/local-build-feed-server'
@@ -24,6 +25,14 @@ export const UPDATE_CHECK_SILENT_SETTLE_DELAY_MS = 1_000
 export const UPDATE_CHECK_STALL_TIMEOUT_MS = 45_000
 // Squirrel re-reads/verifies the bundle through localhost; report prolonged silence instead of leaving staging invisible.
 export const MAC_DEFERRED_STAGING_TIMEOUT_MS = 120_000
+
+// Custom builds mark themselves with semver build metadata (1.4.258+custom.3); a hyphenated prerelease is not one.
+const CUSTOM_BUILD_VERSION_PATTERN = /\+custom\./
+
+/** Custom builds have no release feed of their own, so every update path must stay inert. */
+export function isAutoUpdateDisabledForBuild(version: string = app.getVersion()): boolean {
+  return CUSTOM_BUILD_VERSION_PATTERN.test(version)
+}
 
 export type CheckFailureSource = 'event' | 'promise' | 'fallback-promise'
 export type MissingManifestPrereleaseFallbackResult = { userInitiated: boolean }
