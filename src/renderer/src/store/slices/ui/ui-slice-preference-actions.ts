@@ -46,6 +46,12 @@ export function createUiPreferenceActions(set: UISliceSet, get: UISliceGet): Par
     gitGraphFiltersByWorktree: {},
     sidebarBody: 'workspaces',
     setSidebarBody: (body) => set({ sidebarBody: body }),
+    toggleSidebarBody: () =>
+      set((s) =>
+        s.sidebarOpen
+          ? { sidebarBody: s.sidebarBody === 'agents' ? 'workspaces' : 'agents' }
+          : { sidebarOpen: true, sidebarBody: 'agents' }
+      ),
 
     groupBy: 'repo',
     // Why: group keys are mode-specific, so clear collapsed state on mode switch — stale keys are meaningless and accumulate.

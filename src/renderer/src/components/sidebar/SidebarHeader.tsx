@@ -27,7 +27,7 @@ const SidebarHeader = React.memo(function SidebarHeader({
   useTranslation()
   const sidebarBody = useAppStore((s) => s.sidebarBody ?? 'workspaces')
   const groupBy = useAppStore((s) => s.groupBy)
-  const setSidebarBody = useAppStore((s) => s.setSidebarBody)
+  const toggleSidebarBody = useAppStore((s) => s.toggleSidebarBody)
   const updateSettings = useAppStore((s) => s.updateSettings)
   const agentsViewActive = sidebarBody === 'agents'
   const activityBadgeId = useId()
@@ -92,7 +92,7 @@ const SidebarHeader = React.memo(function SidebarHeader({
                     aria-label={activityLabel}
                     aria-pressed={agentsViewActive}
                     aria-describedby={activityBadgeId}
-                    onClick={() => setSidebarBody?.(agentsViewActive ? 'workspaces' : 'agents')}
+                    onClick={() => toggleSidebarBody?.()}
                   >
                     <span className="relative h-5 w-6 shrink-0">
                       <Bell className="absolute left-0 top-1 size-3" />

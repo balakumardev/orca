@@ -17,6 +17,7 @@ import {
 import { ActivityThreadVirtualRow } from './activity-thread-virtual-row'
 import { ActivityThreadListResizeHandle } from './activity-thread-list-resize-handle'
 import {
+  ACTIVITY_HEADER_ROW_ESTIMATE,
   buildActivityVirtualItems,
   estimateActivityVirtualItemSize,
   findActivityThreadItemIndex,
@@ -25,6 +26,7 @@ import {
 } from './activity-thread-virtual-items'
 import { ActivityThreadCollapseContext } from './activity-thread-collapse-context'
 import { useActivityThreadSelection } from './use-activity-thread-selection'
+import { useActivityAgentCycleShortcut } from './use-activity-agent-cycle-shortcut'
 import type {
   ActivityGroupBy,
   ThreadReadFilter
@@ -77,7 +79,8 @@ export function ActivityThreadListPane({
   showInlineActions = true,
   collapsedGroupKeys,
   onToggleGroupCollapse,
-  scrollTopRef
+  scrollTopRef,
+  cycleShortcutEnabled = false
 }: {
   threadListRef?: React.RefObject<HTMLDivElement | null>
   threadListWidth?: number
@@ -117,6 +120,8 @@ export function ActivityThreadListPane({
   onToggleGroupCollapse?: (groupKey: string) => void
   /** Optional view-local scroll memory; updated without triggering React renders. */
   scrollTopRef?: React.MutableRefObject<number>
+  /** Previous/next agent chords walk this list; only the sidebar's displayed Activity view enables them. */
+  cycleShortcutEnabled?: boolean
 }): React.JSX.Element {
   const t = useTranslate()
   const [internalCollapsedGroupKeys, setInternalCollapsedGroupKeys] = useState<Set<string>>(
@@ -237,9 +242,19 @@ export function ActivityThreadListPane({
       },
       [groupBy, headerItemIndexes, selectedItemIndex]
     ),
+    // The active sticky group header covers the first row-height of the viewport.
+    scrollPaddingStart: groupBy !== 'none' ? ACTIVITY_HEADER_ROW_ESTIMATE : 0,
     overscan: 8,
     observeElementRect: observeActivityListRect,
     useFlushSync: false
+  })
+
+  useActivityAgentCycleShortcut({
+    enabled: cycleShortcutEnabled,
+    virtualItems,
+    selectedPaneKey,
+    onActivate: handleSelectThread,
+    virtualizer
   })
 
   // Row heights differ between densities; drop stale measurements on toggle (not on mount).

@@ -17,6 +17,43 @@ export const KEYBINDING_DEFINITION_CORE_4: readonly KeybindingDefinition[] = [
     }
   },
   {
+    id: 'sidebar.activity.previousAgent',
+    title: 'Previous agent in Activity',
+    group: 'Agents',
+    scope: 'global',
+    searchKeywords: ['shortcut', 'sidebar', 'activity', 'agent', 'agents', 'previous', 'cycle'],
+    // Why: allowInTerminal keeps Activity navigation working from a focused agent terminal in terminal-first mode.
+    defaultBindings: platformBindings(['Mod+Shift+Semicolon']),
+    allowInTerminal: true
+  },
+  {
+    id: 'sidebar.activity.nextAgent',
+    title: 'Next agent in Activity',
+    group: 'Agents',
+    scope: 'global',
+    searchKeywords: ['shortcut', 'sidebar', 'activity', 'agent', 'agents', 'next', 'cycle'],
+    defaultBindings: platformBindings(['Mod+Shift+Quote']),
+    allowInTerminal: true
+  },
+  {
+    id: 'sidebar.activity.toggle',
+    title: 'Toggle Activity view',
+    group: 'Agents',
+    scope: 'global',
+    searchKeywords: [
+      'shortcut',
+      'sidebar',
+      'activity',
+      'agent',
+      'agents',
+      'view',
+      'toggle',
+      'bell'
+    ],
+    defaultBindings: platformBindings(['Mod+Shift+L']),
+    allowInTerminal: true
+  },
+  {
     id: 'chat.find',
     title: 'Find in chat',
     group: 'Chat',

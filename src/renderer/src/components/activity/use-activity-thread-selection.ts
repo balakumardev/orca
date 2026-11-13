@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import type React from 'react'
 import { useListMultiSelection } from '@/hooks/use-list-multi-selection'
-import type { ActivityVirtualItemDescriptor } from './activity-thread-virtual-items'
+import {
+  getActivityVirtualItemThreads,
+  type ActivityVirtualItemDescriptor
+} from './activity-thread-virtual-items'
 import type { AgentPaneThread } from './activity-thread-types'
 
 const getThreadPaneKey = (thread: AgentPaneThread): string => thread.paneKey
@@ -23,10 +26,7 @@ export function useActivityThreadSelection({
   getContextMenuTargets: (thread: AgentPaneThread) => readonly AgentPaneThread[]
 } {
   // Collapsed groups contribute no thread items, so their rows drop out of the selection.
-  const renderedThreads = useMemo(
-    () => virtualItems.flatMap((item) => (item.type === 'thread' ? [item.thread] : [])),
-    [virtualItems]
-  )
+  const renderedThreads = useMemo(() => getActivityVirtualItemThreads(virtualItems), [virtualItems])
   const getScope = useCallback(() => scrollContainerRef.current, [scrollContainerRef])
   const selection = useListMultiSelection({
     items: renderedThreads,

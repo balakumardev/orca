@@ -40,6 +40,12 @@ const STATIC_TITLE_COPY = {
   'sidebar.left.toggle': () => translate('keybindings.title.196b416429', 'Toggle sidebar'),
   'sidebar.projects.toggleCollapse': () =>
     translate('keybindings.title.5468defe61', 'Collapse / expand all projects'),
+  'sidebar.activity.previousAgent': () =>
+    translate('keybindings.title.sidebarActivityPreviousAgent', 'Previous agent in Activity'),
+  'sidebar.activity.nextAgent': () =>
+    translate('keybindings.title.sidebarActivityNextAgent', 'Next agent in Activity'),
+  'sidebar.activity.toggle': () =>
+    translate('keybindings.title.sidebarActivityToggle', 'Toggle Activity view'),
   'sidebar.right.toggle': () => translate('keybindings.title.e0d7e6b665', 'Toggle right sidebar'),
   'sidebar.explorer.toggle': () =>
     translate('keybindings.title.sidebarExplorerToggle', 'Show Explorer'),

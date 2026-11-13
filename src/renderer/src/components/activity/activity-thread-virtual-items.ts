@@ -34,6 +34,13 @@ export function buildActivityVirtualItems(args: {
   return items
 }
 
+/** Threads in rendered order; collapsed groups contribute none. */
+export function getActivityVirtualItemThreads(
+  items: readonly ActivityVirtualItemDescriptor[]
+): AgentPaneThread[] {
+  return items.flatMap((item) => (item.type === 'thread' ? [item.thread] : []))
+}
+
 /** Stable per-row key: group key for headers, paneKey for threads. */
 export function getActivityVirtualItemKey(item: ActivityVirtualItemDescriptor): string {
   return item.type === 'header' ? `h:${item.group.key}` : `t:${item.thread.paneKey}`

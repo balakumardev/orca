@@ -230,6 +230,12 @@ export function useGlobalKeybindings(args: {
       ) {
         return
       }
+      if (
+        matchAppShortcut('sidebar.activity.toggle') &&
+        handlers.get('sidebar.activity.toggle')?.()
+      ) {
+        return
+      }
       if (matchAppShortcut('view.plugins') && handlers.get('view.plugins')?.()) {
         return
       }

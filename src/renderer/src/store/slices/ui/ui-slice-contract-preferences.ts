@@ -32,6 +32,8 @@ export type UISlicePreferences = {
   /** Which list the sidebar body shows. Navigator-only; does not change the active view. */
   sidebarBody: 'workspaces' | 'agents'
   setSidebarBody: (body: UISlicePreferences['sidebarBody']) => void
+  /** Opens a closed sidebar on Activity; otherwise flips between Activity and Workspaces. */
+  toggleSidebarBody: () => void
   groupBy: 'none' | 'workspace-status' | 'repo' | 'pr-status'
   setGroupBy: (g: UISlicePreferences['groupBy']) => void
   sortBy: 'name' | 'smart' | 'recent' | 'repo' | 'manual'

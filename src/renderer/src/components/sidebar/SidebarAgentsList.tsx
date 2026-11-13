@@ -233,6 +233,7 @@ function SidebarAgentsListBody({
         showOptionsMenu={false}
         showInlineActions={false}
         scrollTopRef={scrollTopRef}
+        cycleShortcutEnabled
       />
       {optionsTarget
         ? createPortal(
