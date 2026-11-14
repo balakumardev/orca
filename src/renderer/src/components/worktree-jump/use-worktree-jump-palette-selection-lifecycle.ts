@@ -5,10 +5,9 @@ import {
 } from '@/components/browser-pane/host-guest/browser-focus'
 import { captureCmdJActiveGroupSnapshot } from '@/components/cmd-j/quick-action-context'
 import { resolvePaletteFocusRestoreTarget } from '@/components/cmd-j/palette-focus-restore-target'
-import {
-  CREATE_WORKTREE_ITEM_ID,
-  getNextWorktreePaletteSelection
-} from '@/lib/workspace/search/worktrees/worktree-palette-create-action'
+import { CREATE_WORKTREE_ITEM_ID } from '@/lib/workspace/search/worktrees/worktree-palette-create-action'
+import { getNextPaletteSelectionWithoutFolderDefault } from '@/components/cmd-j/palette-folder-selection'
+import { usePaletteFolderSelectionGuard } from '@/components/cmd-j/use-palette-folder-selection-guard'
 import { useAppStore } from '@/store/index'
 import { CREATE_WORKSPACE_QUICK_ACTION_ITEM_ID } from './worktree-jump-palette-model'
 import type { WorktreeJumpPaletteTaskSearch } from './use-worktree-jump-palette-task-search'
@@ -153,23 +152,24 @@ export function useWorktreeJumpPaletteSelectionLifecycle({
     !selectionMovedByUserRef.current &&
     taskItems.length
       ? (taskItems[0]?.id ?? selectedItemId)
-      : getNextWorktreePaletteSelection({
+      : getNextPaletteSelectionWithoutFolderDefault({
           currentSelectedItemId: selectedItemId,
           queryChanged: false,
           selectableItemIds: selectionItemIds,
           showCreateAction,
           autoSelectCreateAction: taskSourceUrl !== null
         })
+  const folderGuard = usePaletteFolderSelectionGuard({ visible, listRef })
   const handleCommandSelectionChange = useCallback(
     (nextItemId: string) => {
-      setSelectedItemId(nextItemId)
+      setSelectedItemId(folderGuard.guardCommandSelection(nextItemId, selectionItemIds))
     },
-    [setSelectedItemId]
+    [folderGuard, selectionItemIds, setSelectedItemId]
   )
   // Late cmdk callbacks can restore stale cursors; commit the new list head when deferred query changes.
   useLayoutEffect(() => {
     setSelectedItemId(
-      getNextWorktreePaletteSelection({
+      getNextPaletteSelectionWithoutFolderDefault({
         currentSelectedItemId: '',
         queryChanged: true,
         selectableItemIds: selectionItemIds,
@@ -191,12 +191,13 @@ export function useWorktreeJumpPaletteSelectionLifecycle({
   const handleQueryChange = useCallback(
     (nextQuery: string) => {
       latestQueryRef.current = nextQuery
+      folderGuard.markQueryChanged()
       setQuery(nextQuery)
       setSelectedItemId('')
       setExpandedSectionCaps({})
       listRef.current?.scrollTo(0, 0)
     },
-    [latestQueryRef, listRef, setExpandedSectionCaps, setQuery, setSelectedItemId]
+    [folderGuard, latestQueryRef, listRef, setExpandedSectionCaps, setQuery, setSelectedItemId]
   )
   const cancelFallbackFocusFrames = useCallback((): void => {
     if (fallbackFocusOuterFrameRef.current !== null) {

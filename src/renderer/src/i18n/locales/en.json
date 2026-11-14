@@ -3873,6 +3873,11 @@
         "resultsFound_other": "{{count}} results found.",
         "itemsAvailable_one": "{{count}} item available.",
         "itemsAvailable_other": "{{count}} items available.",
+        "folderNotOpened": "The folder was added, but its workspace could not be opened",
+        "folderGone": "That folder is no longer there",
+        "folderWorktreeMissing": "The folder was added, but no workspace for it was found",
+        "foldersHeader": "Folders",
+        "foldersPartialHeader": "Folders (partial list)",
         "createActionAvailable": "Create worktree action available."
       },
       "github": {
