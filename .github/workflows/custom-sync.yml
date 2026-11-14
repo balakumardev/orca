@@ -1,5 +1,5 @@
 name: custom-sync
-# PROBE 3 (temporary): fetch cost on the runner (blobless vs full vs shallow) and whether a merge commit whose
+# PROBE 3b (temporary, against upstream main): fetch cost on the runner (blobless vs full vs shallow) and whether a merge commit whose
 # parents are shallow upstream commits can be pushed to the fork.
 on:
   workflow_dispatch:
@@ -17,7 +17,7 @@ jobs:
           git --version
           git config --global user.name probe; git config --global user.email probe@localhost
           URL=https://github.com/stablyai/orca.git
-          NEW=$(git ls-remote --tags --refs "$URL" 'refs/tags/v*' | sed 's#.*refs/tags/##' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+          NEW=probe-main
           OLD=v1.4.258
           echo "old=$OLD new=$NEW"
           now() { date +%s.%N; }
@@ -31,7 +31,7 @@ jobs:
           cd a
           t=$(now)
           git remote add stablyai "$URL"
-          git fetch -q --no-tags --filter=blob:none stablyai "+refs/tags/$OLD:refs/tags/$OLD" "+refs/tags/$NEW:refs/tags/$NEW"
+          git fetch -q --no-tags --filter=blob:none stablyai "+refs/tags/$OLD:refs/tags/$OLD" "+refs/heads/main:refs/tags/$NEW"
           echo "A2 blobless fetch of both tags: $(el $t)s, .git=$(size)"
           git config --get-regexp '^remote\.stablyai\.(promisor|partialclonefilter)' || true
           CUSTOM=$(git rev-parse origin/custom)
@@ -43,7 +43,7 @@ jobs:
           echo "::group::B. full clone of upstream (no filter): both tags"
           t=$(now)
           git init -q b && cd b
-          git fetch -q --no-tags "$URL" "+refs/tags/$OLD:refs/tags/$OLD" "+refs/tags/$NEW:refs/tags/$NEW"
+          git fetch -q --no-tags "$URL" "+refs/tags/$OLD:refs/tags/$OLD" "+refs/heads/main:refs/tags/$NEW"
           echo "B full fetch of both tags: $(el $t)s, .git=$(size), objects: $(git count-objects -v | grep -E '^(count|in-pack)' | tr '\n' ' ')"
           cd ..
           echo "::endgroup::"
@@ -53,7 +53,7 @@ jobs:
           git init -q c && cd c
           git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git fetch -q --depth=1 --no-tags origin +refs/heads/custom:refs/remotes/origin/custom
-          git fetch -q --depth=1 --no-tags "$URL" "+refs/tags/$OLD:refs/tags/$OLD" "+refs/tags/$NEW:refs/tags/$NEW"
+          git fetch -q --depth=1 --no-tags "$URL" "+refs/tags/$OLD:refs/tags/$OLD" "+refs/heads/main:refs/tags/$NEW"
           echo "C1 shallow fetch (custom + two tags): $(el $t)s, .git=$(size)"
           CUSTOM=$(git rev-parse origin/custom)
           t=$(now)
