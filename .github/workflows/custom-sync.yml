@@ -1,82 +1,332 @@
 name: custom-sync
-# PROBE 3b (temporary, against upstream main): fetch cost on the runner (blobless vs full vs shallow) and whether a merge commit whose
-# parents are shallow upstream commits can be pushed to the fork.
+# Upstream sync for this fork. Raises ONE pull request per upstream release; merging that PR (with a MERGE COMMIT)
+# is what publishes a release (custom-release.yml). Nothing here pushes to `custom`, merges anything or force-pushes.
+#
+#   detect   newest stable upstream release vs custom/BASE; quiet exit when there is nothing new
+#   merge    merge the release into sync/<tag> by script (clean, or scripted conflict rules), no model
+#   agent1   (only when conflicts remain) Flash resolves the conflicted files            } custom-agent.yml,
+#   agent2   Flash repairs the candidate using the REAL gate output of round 1           } environment `agent`,
+#   agent3   Pro starts again from scratch, shown the failed gate output                 } branch `custom` only
+#   gates*   custom-gates.yml: install, typecheck, lint, format, unit tests, localization, e2e ratchet, e2e specs
+#   open-pr  push sync/<tag> (the only branch this workflow may push), open the PR from FACTS, retire older sync PRs
+#
+# Why the merge is not `git merge <tag>`: upstream release tags are not ancestors of one another, so a plain merge
+# conflicts in dozens of files nobody touched. sync-merge.sh merges with the previous BASE tag as the merge base
+# (see its header), which replays exactly our changes on the new release.
+#
+# Manual rehearsal: Actions > custom-sync > Run workflow with `ref` (any upstream branch, tag or sha) and a throwaway
+# `base_branch`. A rehearsal opens a DRAFT "[test]" PR and never changes custom/BASE. The model jobs only run from
+# `custom`, so a rehearsal dispatched from another branch exercises everything except them (set skip_agent).
 on:
+  schedule:
+    - cron: '23 */3 * * *'
   workflow_dispatch:
+    inputs:
+      ref:
+        description: Upstream ref to rehearse with (branch, tag or sha). Empty = the newest stable release. Anything that is not a release tag makes a draft [test] PR.
+        required: false
+        type: string
+      base_branch:
+        description: Branch to merge into and open the PR against
+        required: false
+        default: custom
+        type: string
+      skip_agent:
+        description: Do not call the cloud model. Conflicts then become a draft [needs manual merge] PR.
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: custom-sync
+  cancel-in-progress: false
+
 permissions:
   contents: read
+
 jobs:
-  fetch-probe:
+  detect:
+    name: detect
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
-      contents: write
+      contents: read
+      pull-requests: read
+    outputs:
+      proceed: ${{ steps.detect.outputs.proceed }}
+      reason: ${{ steps.detect.outputs.reason }}
+      is_test: ${{ steps.detect.outputs.is_test }}
+      tag: ${{ steps.detect.outputs.tag }}
+      tag_is_release: ${{ steps.detect.outputs.tag_is_release }}
+      label: ${{ steps.detect.outputs.label }}
+      upstream_sha: ${{ steps.detect.outputs.upstream_sha }}
+      base_branch: ${{ steps.detect.outputs.base_branch }}
+      base_sha: ${{ steps.detect.outputs.base_sha }}
+      base_tag: ${{ steps.detect.outputs.base_tag }}
+      branch: ${{ steps.detect.outputs.branch }}
+      title: ${{ steps.detect.outputs.title }}
+      release_url: ${{ steps.detect.outputs.release_url }}
+      supersede: ${{ steps.detect.outputs.supersede }}
+      orphan_branch: ${{ steps.detect.outputs.orphan_branch }}
     steps:
-      - name: Probe
-        run: |
-          set +e
-          git --version
-          git config --global user.name probe; git config --global user.email probe@localhost
-          URL=https://github.com/stablyai/orca.git
-          NEW=probe-main
-          OLD=v1.4.258
-          echo "old=$OLD new=$NEW"
-          now() { date +%s.%N; }
-          el() { awk -v a="$1" -v b="$(now)" 'BEGIN{printf "%.1f", b-a}'; }
-          size() { du -sh .git | cut -f1; }
-
-          echo "::group::A. blobless clone of the fork (what actions/checkout does) + blobless fetch of both tags, full history"
-          t=$(now)
-          git clone -q --filter=blob:none --no-checkout "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" a 2>&1 | tail -2
-          echo "A1 fork blobless clone: $(el $t)s, .git=$(cd a && size)"
-          cd a
-          t=$(now)
-          git remote add stablyai "$URL"
-          git fetch -q --no-tags --filter=blob:none stablyai "+refs/tags/$OLD:refs/tags/$OLD" "+refs/heads/main:refs/tags/$NEW"
-          echo "A2 blobless fetch of both tags: $(el $t)s, .git=$(size)"
-          git config --get-regexp '^remote\.stablyai\.(promisor|partialclonefilter)' || true
-          CUSTOM=$(git rev-parse origin/custom)
-          t=$(now)
-          git merge-tree --write-tree --name-only --merge-base="refs/tags/$OLD" "$CUSTOM" "refs/tags/$NEW" > ../mt-a.txt; echo "A3 merge-tree rc=$? in $(el $t)s, .git=$(size)"; head -1 ../mt-a.txt; sed -n '2,12p' ../mt-a.txt
-          cd ..
-          echo "::endgroup::"
-
-          echo "::group::B. full clone of upstream (no filter): both tags"
-          t=$(now)
-          git init -q b && cd b
-          git fetch -q --no-tags "$URL" "+refs/tags/$OLD:refs/tags/$OLD" "+refs/heads/main:refs/tags/$NEW"
-          echo "B full fetch of both tags: $(el $t)s, .git=$(size), objects: $(git count-objects -v | grep -E '^(count|in-pack)' | tr '\n' ' ')"
-          cd ..
-          echo "::endgroup::"
-
-          echo "::group::C. shallow depth=1 of the fork branch and both tags; merge-tree; push a merge commit with shallow upstream parents"
-          t=$(now)
-          git init -q c && cd c
-          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          git fetch -q --depth=1 --no-tags origin +refs/heads/custom:refs/remotes/origin/custom
-          git fetch -q --depth=1 --no-tags "$URL" "+refs/tags/$OLD:refs/tags/$OLD" "+refs/heads/main:refs/tags/$NEW"
-          echo "C1 shallow fetch (custom + two tags): $(el $t)s, .git=$(size)"
-          CUSTOM=$(git rev-parse origin/custom)
-          t=$(now)
-          git merge-tree --write-tree --name-only --merge-base="refs/tags/$OLD" "$CUSTOM" "refs/tags/$NEW" > ../mt-c.txt; echo "C2 merge-tree rc=$? in $(el $t)s"; head -1 ../mt-c.txt
-          TREE=$(head -1 ../mt-c.txt)
-          # strip upstream workflows from the tree: the push is made with GITHUB_TOKEN, which may not touch workflow files
-          export GIT_INDEX_FILE="$PWD/idx"
-          git read-tree "$TREE"
-          git rm -q --cached -r --ignore-unmatch .github >/dev/null
-          git read-tree --prefix=.github/ "$CUSTOM:.github"
-          T2=$(git write-tree); unset GIT_INDEX_FILE
-          NEWC=$(git rev-parse "refs/tags/$NEW^{commit}"); OLDC=$(git rev-parse "refs/tags/$OLD^{commit}")
-          LINK=$(git commit-tree "$NEWC^{tree}" -p "$NEWC" -p "$OLDC" -m link)
-          M1=$(git commit-tree "$T2" -p "$CUSTOM" -p "$NEWC" -m "probe: merge with the tag commit as second parent")
-          M2=$(git commit-tree "$T2" -p "$CUSTOM" -p "$LINK" -m "probe: merge with the link commit as second parent")
-          for pair in "shallow-direct:$M1" "shallow-link:$M2"; do
-            name="${pair%%:*}"; sha="${pair#*:}"
-            t=$(now); set +e
-            git push origin "$sha:refs/heads/test/probe-$name" 2>&1 | sed -E 's#x-access-token:[^@]*@#***@#g' | tail -6
-            echo "C3 push $name rc=${PIPESTATUS[0]} in $(el $t)s"
-            set -e
-          done
-          cd ..
-          echo "::endgroup::"
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          sparse-checkout: custom/scripts
+          persist-credentials: false
+      - name: Find the release to sync
+        id: detect
         env:
           GH_TOKEN: ${{ github.token }}
+          INPUT_REF: ${{ github.event.inputs.ref }}
+          INPUT_BASE_BRANCH: ${{ github.event.inputs.base_branch }}
+        run: bash custom/scripts/detect-release.sh
+
+  merge:
+    name: merge
+    needs: detect
+    if: needs.detect.outputs.proceed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      outcome: ${{ steps.start.outputs.outcome }}
+      unresolved: ${{ steps.finish.outputs.unresolved }}
+    steps:
+      - name: Checkout the sync scripts
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          path: tools
+          sparse-checkout: custom
+          persist-credentials: false
+      - name: Checkout the base branch
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.detect.outputs.base_sha }}
+          path: repo
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          package_json_file: repo/package.json
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Merge the upstream release
+        id: start
+        working-directory: repo
+        env:
+          SYNC_OUT: ${{ runner.temp }}/sync
+          UPSTREAM_SHA: ${{ needs.detect.outputs.upstream_sha }}
+          BASE_SHA: ${{ needs.detect.outputs.base_sha }}
+          BASE_BRANCH: ${{ needs.detect.outputs.base_branch }}
+          BRANCH: ${{ needs.detect.outputs.branch }}
+          LABEL: ${{ needs.detect.outputs.label }}
+          TAG: ${{ needs.detect.outputs.tag }}
+          IS_TEST: ${{ needs.detect.outputs.is_test }}
+          TAG_IS_RELEASE: ${{ needs.detect.outputs.tag_is_release }}
+        run: |
+          start=$(date +%s)
+          bash "$GITHUB_WORKSPACE/tools/custom/scripts/sync-merge.sh" start
+          echo "merge step took $(( $(date +%s) - start ))s; .git is $(du -sh .git | cut -f1)"
+      - name: Commit the conflicted merge as an unresolved candidate
+        id: finish
+        if: steps.start.outputs.outcome == 'conflicts'
+        working-directory: repo
+        env:
+          SYNC_OUT: ${{ runner.temp }}/sync
+        # Round 0 is what scripts alone can do. When git left real conflicts this is the fallback that always exists:
+        # the merge with its conflict markers and a sentinel file, which the agent rounds try to improve on and which
+        # becomes a draft [needs manual merge] PR if nothing better comes out of them (or skip_agent is set).
+        run: bash "$GITHUB_WORKSPACE/tools/custom/scripts/sync-merge.sh" finish
+      - name: Upload round 0
+        uses: actions/upload-artifact@v7
+        with:
+          name: round-0
+          path: ${{ runner.temp }}/sync/
+          retention-days: 14
+
+  gates0:
+    name: gates (round 0)
+    needs: [detect, merge]
+    if: needs.merge.result == 'success' && needs.merge.outputs.outcome != 'conflicts'
+    uses: ./.github/workflows/custom-gates.yml
+    with:
+      mode: sync
+      round: '0'
+      base_sha: ${{ needs.detect.outputs.base_sha }}
+
+  agent1:
+    name: agent (round 1, flash)
+    needs: [detect, merge]
+    if: needs.merge.result == 'success' && needs.merge.outputs.outcome == 'conflicts' && github.event.inputs.skip_agent != 'true'
+    uses: ./.github/workflows/custom-agent.yml
+    with:
+      round: '1'
+      mode: first
+      tier: flash
+      tag: ${{ needs.detect.outputs.tag }}
+      tag_is_release: ${{ needs.detect.outputs.tag_is_release }}
+      is_test: ${{ needs.detect.outputs.is_test }}
+      label: ${{ needs.detect.outputs.label }}
+      branch: ${{ needs.detect.outputs.branch }}
+      base_branch: ${{ needs.detect.outputs.base_branch }}
+      base_sha: ${{ needs.detect.outputs.base_sha }}
+      upstream_sha: ${{ needs.detect.outputs.upstream_sha }}
+
+  gates1:
+    name: gates (round 1)
+    needs: [detect, agent1]
+    if: needs.agent1.result == 'success' && needs.agent1.outputs.unresolved == 'false'
+    uses: ./.github/workflows/custom-gates.yml
+    with:
+      mode: sync
+      round: '1'
+      base_sha: ${{ needs.detect.outputs.base_sha }}
+
+  agent2:
+    name: agent (round 2, flash repair)
+    needs: [detect, agent1, gates1]
+    if: needs.gates1.result == 'success' && needs.gates1.outputs.failed != '0'
+    uses: ./.github/workflows/custom-agent.yml
+    with:
+      round: '2'
+      mode: repair
+      tier: flash
+      prev_round: '1'
+      prev_gates_round: '1'
+      tag: ${{ needs.detect.outputs.tag }}
+      tag_is_release: ${{ needs.detect.outputs.tag_is_release }}
+      is_test: ${{ needs.detect.outputs.is_test }}
+      label: ${{ needs.detect.outputs.label }}
+      branch: ${{ needs.detect.outputs.branch }}
+      base_branch: ${{ needs.detect.outputs.base_branch }}
+      base_sha: ${{ needs.detect.outputs.base_sha }}
+      upstream_sha: ${{ needs.detect.outputs.upstream_sha }}
+
+  gates2:
+    name: gates (round 2)
+    needs: [detect, agent2]
+    if: needs.agent2.result == 'success' && needs.agent2.outputs.unresolved == 'false'
+    uses: ./.github/workflows/custom-gates.yml
+    with:
+      mode: sync
+      round: '2'
+      base_sha: ${{ needs.detect.outputs.base_sha }}
+
+  agent3:
+    name: agent (round 3, pro retry)
+    needs: [detect, agent1, gates1, agent2, gates2]
+    # One last attempt with the stronger model, from scratch, when no earlier round came out green.
+    if: >-
+      ${{ !cancelled() && needs.agent1.result == 'success'
+      && !(needs.gates1.result == 'success' && needs.gates1.outputs.failed == '0')
+      && !(needs.gates2.result == 'success' && needs.gates2.outputs.failed == '0') }}
+    uses: ./.github/workflows/custom-agent.yml
+    with:
+      round: '3'
+      mode: retry
+      tier: pro
+      prev_round: ${{ needs.agent2.result == 'success' && '2' || '1' }}
+      prev_gates_round: ${{ needs.agent2.result == 'success' && '2' || '1' }}
+      tag: ${{ needs.detect.outputs.tag }}
+      tag_is_release: ${{ needs.detect.outputs.tag_is_release }}
+      is_test: ${{ needs.detect.outputs.is_test }}
+      label: ${{ needs.detect.outputs.label }}
+      branch: ${{ needs.detect.outputs.branch }}
+      base_branch: ${{ needs.detect.outputs.base_branch }}
+      base_sha: ${{ needs.detect.outputs.base_sha }}
+      upstream_sha: ${{ needs.detect.outputs.upstream_sha }}
+
+  gates3:
+    name: gates (round 3)
+    needs: [detect, agent3]
+    if: needs.agent3.result == 'success' && needs.agent3.outputs.unresolved == 'false'
+    uses: ./.github/workflows/custom-gates.yml
+    with:
+      mode: sync
+      round: '3'
+      base_sha: ${{ needs.detect.outputs.base_sha }}
+
+  open-pr:
+    name: open-pr
+    needs: [detect, merge, gates0, agent1, gates1, agent2, gates2, agent3, gates3]
+    if: ${{ !cancelled() && needs.detect.outputs.proceed == 'true' && needs.merge.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # The only job that can write. It runs our scripts, git, gh and node (no repository code from the candidate).
+    permissions:
+      contents: write
+      pull-requests: write
+      statuses: write
+    steps:
+      - name: Checkout the sync scripts
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          path: tools
+          sparse-checkout: custom
+          persist-credentials: false
+      - name: Checkout the base branch
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.detect.outputs.base_sha }}
+          path: repo
+          fetch-depth: 0
+          filter: blob:none
+          # Credentials stay in the git config on purpose: this job pushes sync/<tag>.
+          persist-credentials: true
+      - name: Download every round
+        uses: actions/download-artifact@v8
+        with:
+          path: ${{ runner.temp }}/all
+          pattern: round-*
+      - name: Download every gate result
+        uses: actions/download-artifact@v8
+        continue-on-error: true # none exist when the merge could not be resolved and no round got as far as the gates
+        with:
+          path: ${{ runner.temp }}/all
+          pattern: gates-*
+      - name: Choose the candidate
+        id: pick
+        run: bash "$GITHUB_WORKSPACE/tools/custom/scripts/pick-round.sh" "$RUNNER_TEMP/all"
+      - name: Load the candidate merge
+        working-directory: repo
+        env:
+          ROUND_DIR: ${{ steps.pick.outputs.round_dir }}
+        run: bash "$GITHUB_WORKSPACE/tools/custom/scripts/load-candidate.sh"
+      - name: Write the PR from facts
+        working-directory: repo
+        env:
+          FACTS: ${{ steps.pick.outputs.round_dir }}/sync-facts.json
+          OUR_FILES: ${{ steps.pick.outputs.round_dir }}/our-files.txt
+          PR_OUT: ${{ runner.temp }}/pr
+          GATES_DIRS: ${{ steps.pick.outputs.gates_dirs }}
+          AGENT_ROUNDS: ${{ runner.temp }}/all/agent-rounds.json
+          PR_TITLE: ${{ needs.detect.outputs.title }}
+          RELEASE_URL: ${{ needs.detect.outputs.release_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REPO: ${{ github.repository }}
+          FULL_DIFF_ARTIFACT: sync-review
+        run: bash "$GITHUB_WORKSPACE/tools/custom/scripts/make-pr-body.sh"
+      - name: Keep the full resolution diff for the reviewer
+        uses: actions/upload-artifact@v7
+        with:
+          name: sync-review
+          path: |
+            ${{ runner.temp }}/pr/full-remerge-diff.patch
+            ${{ runner.temp }}/pr/pr-body.md
+            ${{ runner.temp }}/pr/pr-meta.json
+          retention-days: 30
+      - name: Push the branch and open the pull request
+        working-directory: repo
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          FACTS: ${{ steps.pick.outputs.round_dir }}/sync-facts.json
+          PR_OUT: ${{ runner.temp }}/pr
+          SUPERSEDE: ${{ needs.detect.outputs.supersede }}
+          ORPHAN_BRANCH: ${{ needs.detect.outputs.orphan_branch }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash "$GITHUB_WORKSPACE/tools/custom/scripts/open-pr.sh"

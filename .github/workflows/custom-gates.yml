@@ -1,0 +1,237 @@
+name: custom-gates
+# Reusable quality gates for the fork. Called by custom-pr-gates.yml (mode: pr) and custom-sync.yml (mode: sync).
+# No secrets, read-only token. Every gate is a script (custom/scripts/run-gates.sh): real exit codes, no model.
+#
+# The scripts come from a trusted commit (the `tools` checkout), never from the code under test: for a pull request
+# that is the base branch tip, so a PR cannot edit the gate scripts it is judged by (a PR that changes custom/scripts
+# is judged by the old scripts; review those changes by eye). The workflow files themselves are read from the PR merge
+# ref by GitHub, so changes under .github/workflows need the owner's review too.
+#
+# Jobs: `static` (install, typecheck, lint, format, unit tests, localization, e2e typecheck ratchet, hygiene, lint
+# caps) on Linux and `e2e` (our Playwright specs) on macOS. Measured on 2026-11-14: Linux ran the same specs 6 of 7
+# green (one pixel-layout assertion in sidebar-stacked-layout.spec.ts failed), macOS 7 of 7, so e2e defaults to macOS
+# (free for public repositories).
+on:
+  workflow_call:
+    inputs:
+      mode:
+        description: pr (a pull request merge ref is checked out) or sync (a candidate comes from a round artifact)
+        type: string
+        required: true
+      round:
+        description: sync mode only. Number of the round artifact (round-N) that holds the candidate merge
+        type: string
+        default: ''
+      base_sha:
+        description: sync mode only. The base branch commit the sync started from
+        type: string
+        default: ''
+      with_e2e:
+        type: boolean
+        default: true
+      e2e_runner:
+        type: string
+        default: macos-15
+    outputs:
+      failed:
+        description: Number of failed gates across both jobs (a job that crashed counts as one)
+        value: ${{ jobs.result.outputs.failed }}
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    name: static
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      failed: ${{ steps.gates.outputs.failed }}
+    steps:
+      - name: Checkout the gate scripts
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.mode == 'pr' && github.event.pull_request.base.sha || github.sha }}
+          path: tools
+          sparse-checkout: custom
+          persist-credentials: false
+      - name: Checkout the pull request
+        if: inputs.mode == 'pr'
+        uses: actions/checkout@v6
+        with:
+          path: repo
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+      - name: Checkout the base branch
+        if: inputs.mode == 'sync'
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.base_sha }}
+          path: repo
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+      - name: Download the candidate merge
+        if: inputs.mode == 'sync'
+        uses: actions/download-artifact@v8
+        with:
+          name: round-${{ inputs.round }}
+          path: ${{ runner.temp }}/round
+      - name: Load the candidate merge
+        if: inputs.mode == 'sync'
+        working-directory: repo
+        env:
+          ROUND_DIR: ${{ runner.temp }}/round
+        run: |
+          bash "$GITHUB_WORKSPACE/tools/custom/scripts/load-candidate.sh"
+          cp "$ROUND_DIR/our-files.txt" "$RUNNER_TEMP/our-files.txt"
+      - name: Work out which files are ours
+        if: inputs.mode == 'pr'
+        working-directory: repo
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: bash "$GITHUB_WORKSPACE/tools/custom/scripts/our-files.sh" "$BASE_SHA" "$RUNNER_TEMP/our-files.txt"
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          package_json_file: repo/package.json
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: repo/pnpm-lock.yaml
+      - name: Run the gates
+        id: gates
+        working-directory: repo
+        env:
+          MODE: ${{ inputs.mode }}
+          CHANGED_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          extra=()
+          # A sync run records failures in gates.json and goes on to open a draft PR; a PR check goes red.
+          if [ "$MODE" = sync ]; then extra+=(--exit-zero); fi
+          bash "$GITHUB_WORKSPACE/tools/custom/scripts/run-gates.sh" --out "$RUNNER_TEMP/gates" --mode "$MODE" \
+            --changed-base "${CHANGED_BASE:-}" --our-files "$RUNNER_TEMP/our-files.txt" --skip e2e "${extra[@]}"
+      - name: Upload gate results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: gates-${{ inputs.mode == 'pr' && 'pr' || inputs.round }}-static
+          path: ${{ runner.temp }}/gates/
+          retention-days: 14
+          if-no-files-found: ignore
+
+  e2e:
+    name: e2e
+    if: inputs.with_e2e
+    runs-on: ${{ inputs.e2e_runner }}
+    timeout-minutes: 45
+    outputs:
+      failed: ${{ steps.gates.outputs.failed }}
+    steps:
+      - name: Checkout the gate scripts
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.mode == 'pr' && github.event.pull_request.base.sha || github.sha }}
+          path: tools
+          sparse-checkout: custom
+          persist-credentials: false
+      - name: Checkout the pull request
+        if: inputs.mode == 'pr'
+        uses: actions/checkout@v6
+        with:
+          path: repo
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+      - name: Checkout the base branch
+        if: inputs.mode == 'sync'
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.base_sha }}
+          path: repo
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+      - name: Download the candidate merge
+        if: inputs.mode == 'sync'
+        uses: actions/download-artifact@v8
+        with:
+          name: round-${{ inputs.round }}
+          path: ${{ runner.temp }}/round
+      - name: Load the candidate merge
+        if: inputs.mode == 'sync'
+        working-directory: repo
+        env:
+          ROUND_DIR: ${{ runner.temp }}/round
+        run: |
+          bash "$GITHUB_WORKSPACE/tools/custom/scripts/load-candidate.sh"
+          cp "$ROUND_DIR/our-files.txt" "$RUNNER_TEMP/our-files.txt"
+      - name: Work out which files are ours
+        if: inputs.mode == 'pr'
+        working-directory: repo
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: bash "$GITHUB_WORKSPACE/tools/custom/scripts/our-files.sh" "$BASE_SHA" "$RUNNER_TEMP/our-files.txt"
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          package_json_file: repo/package.json
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: repo/pnpm-lock.yaml
+      - name: Run the e2e gate
+        id: gates
+        working-directory: repo
+        env:
+          MODE: ${{ inputs.mode }}
+          CHANGED_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          extra=()
+          if [ "$MODE" = sync ]; then extra+=(--exit-zero); fi
+          bash "$GITHUB_WORKSPACE/tools/custom/scripts/run-gates.sh" --out "$RUNNER_TEMP/gates" --mode "$MODE" \
+            --changed-base "${CHANGED_BASE:-}" --our-files "$RUNNER_TEMP/our-files.txt" --only e2e "${extra[@]}"
+      - name: Upload gate results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: gates-${{ inputs.mode == 'pr' && 'pr' || inputs.round }}-e2e
+          path: ${{ runner.temp }}/gates/
+          retention-days: 14
+          if-no-files-found: ignore
+      - name: Upload Playwright failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-results-${{ inputs.mode == 'pr' && 'pr' || inputs.round }}
+          path: repo/test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  result:
+    name: result
+    needs: [static, e2e]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      failed: ${{ steps.sum.outputs.failed }}
+    steps:
+      - id: sum
+        env:
+          STATIC_FAILED: ${{ needs.static.outputs.failed }}
+          E2E_FAILED: ${{ needs.e2e.outputs.failed }}
+          STATIC_RESULT: ${{ needs.static.result }}
+          E2E_RESULT: ${{ needs.e2e.result }}
+          MODE: ${{ inputs.mode }}
+        run: |
+          failed=$(( ${STATIC_FAILED:-0} + ${E2E_FAILED:-0} ))
+          # A job that never reported (infrastructure failure) counts as one failed gate.
+          [ "$STATIC_RESULT" = success ] || failed=$(( failed + 1 ))
+          [ "$E2E_RESULT" = success ] || [ "$E2E_RESULT" = skipped ] || failed=$(( failed + 1 ))
+          echo "failed=$failed" >> "$GITHUB_OUTPUT"
+          echo "static: $STATIC_RESULT ($STATIC_FAILED failed gates), e2e: $E2E_RESULT (${E2E_FAILED:-0} failed gates)"
+          # In a pull request this job is the single required check ("gates / result"), so it must go red.
+          # In a sync run failures are data for the PR body, not a red run.
+          if [ "$MODE" = pr ] && [ "$failed" -gt 0 ]; then exit 1; fi
