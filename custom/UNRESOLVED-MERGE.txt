@@ -1,0 +1,7 @@
+This branch contains UNRESOLVED merge conflicts.
+Do not merge it. Resolve the files below, delete this file, commit and push.
+
+src/renderer/src/app-shell/use-global-keybindings.ts
+src/renderer/src/components/sidebar/index.tsx
+src/renderer/src/lib/workspace/activity/activity-thread-display.test.ts
+src/renderer/src/lib/workspace/activity/activity-thread-display.ts
