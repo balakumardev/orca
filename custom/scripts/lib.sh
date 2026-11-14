@@ -88,3 +88,30 @@ generated_path() {
   esac
   return 1
 }
+
+# regen_lockfile: reconcile pnpm-lock.yaml with package.json, run from the repository root. Upstream's pnpmfile
+# (config/pnpmfile.cjs, .pnpmfile.cjs) is JavaScript that pnpm executes during resolution (measured: a hostile pnpmfile
+# runs under a plain `--lockfile-only`), so it is ignored, together with lifecycle scripts. pnpm still READS package.json
+# (including `packageManager`), pnpm-workspace.yaml (including configDependencies) and .npmrc from the merged tree.
+# Ignoring it makes pnpm drop the `pnpmfileChecksum:` line from the lockfile, and `pnpm install --frozen-lockfile`
+# (the install gate, the release build) refuses a lockfile whose checksum does not match the pnpmfile. So the line is
+# put back, computed here: pnpm's value is `sha256-` + base64 of the sha256 of the file's bytes.
+regen_lockfile() {
+  pnpm install --lockfile-only --ignore-scripts --ignore-pnpmfile --no-frozen-lockfile >&2
+  local pf sum
+  pf="$(sed -n -E "s/^pnpmfile:[[:space:]]*[\"']?([^\"'#[:space:]]+).*/\\1/p" pnpm-workspace.yaml 2>/dev/null | head -n 1)"
+  [ -n "$pf" ] || pf=.pnpmfile.cjs
+  [ -f "$pf" ] || return 0
+  sum="sha256-$(openssl dgst -sha256 -binary "$pf" | base64 | tr -d '\n')"
+  # The lockfile can hold several YAML documents; the project's is the last one. The line goes before the first of the
+  # keys pnpm writes after it, with a blank line after it, exactly where pnpm itself writes it.
+  awk -v sum="$sum" '
+    { line[NR] = $0; if ($0 ~ /^lockfileVersion:/) last = NR }
+    END {
+      for (i = 1; i <= NR; i++) {
+        if (i > last && line[i] ~ /^pnpmfileChecksum:/) { print "pnpmfileChecksum: " sum; done = 1; continue }
+        if (!done && i > last && line[i] ~ /^(patchedDependencies|importers|packages|snapshots):/) { print "pnpmfileChecksum: " sum; print ""; done = 1 }
+        print line[i]
+      }
+    }' pnpm-lock.yaml > pnpm-lock.yaml.new && mv pnpm-lock.yaml.new pnpm-lock.yaml
+}

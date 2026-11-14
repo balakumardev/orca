@@ -117,19 +117,65 @@ $(jq -r '.gates[] | select(.status == "fail") | "### \(.name) (exit \(.exit_code
   log "agent plan: $(cat "$SYNC_OUT/agent-plan.json"); prompt $(wc -c < "$prompt") bytes"
 }
 
+# ---- key-leak guard -------------------------------------------------------------------------------------------
+# The key is in this process's environment while the CLI runs, and the agent's auto-approved read-only commands can
+# read an environment, so a prompt-injected agent could write the key into a file the pipeline would later commit.
+# Everything below runs in `run` (the only step that has the key), after the CLI has exited, and uses grep/find/rm
+# only: NO git command may run here, because .git/config is inside the agent's working directory and a planted
+# setting (core.fsmonitor and friends) would execute with the key in this step's environment.
+
+# The strings that count as the key: the key, its base64, the key without its first 8 characters (a partial copy),
+# its hex and its reverse. Printed one per line and NEVER empty (an empty pattern would match every file). Callers
+# read them through a process substitution, so the key is never an argument of any process.
+leak_needles() {
+  local key="$1"
+  {
+    printf '%s\n' "$key"
+    printf '%s' "$key" | base64 | tr -d '\n'; printf '\n'
+    printf '%s' "$key" | od -An -v -tx1 | tr -d ' \n'; printf '\n'
+    printf '%s' "$key" | rev; printf '\n'
+    if [ "${#key}" -ge 16 ]; then printf '%s\n' "${key:8}"; fi
+  } | awk 'length > 0'
+}
+
+# Names of files (relative to the given directory) whose CONTENT carries a needle. Binary files count (-a).
+files_with_key() { # DIR [extra grep args...]
+  local dir="$1"; shift
+  ( cd "$dir" && grep -r -a -l -F -f <(leak_needles "$DEEPINFRA_API_KEY") "$@" -- . 2>/dev/null ) | sed 's#^\./##' || true
+}
+
+# How many file NAMES (and symlink targets) in the tree carry a needle: a name is an exfiltration channel too.
+names_with_key() { # DIR
+  ( cd "$1" && { find . -path ./.git -prune -o -print; find . -path ./.git -prune -o -type l -exec readlink -- {} \; ; } 2>/dev/null \
+    | grep -c -F -f <(leak_needles "$DEEPINFRA_API_KEY") ) || true
+}
+
+# Only ever print a path that is itself free of the key.
+safe_name() {
+  if printf '%s\n' "$1" | grep -q -F -f <(leak_needles "$DEEPINFRA_API_KEY"); then printf '<name contained the key>'; else printf '%s' "$1"; fi
+}
+
 cmd_run() {
   : "${DEEPINFRA_API_KEY:?DEEPINFRA_API_KEY must be set for this step}"
   local plan="$SYNC_OUT/agent-plan.json" turns wall out="$SYNC_OUT/agent-out.json" started rc=0
   turns="$(jq -r .max_turns "$plan")"; wall="${AGENT_WALL_SECONDS:-$(jq -r .wall_seconds "$plan")}"
+  local top
+  top="$(git rev-parse --show-toplevel)" # resolved BEFORE the agent runs: no git after it
   # The CLI's own state lives outside SYNC_OUT: SYNC_OUT is uploaded as an artifact, the CLI's config is not.
   local cfg="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/claude-config-round-$ROUND"
   mkdir -p "$cfg"
+  # The CLI's raw stdout and stderr also go there, NOT into SYNC_OUT: the artifact upload runs `always()`, so a step that is
+  # cancelled while the CLI is still running must not leave unscanned model output in the uploaded directory. SYNC_OUT
+  # receives them only after the scan.
+  local raw_out="$cfg/agent-out.json" raw_err="$cfg/agent-out.err"
+  local marker="$cfg/start-marker"
+  : > "$marker"
   started="$(date +%s)"
   # A clean environment: only what the CLI needs, so no runner variable can leak into (or out of) the session.
   # The key reaches the process through its environment only; it is never an argument and never printed.
   # shellcheck disable=SC2086
   (
-    cd "$(git rev-parse --show-toplevel)"
+    cd "$top"
     with_wall() { if command -v timeout >/dev/null 2>&1; then timeout "$wall" "$@"; else "$@"; fi; }
     with_wall env -i PATH="$PATH" HOME="${HOME:-/tmp}" LANG=C.UTF-8 TMPDIR="${TMPDIR:-/tmp}" \
       ANTHROPIC_BASE_URL="https://api.deepinfra.com/anthropic" \
@@ -157,25 +203,59 @@ cmd_run() {
         --disallowedTools "Bash(*--output*)" \
         --tools "Read,Edit,Write,Grep,Glob,Bash" \
         --allowedTools "Read,Edit,Write,Grep,Glob,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git ls-tree:*),Bash(git cat-file:*),Bash(git grep:*),Bash(grep:*),Bash(ls:*)" \
-        < "$SYNC_OUT/agent-prompt.txt" > "$out" 2> "$out.err"
+        < "$SYNC_OUT/agent-prompt.txt" > "$raw_out" 2> "$raw_err"
   ) || rc=$?
-  local wall_s=$(( $(date +%s) - started )) leaks=0 f
-  # Leak check: the key must not appear in anything the CLI wrote. Matching blanks the files rather than shipping them.
-  for f in "$out" "$out.err"; do
-    [ -f "$f" ] || continue
-    if grep -q -F -f <(printf '%s' "$DEEPINFRA_API_KEY") "$f" 2>/dev/null; then
-      leaks=$((leaks + 1)); printf '[output removed: it contained the API key]\n' > "$f"
-    fi
-  done
-  jq -n -c --argjson rc "$rc" --argjson wall "$wall_s" --argjson leaks "$leaks" '{exit_code: $rc, wall_s: $wall, key_leaks: $leaks}' > "$SYNC_OUT/agent-run.json"
+  local wall_s=$(( $(date +%s) - started ))
+
+  # Fail closed (a backstop; the raw output is not in SYNC_OUT until the scan has passed): if anything below dies before
+  # the scan has run to the end, whatever model output reached SYNC_OUT is deleted rather than shipped.
+  RAW_OUT="$out"; RAW_CFG_OUT="$raw_out"; RAW_CFG_ERR="$raw_err"; SCAN_DONE=0
+  trap '[ "$SCAN_DONE" = 1 ] || rm -f "$RAW_OUT" "$RAW_OUT.err" "$RAW_CFG_OUT" "$RAW_CFG_ERR"' EXIT
+
+  # 1. Scan the WHOLE work tree (untracked and ignored files included), the parts of .git that are not objects, and
+  #    every file the pipeline will upload, for the key and its derived forms. Names only, never the matching text.
+  local hits=() f n
+  while IFS= read -r f; do [ -z "$f" ] || hits+=("$(safe_name "$f")"); done < <(files_with_key "$top" --exclude-dir=.git)
+  while IFS= read -r f; do [ -z "$f" ] || hits+=("$(safe_name ".git/$f")"); done < <(files_with_key "$top/.git" --exclude-dir=objects)
+  while IFS= read -r f; do [ -z "$f" ] || hits+=("artifact: $(safe_name "$f")"); done < <(files_with_key "$SYNC_OUT")
+  while IFS= read -r f; do [ -z "$f" ] || hits+=("CLI output: $(safe_name "$f")"); done < <(files_with_key "$cfg" --include='agent-out.*')
+  n="$(names_with_key "$top")"
+  [ "${n:-0}" -eq 0 ] || hits+=("(${n} file name(s) or link target(s) in the work tree contained the key)")
+  local leaks=${#hits[@]}
+
+  if [ "$leaks" -gt 0 ]; then
+    # 2. Neutralise. Delete every file the agent wrote (everything newer than the marker, which includes each file that
+    #    matched), cut the CLI's own output down to its numbers, and drop the model's report. `finish` (no key in its
+    #    environment) then rebuilds the pre-agent merge state with git, because git must not run here: .git is inside
+    #    the agent's working directory and a planted setting could execute with the key in this step's environment.
+    find "$top" \( -path "$top/.git" -o -path "$SYNC_OUT" \) -prune -o \( -type f -o -type l \) -newer "$marker" -exec rm -f -- {} + 2>/dev/null || true
+    if jq -e '{usage, num_turns, subtype, is_error}' "$raw_out" > "$out" 2>/dev/null; then :; else printf '{}\n' > "$out"; fi
+    rm -f "$raw_out" "$raw_err"
+    while IFS= read -r f; do [ -z "$f" ] || rm -f -- "$SYNC_OUT/$f"; done < <(files_with_key "$SYNC_OUT")
+    local names
+    names="$(printf '%s, ' "${hits[@]}" | tr -d '\000-\037' | sed -e 's/%/%25/g' -e 's/, $//')"
+    printf '::error title=Key leak::Round %s: the agent output contained the API key (file names only): %s. Its edits were discarded. Rotate DEEPINFRA_API_KEY.\n' "$ROUND" "$names"
+  else
+    # Clean: the CLI's output moves to the uploaded directory (a missing file just means the CLI never started).
+    [ ! -f "$raw_out" ] || mv "$raw_out" "$out"
+    [ ! -f "$raw_err" ] || mv "$raw_err" "$out.err"
+  fi
+
+  jq -n -c --argjson rc "$rc" --argjson wall "$wall_s" --argjson leaks "$leaks" \
+    --argjson files "$(printf '%s\n' ${hits[@]+"${hits[@]}"} | jq -R -s -c 'split("\n") | map(select(length > 0))')" \
+    '{exit_code: $rc, wall_s: $wall, key_leaks: $leaks, key_leak_files: $files}' > "$SYNC_OUT/agent-run.json"
+  gh_out key_leaks "$leaks"
   log "agent finished: exit $rc after ${wall_s}s (key leak check: $leaks)"
+  SCAN_DONE=1
   # Never fail this step on the model's behalf: finish records the outcome and the PR still opens (as a draft).
   exit 0
 }
 
 cmd_finish() {
   local run out="$SYNC_OUT/agent-out.json" plan="$SYNC_OUT/agent-plan.json"
-  run="$(cat "$SYNC_OUT/agent-run.json" 2>/dev/null || echo '{"exit_code":-1,"wall_s":0,"key_leaks":0}')"
+  run="$(cat "$SYNC_OUT/agent-run.json" 2>/dev/null || echo '{"exit_code":-1,"wall_s":0,"key_leaks":0,"key_leak_files":[]}')"
+  local leaks leak_files
+  leaks="$(jq -r '.key_leaks // 0' <<<"$run")"; leak_files="$(jq -c '.key_leak_files // []' <<<"$run")"
   local usage_ok=false
   jq -e . "$out" >/dev/null 2>&1 && usage_ok=true
   local report="" in_tok=0 out_tok=0 turns=0 stop="" errflag=true
@@ -189,19 +269,25 @@ cmd_finish() {
     # Untrusted text: keep printable characters, bound the size, and drop anything that could close a markdown fence.
     report="$(jq -r '(.result // "")' "$out" | LC_ALL=C tr -d '\000-\010\013\014\016-\037' | grep -v -F '~~~~' | head -c 6000 || true)"
   fi
+  # A round that leaked the key has no report: nothing the model wrote is shown, in any encoding.
+  if [ "$leaks" -gt 0 ]; then report="[report withheld: this round's output contained the API key]"; fi
   local cost
   cost="$(awk -v i="$in_tok" -v o="$out_tok" -v pi="$PRICE_IN" -v po="$PRICE_OUT" 'BEGIN { printf "%.4f", i / 1e6 * pi + o / 1e6 * po }')"
   local tmp
   tmp="$(mktemp)"
   jq --argjson run "$run" --argjson plan "$(cat "$plan")" --arg report "$report" --argjson in_tok "$in_tok" --argjson out_tok "$out_tok" \
      --argjson turns "$turns" --arg stop "$stop" --arg iserr "$errflag" --argjson cost "$cost" --arg usage_ok "$usage_ok" \
+     --argjson leak_files "$leak_files" \
     '.agent = ((.agent // {rounds: []}) | .rounds += [{
         round: $plan.round, mode: $plan.mode, model: $plan.model, tier: $plan.tier, max_turns: $plan.max_turns,
-        exit_code: $run.exit_code, wall_s: $run.wall_s, key_leaks: $run.key_leaks, turns: $turns, stop: $stop,
+        exit_code: $run.exit_code, wall_s: $run.wall_s, key_leaks: $run.key_leaks, key_leak_files: $leak_files, turns: $turns, stop: $stop,
         is_error: ($iserr == "true"), output_parsed: ($usage_ok == "true"), input_tokens: $in_tok, output_tokens: $out_tok,
         estimated_cost_usd: $cost, report: $report }])' "$SYNC_OUT/sync-facts.json" > "$tmp" && mv "$tmp" "$SYNC_OUT/sync-facts.json"
 
-  if [ "$MODE" = repair ]; then bash "$TOOLS_DIR/sync-merge.sh" finish --repair; else bash "$TOOLS_DIR/sync-merge.sh" finish; fi
+  # AGENT_KEY_LEAK=1 makes sync-merge.sh throw away every edit of this round and mark the candidate unresolved.
+  local leak_flag=0
+  [ "$leaks" -eq 0 ] || leak_flag=1
+  if [ "$MODE" = repair ]; then AGENT_KEY_LEAK="$leak_flag" bash "$TOOLS_DIR/sync-merge.sh" finish --repair; else AGENT_KEY_LEAK="$leak_flag" bash "$TOOLS_DIR/sync-merge.sh" finish; fi
 }
 
 case "${1:-}" in

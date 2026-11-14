@@ -4,7 +4,7 @@
 #
 # Env: FACTS (sync-facts.json of the chosen round), OUR_FILES (our-files.txt), PR_OUT (output dir, created),
 #      GATES_DIRS (space-separated directories that each hold a gates.json; may be empty), AGENT_ROUNDS (optional JSON file),
-#      PR_TITLE, RELEASE_URL, RUN_URL, REPO, FULL_DIFF_ARTIFACT (passed through to the renderer).
+#      PR_TITLE, RELEASE_URL, RUN_URL, REPO, FULL_DIFF_ARTIFACT, AGENT_RESULTS, AGENT_KEY_LEAKS (passed through to the renderer).
 # Output in PR_OUT: pr-body.md, pr-title.txt, pr-meta.json, full-remerge-diff.patch, raw/*.
 # shellcheck source=lib.sh
 . "$(dirname "$0")/lib.sh"

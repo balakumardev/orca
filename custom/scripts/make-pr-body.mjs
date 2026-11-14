@@ -79,7 +79,19 @@ if ((facts.scripted?.upstream_ci_removed ?? 0) > 0) caveats.push(`${facts.script
 if ((facts.scripted?.our_wins_restored ?? []).length > 0) caveats.push(`Upstream also changed these paths where our side always wins; upstream's change was discarded: ${facts.scripted.our_wins_restored.join(', ')}.`)
 if ((facts.drift ?? []).length > 0) caveats.push(`${facts.drift.length} file(s) differ from upstream ${tag} although no customization commit touched them (a rename that carried our edit, or a contributor change): ${facts.drift.slice(0, 15).join(', ')}${facts.drift.length > 15 ? ', ...' : ''}.`)
 if (agentRounds.some((r) => r.exit_code !== 0 || r.is_error)) caveats.push('At least one agent round ended with an error or a non-zero exit; see the model block.')
-if (agentRounds.some((r) => r.key_leaks > 0)) caveats.push('The API key leak check fired in an agent round; rotate DEEPINFRA_API_KEY.')
+// Key leaks, from two independent sources: the round records (they carry the file names) and the workflow's own job outputs
+// (AGENT_KEY_LEAKS="1=0 2=3 3=", set by the run step, so they exist even when `finish` died and wrote no record).
+// A value of "unknown" means the leak check itself did not complete.
+const leakEnv = Object.fromEntries((process.env.AGENT_KEY_LEAKS || '').split(/\s+/).filter(Boolean).map((kv) => kv.split('=')))
+const leaks = new Map()
+for (const r of agentRounds) if (Number(r.key_leaks) > 0) leaks.set(Number(r.round), { files: Array.isArray(r.key_leak_files) ? r.key_leak_files : [] })
+for (const [round, value] of Object.entries(leakEnv)) {
+  const n = Number(round)
+  if (value === 'unknown') leaks.set(n, { files: leaks.get(n)?.files ?? [], unknown: !leaks.has(n) })
+  else if (Number(value) > 0 && !leaks.has(n)) leaks.set(n, { files: [] })
+}
+const leakRounds = [...leaks.keys()].sort((a, b) => a - b)
+if (leakRounds.length > 0) caveats.push(`Key leak in agent round ${leakRounds.join(', ')}: see the warning at the top of this description.`)
 // What the model rounds actually did, from the workflow's own job results (data, not model text).
 const roundResults = Object.fromEntries((process.env.AGENT_RESULTS || '').split(/\s+/).filter(Boolean).map((kv) => kv.split('=')))
 for (const [round, result] of Object.entries(roundResults)) {
@@ -87,6 +99,21 @@ for (const [round, result] of Object.entries(roundResults)) {
 }
 if (state === 'manual' && agentRounds.length === 0 && !Object.values(roundResults).some((r) => r === 'failure' || r === 'cancelled')) caveats.push('The cloud agent did not run (skip_agent was set). The merge is exactly what the scripts could settle.')
 if (isTest) caveats.push('This is a TEST run: custom/BASE ' + (facts.tag_is_release ? `was set to ${tag}` : 'was left unchanged') + `, and the PR is a draft against \`${facts.base_branch}\`.`)
+
+// ---- key-leak banner: the first thing in the body ----------------------------------------------------------------
+// Round numbers and file NAMES only. The names were chosen by the model, so they are stripped of control characters and
+// backticks, capped, and shown as inline code; nothing the model wrote is shown here.
+const leakName = (n) => '`' + String(n).replace(/[\u0000-\u001f\u007f`]/g, '').slice(0, 120) + '`'
+const confirmedLeaks = leakRounds.filter((n) => !leaks.get(n).unknown)
+const unknownLeaks = leakRounds.filter((n) => leaks.get(n).unknown)
+const leakBanner = leakRounds.length === 0 ? '' : `> [!CAUTION]
+${confirmedLeaks.length > 0 ? "> **The agent's output contained the API key; its edits were discarded. Rotate DEEPINFRA_API_KEY.**\n" : ''}${unknownLeaks.length > 0 ? `> **The agent's key-leak check did not complete${confirmedLeaks.length > 0 ? ' in another round' : ''}. Treat DEEPINFRA_API_KEY as exposed and rotate it.**\n` : ''}${leakRounds.map((n) => {
+  const { files, unknown } = leaks.get(n)
+  if (unknown) return `> - Round ${n}: the leak check did not complete`
+  return `> - Round ${n}: ${files.length > 0 ? files.slice(0, 20).map(leakName).join(', ') : '(no file names recorded)'}${files.length > 20 ? `, and ${files.length - 20} more` : ''}`
+}).join('\n')}
+
+`
 
 // ---- model-written block -----------------------------------------------------------------------------------
 let modelBlock = ''
@@ -174,7 +201,7 @@ const testNote = isTest ? `
 
 // ---- diff section with a size budget -----------------------------------------------------------------------
 const remerge = read(`${rawDir}/remerge.patch`)
-const fixed = [summary, caveats.join('\n'), gatesTable, failTails, conflictTable, footprint, modelBlock, checklist, resolveRecipe, testNote].join('\n').length + 4000
+const fixed = [leakBanner, summary, caveats.join('\n'), gatesTable, failTails, conflictTable, footprint, modelBlock, checklist, resolveRecipe, testNote].join('\n').length + 4000
 const diffBudget = Math.max(2500, Math.min(28000, BODY_LIMIT - fixed))
 let diffSection
 if (state === 'manual') diffSection = '_The conflicted files are committed with their conflict markers, so there is no resolution to diff. Resolve them as described below._\n'
@@ -187,7 +214,7 @@ else {
 
 const upstreamLink = process.env.RELEASE_URL || `https://github.com/stablyai/orca/commit/${facts.upstream_sha}`
 const compareLink = facts.tag_is_release ? `https://github.com/stablyai/orca/compare/${oldTag}...${tag}` : ''
-const body = `**Merge with a MERGE COMMIT (squash is disabled). Merging this PR publishes a release.**
+const body = `${leakBanner}**Merge with a MERGE COMMIT (squash is disabled). Merging this PR publishes a release.**
 ${testNote}
 ## ${state === 'manual' ? 'Needs a manual merge' : 'Upstream sync'}: ${tag}
 

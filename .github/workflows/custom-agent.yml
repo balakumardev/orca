@@ -7,7 +7,9 @@ name: custom-agent
 #     DEEPINFRA_API_KEY. A rehearsal from a feature branch skips this job; see the PR description for how to exercise it.
 #   - No repository code runs before the key-bearing step: no install, no build, no test, no pnpm script. The key is in
 #     the environment of exactly one step (`Run the agent`), which is `agent-round.sh run`: it starts the CLI with a
-#     scrubbed environment, a restricted tool list and hard caps on turns and wall time.
+#     scrubbed environment, a restricted tool list and hard caps on turns and wall time. When the CLI has exited, that
+#     same step scans the whole work tree (and everything uploaded) for the key in its plain, base64, hex, reversed and
+#     partial forms; a hit discards the round's edits and stops the later agent rounds (see `key_leaks` below).
 #   - The model's output is untrusted text. The state it hands back is a set of edited files; scripts (never the model)
 #     enforce which files may change, check for conflict markers, commit, and later run every gate.
 on:
@@ -61,6 +63,9 @@ on:
       unresolved:
         description: true when conflict markers remain in the candidate this round produced
         value: ${{ jobs.agent.outputs.unresolved }}
+      key_leaks:
+        description: Number of places where the API key (or a derived form of it) was found after the model ran. 0 = none. 'unknown' = the leak check itself failed. Anything but 0 stops the later agent rounds.
+        value: ${{ jobs.agent.outputs.key_leaks }}
 
 permissions:
   contents: read
@@ -77,6 +82,8 @@ jobs:
     timeout-minutes: 45
     outputs:
       unresolved: ${{ steps.finish.outputs.unresolved }}
+      # Set by the `run` step, so it survives a crash in `finish`. No value when the model step never ran (no key was used).
+      key_leaks: ${{ steps.run.outputs.key_leaks || ((steps.run.conclusion == 'failure' || steps.run.conclusion == 'cancelled') && 'unknown') || '0' }}
     steps:
       - name: Checkout the sync scripts
         uses: actions/checkout@v6
@@ -144,6 +151,7 @@ jobs:
           TAG_IS_RELEASE: ${{ inputs.tag_is_release }}
         run: bash "$TOOLS_DIR/agent-round.sh" prepare
       - name: Run the agent
+        id: run
         working-directory: repo
         env:
           SYNC_OUT: ${{ runner.temp }}/out/round-${{ inputs.round }}

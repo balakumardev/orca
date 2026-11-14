@@ -141,12 +141,13 @@ parent is the previous BASE tag $old_tag. It exists only so that git uses $old_t
     git checkout -q --theirs -- pnpm-lock.yaml 2>/dev/null || true
     git add --sparse -- pnpm-lock.yaml
     if [ -n "$(git ls-files -u -- package.json)" ] || [ "${DEFER_LOCKFILE:-0}" = 1 ]; then
-      # Regeneration runs repository code (pnpmfile). It is deferred to `finish` when package.json is itself
-      # conflicted, and in the model job, where no repository code may run before the model step.
+      # Regeneration (regen_lockfile) ignores the pnpmfile and lifecycle scripts, but pnpm still reads package.json and
+      # the workspace files. It is deferred to `finish` when package.json is itself conflicted, and in the model job,
+      # where nothing from the repository may run before the model step.
       lock_pending=true
       lock_state='"theirs, regeneration pending until the merge is finished"'
     else
-      pnpm install --lockfile-only --ignore-scripts --no-frozen-lockfile >&2
+      regen_lockfile
       git add --sparse -- pnpm-lock.yaml
       lock_state='"theirs, then pnpm install --lockfile-only"'
     fi
@@ -229,6 +230,31 @@ parent is the previous BASE tag $old_tag. It exists only so that git uses $old_t
 subject_for_commit() { printf 'Merge upstream %s into %s' "$(facts_get .tag)" "$(facts_get .base_branch)"; }
 
 # ---------------------------------------------------------------------------------------------- finish
+# discard_agent_edits [--repair]: throw away everything the model step did and rebuild the pre-agent state. Used when
+# `agent-round.sh run` found the API key in the round's output. The index still holds the merge as `start` left it
+# (the model has no command that writes the index), so: files without a conflict go back to their staged content,
+# conflicted files go back to their conflict markers, files the model created are removed. A repair round starts from a
+# committed candidate, so it is simply that commit again.
+# `git checkout -m` rebuilds each conflict from the three index stages. Git may split the hunks of a large file differently
+# from the original `git merge` (seen on one file of a real sync: 1 hunk became 2) and it labels the markers ours/theirs;
+# the conflict is the same. pick-round never prefers such a candidate to the merge job's own unresolved one.
+discard_agent_edits() {
+  local p
+  if [ -n "${1:-}" ]; then
+    git reset -q --hard HEAD
+  else
+    while IFS= read -r p; do
+      [ -n "$p" ] || continue
+      git checkout -q -- "$p" 2>/dev/null || true
+    done < <(git diff --name-only --diff-filter=u)
+    while IFS= read -r p; do
+      [ -n "$p" ] || continue
+      git -c merge.conflictStyle=zdiff3 checkout -q -m -- "$p" 2>/dev/null || git checkout -q --ours -- "$p" 2>/dev/null || rm -f -- "$p"
+    done < <(list_unmerged)
+  fi
+  git clean -q -f -d
+}
+
 # cmd_finish_core SUBJECT [--repair]
 cmd_finish_core() {
   local subject="$1" repair="${2:-}"
@@ -251,6 +277,15 @@ cmd_finish_core() {
       printf '%s\n' "$p" >> "$allowed_edit"
     done < "$SYNC_OUT/our-files.txt"
     sort -u -o "$allowed_edit" "$allowed_edit"
+  fi
+
+  # 0. The model step found the API key in this round's output (AGENT_KEY_LEAK=1, set by agent-round.sh finish): every
+  #    edit is discarded, so nothing the model wrote, and no copy of the key, can reach the candidate. The round is
+  #    unresolved whatever the files look like now.
+  local key_leak=false
+  if [ "${AGENT_KEY_LEAK:-0}" = 1 ]; then
+    key_leak=true
+    discard_agent_edits "$repair"
   fi
 
   # 1. Scope: anything else the model touched is reverted and recorded.
@@ -295,7 +330,8 @@ cmd_finish_core() {
     [ -n "$p" ] || continue
     kind="$(jq -r --arg p "$p" '.conflicts[] | select(.path == $p) | .kind' "$facts")"
     res=ok
-    if [ "$kind" != content ] && [ "$kind" != both-added ]; then res="needs a human: $kind conflict"
+    if [ "$key_leak" = true ]; then res="the agent's output contained the API key; its edits were discarded"
+    elif [ "$kind" != content ] && [ "$kind" != both-added ]; then res="needs a human: $kind conflict"
     elif [ ! -f "$p" ]; then res="file is missing"
     elif has_markers "$p"; then res="conflict markers remain"
     elif [[ "$p" == *.json ]] && ! jq empty "$p" >/dev/null 2>&1; then res="no longer valid JSON"
@@ -311,17 +347,18 @@ cmd_finish_core() {
   done < "$allowed"
 
   # Lockfile follow-up when package.json was part of the conflict.
-  if [ "$(facts_get .lockfile_pending)" = true ] && [ "${#unresolved[@]}" -eq 0 ]; then
-    pnpm install --lockfile-only --ignore-scripts --no-frozen-lockfile >&2
+  if [ "$(facts_get .lockfile_pending)" = true ] && [ "${#unresolved[@]}" -eq 0 ] && [ "$key_leak" != true ]; then
+    regen_lockfile
     git add --sparse -- pnpm-lock.yaml
     facts_set lockfile_pending false
     caveat "pnpm-lock.yaml was regenerated after package.json was merged. Check the lockfile diff."
   fi
 
   local is_unresolved=false
-  if [ "${#unresolved[@]}" -gt 0 ]; then
+  if [ "${#unresolved[@]}" -gt 0 ] || [ "$key_leak" = true ]; then
     is_unresolved=true
     printf 'This branch contains UNRESOLVED merge conflicts.\nDo not merge it. Resolve the files below, delete this file, commit and push.\n\n' > custom/UNRESOLVED-MERGE.txt
+    if [ "$key_leak" = true ]; then printf 'The cloud agent output contained its API key, so every edit it made was discarded.\n\n' >> custom/UNRESOLVED-MERGE.txt; fi
     printf '%s\n' ${unresolved[@]+"${unresolved[@]}"} >> custom/UNRESOLVED-MERGE.txt
     git add --sparse -- custom/UNRESOLVED-MERGE.txt
     subject="Merge upstream $(facts_get .tag) into $(facts_get .base_branch) (UNRESOLVED conflicts, do not merge)"
@@ -329,6 +366,7 @@ cmd_finish_core() {
     git rm --sparse -q -f -- custom/UNRESOLVED-MERGE.txt # a repair round resolved what an earlier round left open
   fi
   facts_set unresolved "$is_unresolved"
+  facts_set key_leak "$key_leak"
   facts_set unresolved_files "$(printf '%s\n' ${unresolved[@]+"${unresolved[@]}"} | jq -R -s -c 'split("\n") | map(select(length > 0))')"
 
   # 3. Commit: a merge commit with the same two parents, whatever route led here.

@@ -5,7 +5,8 @@
 # round-0 is what the merge job made without a model (clean, scripted, or an unresolved fallback). Rounds 1..3 are
 # agent attempts. Score = number of failed gates; a candidate with unresolved conflicts, or whose gates never
 # reported, scores 1000 so that any candidate that actually passed or failed honestly on its gates beats it.
-# Lowest score wins; on a tie the later round wins (it saw more information).
+# A round whose output contained the API key (its edits were discarded) scores 1001: it loses even to another
+# unresolved candidate. Lowest score wins; on a tie the later round wins (it saw more information).
 # Outputs: round, round_dir, gates_dirs (space separated, may be empty), score. Also writes ALL_DIR/agent-rounds.json,
 # the union of every round's agent records, so the PR reports the cost of rounds that were not chosen too.
 # shellcheck source=lib.sh
@@ -24,7 +25,8 @@ for d in "$all"/round-*; do
     for g in "$all"/gates-"$n"-*/gates.json; do [ -s "$g" ] && files+=("$g"); done
     if [ "${#files[@]}" -gt 0 ]; then score="$(jq -s '[.[].gates[] | select(.status == "fail")] | length' "${files[@]}")"; fi
   fi
-  log "round $n: unresolved=$(jq -r '.unresolved' "$d/sync-facts.json") score=$score"
+  if [ "$(jq -r '.key_leak // false' "$d/sync-facts.json")" = true ]; then score=1001; fi
+  log "round $n: unresolved=$(jq -r '.unresolved' "$d/sync-facts.json") key_leak=$(jq -r '.key_leak // false' "$d/sync-facts.json") score=$score"
   if [ "$score" -le "$best_score" ]; then best="$n"; best_score="$score"; fi
 done
 [ "$best" -ge 0 ] || die "no usable sync round found in $all"
