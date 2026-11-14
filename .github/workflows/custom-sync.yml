@@ -1,11 +1,11 @@
 name: custom-sync
-# PROBE VERSION (temporary): measures push permissions, gate timings and Linux/macOS e2e. Replaced before the PR.
+# PROBE 2 (temporary): can GITHUB_TOKEN push a merge whose history edits workflows but whose tree does not?
 on:
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
-  push-probe:
+  push-probe2:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -14,94 +14,26 @@ jobs:
         with:
           fetch-depth: 0
           filter: blob:none
-      - name: Push upstream history that edits workflows
+      - name: Merge upstream main (link-commit trick), strip workflows, push
         run: |
+          git config user.name probe; git config user.email probe@localhost
           git remote add stablyai https://github.com/stablyai/orca.git
           git fetch --no-tags --filter=blob:none stablyai main
-          git rev-parse FETCH_HEAD
+          UP=$(git rev-parse FETCH_HEAD)
+          OLD=$(git rev-parse c91a7a6ee3^{commit})
+          BASE=$(git rev-parse origin/custom)
+          git checkout -q -B probe-merge "$BASE"
+          LINK=$(git commit-tree "$UP^{tree}" -p "$UP" -p "$OLD" -m link)
+          git merge --no-commit --no-ff "$LINK" || true
+          git ls-files -u | cut -f2 | sort -u | head -20
+          # strip non-custom workflows and take ours for every unmerged file (probe only)
+          for p in $(git ls-files -- .github/workflows); do case "${p#.github/workflows/}" in custom-*) ;; *) git rm -q -f -- "$p";; esac; done
+          git rm -q -f --ignore-unmatch -- .github/dependabot.yml
+          for p in $(git diff --name-only --diff-filter=U); do git checkout "$BASE" -- "$p"; done
+          git ls-files -u | wc -l
+          git commit -q -m "probe merge"
+          echo "tree diff vs base touching workflows:"; git diff --name-only "$BASE" HEAD -- .github/workflows | head
+          echo "new commits: $(git rev-list --count HEAD ^"$BASE")"
           set +e
-          git push origin FETCH_HEAD:refs/heads/test/probe-up-main 2>&1 | tee push.out
+          git push origin HEAD:refs/heads/test/probe-merge 2>&1 | tee push.out
           echo "PUSH_RC=${PIPESTATUS[0]}"
-          git ls-remote origin refs/heads/test/probe-up-main
-
-  static:
-    runs-on: ubuntu-latest
-    timeout-minutes: 40
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-          filter: blob:none
-      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: pnpm
-      - name: Measure gates
-        run: |
-          t() { local s; s=$(date +%s); "$@"; local rc=$?; echo "TIMING [$*] rc=$rc $(( $(date +%s)-s ))s"; return 0; }
-          node -v; pnpm -v; git --version; nproc; free -g | head -2
-          t pnpm install --frozen-lockfile
-          t pnpm tc
-          OURS=$(git diff --name-only --diff-filter=d c91a7a6ee3 HEAD -- src config tests | grep -E '\.(ts|tsx|mjs)$' | tr '\n' ' ')
-          t pnpm exec oxlint $OURS
-          t pnpm exec oxfmt --check $OURS
-          t pnpm exec vitest run --config config/vitest.config.ts src/renderer/src/components/activity src/renderer/src/components/sidebar src/renderer/src/store/slices/ui src/renderer/src/app-shell src/renderer/src/components/settings/shortcuts src/renderer/src/lib/workspace/activity src/shared/keybindings-activity-sidebar.test.ts src/main/updater config/scripts/build-identity
-          t pnpm run verify:localization-coverage
-          t pnpm check:e2e-typecheck-ratchet
-
-  full-unit:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 1
-      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: pnpm
-      - name: Full unit suite
-        run: |
-          t() { local s; s=$(date +%s); "$@"; local rc=$?; echo "TIMING [$*] rc=$rc $(( $(date +%s)-s ))s"; return 0; }
-          t pnpm install --frozen-lockfile
-          t pnpm test 2>&1 | tail -80
-
-  e2e:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-15]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 1
-      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: pnpm
-      - name: Linux packages
-        if: runner.os == 'Linux'
-        run: |
-          s=$(date +%s)
-          sudo apt-get update -q
-          sudo apt-get install -y -q xvfb ripgrep openbox x11-utils xdotool fonts-noto-cjk
-          echo "TIMING apt $(( $(date +%s)-s ))s"
-      - name: Measure e2e
-        run: |
-          t() { local s; s=$(date +%s); "$@"; local rc=$?; echo "TIMING [$*] rc=$rc $(( $(date +%s)-s ))s"; return 0; }
-          nproc 2>/dev/null || sysctl -n hw.ncpu
-          t pnpm install --frozen-lockfile
-          t pnpm run ensure:electron-runtime
-          t env VITE_EXPOSE_STORE=true npx electron-vite build --mode e2e
-          SPECS="tests/e2e/activity-agent-cycle-shortcuts.spec.ts tests/e2e/sidebar-stacked-layout.spec.ts"
-          RUN="npx playwright test $SPECS --config tests/playwright.config.ts --project=electron-headless --workers=1 --trace=off"
-          if [ "$RUNNER_OS" = Linux ]; then
-            t env ORCA_BACKGROUND_LAUNCH=1 SKIP_BUILD=1 xvfb-run --auto-servernum $RUN
-          else
-            t env ORCA_BACKGROUND_LAUNCH=1 SKIP_BUILD=1 $RUN
-          fi
