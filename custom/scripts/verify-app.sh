@@ -5,7 +5,8 @@
 #                 [--team <TeamIdentifier>] [--out <file>]
 #
 #   unsigned    the seal must be intact (ad-hoc), TeamIdentifier must be unset
-#   signed      Developer ID signature, hardened runtime, TeamIdentifier == --team (required)
+#   signed      Developer ID signature, hardened runtime, TeamIdentifier == --team (required), and the exact
+#               code requirement the in-app updater holds every downloaded update to (see below)
 #   notarized   signed + a stapled ticket (stapler validate) + spctl accepts it as Notarized Developer ID
 #
 # Every mode also checks: codesign --verify --deep --strict, CFBundleShortVersionString == --version, arm64 only.
@@ -60,6 +61,18 @@ echo "$exe_name: $arch"
 
 echo "== codesign --verify --deep --strict"
 codesign --verify --deep --strict --verbose=1 "$app" || fail "codesign verification failed"
+
+# What every installed copy of this app checks an update against before it stages it
+# (src/main/updater/custom/custom-update-verifier.ts, signingRequirement()). A signed build that fails it would be
+# rejected by every installed app, so the release has to prove it here, on the real signed bundle. The string must
+# stay equal to the module's: custom-update-verify-app-script.test.ts compares them.
+requirement='anchor apple generic and identifier "com.stablyai.orca" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "@TEAM@"'
+if [ "$mode" != "unsigned" ]; then
+  echo "== updater signing requirement"
+  # codesign answers with its exit code (3 = requirement not satisfied); nothing it prints is parsed.
+  codesign --verify --deep --strict "-R=${requirement//@TEAM@/$team}" "$app" \
+    || fail "the signature does not satisfy the requirement the in-app updater checks; every installed copy would reject this build"
+fi
 
 details="$(codesign -dv --verbose=4 "$app" 2>&1)"
 # First match of each; taken after sed has read everything (a `| head -n 1` after sed could cut it off under pipefail).

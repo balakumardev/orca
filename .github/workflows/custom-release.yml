@@ -52,7 +52,7 @@ on:
         type: boolean
         default: true
       publish:
-        description: Create the GitHub release (needs sign). Off by default.
+        description: Create the GitHub release (needs sign and notarize). Off by default.
         type: boolean
         default: false
 
@@ -90,15 +90,15 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Refuse to publish an unsigned build
+      - name: Refuse to publish a build that is not signed and notarized
         env:
           SIGN: ${{ inputs.sign }}
           NOTARIZE: ${{ inputs.notarize }}
           PUBLISH: ${{ inputs.publish }}
         run: |
           set -euo pipefail
-          if [ "$PUBLISH" = "true" ] && [ "$SIGN" != "true" ]; then
-            echo "::error title=publish needs sign::publish=true with sign=false would release an ad-hoc build. Run with sign=true."
+          if [ "$PUBLISH" = "true" ] && { [ "$SIGN" != "true" ] || [ "$NOTARIZE" != "true" ]; }; then
+            echo "::error title=publish needs sign and notarize::publish=true needs sign=true and notarize=true: an ad-hoc or un-notarized build would be refused by every installed copy. Run with both."
             exit 1
           fi
           if [ "$SIGN" != "true" ] && [ "$NOTARIZE" = "true" ]; then
@@ -399,7 +399,8 @@ jobs:
           test "$(jq -r .tag manifest.json)" = "$TAG"
           test "$(jq -r .base manifest.json)" = "$BASE"
           test "$(jq -r .built_from_sha manifest.json)" = "$GITHUB_SHA"
-          jq -e '.signed == true and (.team_id | type == "string")' manifest.json >/dev/null
+          # What the in-app updater demands of a manifest (signed, notarized, our team): refuse to publish what it would refuse.
+          jq -e --arg team "$EXPECTED_TEAM_ID" '.signed == true and .notarized == true and .team_id == $team' manifest.json >/dev/null
           sha256sum -c "$asset.sha256"
           test "$(awk '{print $1}' "$asset.sha256")" = "$(jq -r .sha256 manifest.json)"
           test "$(stat -c%s "$asset")" = "$(jq -r .size manifest.json)"

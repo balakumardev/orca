@@ -34,7 +34,7 @@ Before a task, load the matching skill from `.claude/skills/`:
 ## Versions and updates
 
 - The app version is `<upstream base>+custom.<N>`; `N` is global and only grows. Keep the `+` form: a `-` makes the app treat itself as a release-candidate build. Semver ignores the part after `+`, so compare `N` explicitly.
-- Upstream's in-app updater is off for these builds (customization `disable-updater`).
+- Upstream's in-app updater is off for these builds (customization `disable-updater`); the `self-updater` customization updates them from this fork's releases instead.
 
 ## Verify before every PR
 
