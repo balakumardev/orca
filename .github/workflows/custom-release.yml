@@ -143,7 +143,6 @@ jobs:
     timeout-minutes: 150
     # Only a signing run touches environment `release` (and so can only run from ref custom). An unsigned run has no
     # environment, which is what lets a feature branch test everything but the signature.
-    environment: ${{ inputs.sign && 'release' || '' }}
     permissions:
       contents: read
     outputs:
@@ -200,13 +199,39 @@ jobs:
       - name: Build the desktop app (typecheck + electron-vite + web + mobile web)
         run: pnpm run build:desktop
 
-      # The only steps that see the certificate. Everything above ran without it.
+      - name: REHEARSAL (temporary) - create and trust a self-signed identity
+        if: inputs.sign
+        run: |
+          set -euo pipefail
+          umask 077
+          d="$RUNNER_TEMP/rehearsal"
+          mkdir -p "$d"
+          openssl req -x509 -newkey rsa:2048 -nodes -keyout "$d/k.pem" -out "$d/c.pem" -days 2 \
+            -subj "/CN=Developer ID Application: Rehearsal (REHEARSE01)/OU=REHEARSE01/O=Rehearsal" \
+            -addext "keyUsage=critical,digitalSignature" -addext "extendedKeyUsage=critical,codeSigning"
+          pw="$(openssl rand -hex 12)"
+          openssl pkcs12 -export -inkey "$d/k.pem" -in "$d/c.pem" -out "$d/cert.p12" -passout "pass:$pw"
+          sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain "$d/c.pem"
+          {
+            echo "P12_BASE64=$(base64 -i "$d/cert.p12" | tr -d '\n')"
+            echo "P12_PASSWORD=$pw"
+          } >>"$GITHUB_ENV"
+          rm -f "$d/k.pem" "$d/cert.p12"
+
       - name: Import the signing certificate into a temporary keychain
         if: inputs.sign
-        env:
-          P12_BASE64: ${{ secrets.COOLSOLVE_CERT_P12 }}
-          P12_PASSWORD: ${{ secrets.COOLSOLVE_CERT_PASSWORD }}
         run: custom/scripts/import-signing-cert.sh
+
+      - name: REHEARSAL (temporary) - which TeamIdentifier does a self-signed signature carry
+        if: inputs.sign
+        run: |
+          set -euo pipefail
+          cp /usr/bin/true "$RUNNER_TEMP/rehearsal/probe"
+          codesign --force --sign "$CSC_NAME" --options runtime --timestamp "$RUNNER_TEMP/rehearsal/probe"
+          codesign -dv --verbose=4 "$RUNNER_TEMP/rehearsal/probe" 2>&1 | grep -E '^(Authority|TeamIdentifier|Signature|Timestamp|CodeDirectory)' || true
+          team="$(codesign -dv "$RUNNER_TEMP/rehearsal/probe" 2>&1 | sed -n 's/^TeamIdentifier=//p')"
+          echo "rehearsal TeamIdentifier='$team'"
+          echo "EXPECTED_TEAM_ID=$team" >>"$GITHUB_ENV"
 
       # With sign=true these run in release mode (ORCA_MAC_RELEASE=1): hardened runtime, secure timestamps, the
       # custom batch signer. That is what notarization requires, and it is why the helper signing happens here.
