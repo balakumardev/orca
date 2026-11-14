@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { getActivityThreadTaskTitle } from './activity-thread-display'
 
+<<<<<<< HEAD
 describe('getActivityThreadTaskTitle', () => {
   const tab = {
     customTitle: null,
@@ -74,5 +75,37 @@ describe('getActivityThreadTaskTitle', () => {
         generatedTitlesEnabled: false
       })
     ).toBe('Build docs site')
+||||||| c91a7a6ee3
+=======
+const resumedTab = {
+  customTitle: null,
+  aiVaultTitle: {
+    agent: 'claude' as const,
+    sessionId: 'session-1',
+    title: 'Triage lead handover',
+    kind: 'named' as const
+  },
+  generatedTitle: 'Mac restarted at 15 01 so this tab stopped',
+  title: 'Triage lead handover',
+  defaultTitle: 'Terminal 2'
+}
+
+const resumedEntry = {
+  prompt: 'How is the rename going?',
+  stateHistory: [],
+  agentType: 'claude' as const,
+  providerSession: { key: 'session_id' as const, id: 'session-1' }
+}
+
+describe('getActivityThreadTaskTitle', () => {
+  it("names a resumed session by its own name, not the tab's first prompt", () => {
+    expect(
+      getActivityThreadTaskTitle({
+        entry: resumedEntry,
+        tab: resumedTab,
+        generatedTitlesEnabled: true
+      })
+    ).toBe('Triage lead handover')
+>>>>>>> c682ef4aee56da2c27709f99c6a80c4058fa000e
   })
 })
