@@ -119,7 +119,10 @@ $(jq -r '.gates[] | select(.status == "fail") | "### \(.name) (exit \(.exit_code
   # its edits intact. The caps are hard limits, not targets; a round that reaches one is reported as such in the PR.
   if [ "$MODE" = repair ]; then turns=80; wall=1200
   else turns=$((24 + 10 * nfiles)); [ "$turns" -le 70 ] || turns=70; wall=1500; fi
-  [ "$TIER" != pro ] || wall=1800
+  # Pro (round 3, repair or retry) is the expensive tier: $1.30 per million input tokens, and a turn re-reads about 53k of them
+  # (measured on Flash repairs), about $0.07 a turn. 60 turns is about $4; the old 80 was about $5.5. If every turn ran at the
+  # 131k context ceiling it would be about $10 against $14. Flash keeps its caps.
+  if [ "$TIER" = pro ]; then [ "$turns" -le 60 ] || turns=60; wall=1800; fi
   jq -n -c --arg model "$MODEL" --arg tier "$TIER" --arg mode "$MODE" --argjson round "$ROUND" --argjson turns "$turns" --argjson wall "$wall" --argjson nfiles "$nfiles" \
     '{model: $model, tier: $tier, mode: $mode, round: $round, max_turns: $turns, wall_seconds: $wall, files: $nfiles}' > "$SYNC_OUT/agent-plan.json"
   log "agent plan: $(cat "$SYNC_OUT/agent-plan.json"); prompt $(wc -c < "$prompt") bytes"

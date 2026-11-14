@@ -51,14 +51,16 @@ else
   fi
 fi
 
-# A bare commit sha reads better short in titles and branch names; the full sha is kept in upstream_sha.
+# A bare commit sha reads better short in titles and branch names; the full sha is kept in upstream_sha. Only the label is
+# shortened: the lookup below uses the ref as it was given, because a short sha need not resolve (a full one always does).
+RESOLVE_REF="$TAG"
 [[ ! "$TAG" =~ ^[0-9a-f]{40}$ ]] || TAG="${TAG:0:7}"
 
 # A throwaway base branch is always a rehearsal, whatever ref was asked for.
 [ "$BASE_BRANCH" = custom ] || IS_TEST=true
 
-UPSTREAM_SHA="$(gh api "repos/$UPSTREAM_REPO/commits/$TAG" --jq .sha 2>/dev/null)" \
-  || die "upstream ref '$TAG' does not resolve in $UPSTREAM_REPO"
+UPSTREAM_SHA="$(gh api "repos/$UPSTREAM_REPO/commits/$RESOLVE_REF" --jq .sha 2>/dev/null)" \
+  || die "upstream ref '$RESOLVE_REF' does not resolve in $UPSTREAM_REPO"
 
 if [ "$IS_TEST" = true ]; then
   slug="$(printf '%s' "$TAG" | tr -c 'A-Za-z0-9._-' '-' | sed 's/^-*//; s/-*$//')"

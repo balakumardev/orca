@@ -100,9 +100,9 @@ check "round 1 resolved everything" test "$(facts r1 .unresolved)" = false
 check "a successful round says ok in the job summary" grep -q 'Result: ok\.' "$tmp/r1.summary"
 check "no repair edits are recorded for a first round" test "$(facts r1 '.repair_edits // [] | length')" = 0
 
-echo "round 2 (repair, pro): wider scope, 80 turns, ran out of turns"
+echo "round 2 (repair, pro): wider scope, 60 turns (Pro cap), ran out of turns"
 round r2 repair repair-max-turns 2 pro r1
-check "repair: turn cap is 80" test "$(jq -r .max_turns "$tmp/r2.out/agent-plan.json")" = 80
+check "repair on Pro: turn cap is 60" test "$(jq -r .max_turns "$tmp/r2.out/agent-plan.json")" = 60
 check "repair: Pro keeps its longer wall clock" test "$(jq -r .wall_seconds "$tmp/r2.out/agent-plan.json")" = 1800
 check "repair prompt: the conflicted files are not given a hunk count" test -z "$(grep -F 'conflict hunk(s)' "$tmp/r2.out/agent-prompt.txt" || true)"
 check "repair prompt: the conflicted files are listed as conflicted in the merge" grep -q 'src/beta.ts (content, conflicted in the merge' "$tmp/r2.out/agent-prompt.txt"
@@ -111,8 +111,16 @@ check "allowed-edit-files: conflicted files plus owned files" test "$(tr '\n' ' 
 check "the round record says why it stopped" test "$(facts r2 '.agent.rounds[-1].stop')" = error_max_turns
 check "the round record keeps the CLI's exit code" test "$(facts r2 '.agent.rounds[-1].exit_code')" = 1
 check "its edits were kept (not reverted)" grep -q 'epsilon repaired' <(git -C "$tmp/r2.repo" show "$(facts r2 .merge_sha):src/epsilon.ts")
-check "the job summary explains the stop" grep -q 'Agent round 2 (repair, pro): 81 of at most 80 turns, exit code 1.*Result: ran out of turns; edits kept; gates decide\.' "$tmp/r2.summary"
+check "the job summary explains the stop" grep -q 'Agent round 2 (repair, pro): 81 of at most 60 turns, exit code 1.*Result: ran out of turns; edits kept; gates decide\.' "$tmp/r2.summary"
 check "facts.repair_edits lists the non-conflicted files the repair changed" test "$(facts r2 '.repair_edits | join(",")')" = "src/epsilon.test.ts,src/epsilon.ts"
 check "the earlier round's record is still in the facts" test "$(facts r2 '.agent.rounds | map(.round) | join(",")')" = "1,2"
+
+echo "turn caps by tier: Flash repair keeps 80, a Pro round never gets more than 60"
+round r2f repair repair-max-turns 2 flash r1
+check "repair on Flash: turn cap stays 80" test "$(jq -r .max_turns "$tmp/r2f.out/agent-plan.json")" = 80
+check "repair on Flash: wall clock stays 1200" test "$(jq -r .wall_seconds "$tmp/r2f.out/agent-plan.json")" = 1200
+round r3r retry resolve 3 pro r2
+check "retry on Pro: 24 + 10 per file (3 files = 54) is under the Pro cap and unchanged" test "$(jq -r .max_turns "$tmp/r3r.out/agent-plan.json")" = 54
+check "Pro: no plan has more than 60 turns" test "$(jq -s '[.[].max_turns] | max' "$tmp/r2.out/agent-plan.json" "$tmp/r3r.out/agent-plan.json")" -le 60
 
 exit "$([ "$fails" -eq 0 ] && echo 0 || echo 1)"
