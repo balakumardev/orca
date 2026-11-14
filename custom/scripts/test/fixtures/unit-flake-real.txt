@@ -1,0 +1,72 @@
+
+[1m[30m[46m RUN [49m[39m[22m [36mv5.0.5 [39m[90m/home/runner/work/orca/orca/repo[39m
+
+ [32m✓[39m [30m[43m node [49m[39m src/renderer/src/components/sidebar/HostRemoveDialog.test.tsx [2m([22m[2m1 test[22m[2m)[22m[32m 252[2mms[22m[39m
+ [32m✓[39m [30m[46m node-shared [49m[39m src/renderer/src/components/activity/activity-clear-completed.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+ [32m✓[39m [30m[46m node-shared [49m[39m src/renderer/src/components/activity/activity-event-builder.identity-reuse.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32m✓[39m [30m[46m node-shared [49m[39m src/shared/git/branches/git-branch-cleanup-real-git.test.ts [2m([22m[2m2 tests[22m[2m)[22m[33m 414[2mms[22m[39m
+ [32m✓[39m [30m[46m node-shared [49m[39m src/shared/workspace-session/workspace-session-salvage.test.ts [2m([22m[2m12 tests[22m[2m)[22m[33m 538[2mms[22m[39m
+   [32m✓[39m parseWorkspaceSessionSalvaging [2m(12)[22m
+ [32m✓[39m [30m[46m node-shared [49m[39m src/shared/pan-zoom-view.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+ [32m✓[39m [30m[46m node-shared [49m[39m src/shared/project-host-setup-target.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+ [32m✓[39m [30m[46m node-shared [49m[39m src/shared/terminal/protocol/queries/terminal-color-scheme-protocol.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+ [32m✓[39m [30m[46m node-shared [49m[39m src/shared/review-head-tracking-ref.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 3[2mms[22m[39m
+ [32m✓[39m [30m[46m node-shared [49m[39m src/shared/terminal/stream/terminal-stream-protocol.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 3[2mms[22m[39m
+ [32m✓[39m [30m[46m node-shared [49m[39m src/shared/orca-hook-setup-config.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+ [32m✓[39m [30m[46m node-shared [49m[39m src/shared/powershell-native-argument.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 4[2mms[22m[39m
+ [32m✓[39m [30m[46m node-shared [49m[39m src/shared/subprocess-stdin-write.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 4[2mms[22m[39m
+[31m⎯⎯⎯⎯⎯⎯[39m[1m[41m Unhandled Errors [49m[22m[31m⎯⎯⎯⎯⎯⎯[39m
+[31m[1m
+Vitest caught 2 unhandled errors during the test run.
+This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.[22m[39m
+
+[31m⎯⎯⎯⎯⎯[39m[1m[41m Uncaught Exception [49m[22m[31m⎯⎯⎯⎯⎯[39m
+[31m[1mError[22m: write EPIPE[39m
+[90m [2m❯[22m afterWriteDispatched node:internal/stream_base_commons:[2m138:10[22m[39m
+[90m [2m❯[22m writeGeneric node:internal/stream_base_commons:[2m126:10[22m[39m
+[90m [2m❯[22m Socket._writeGeneric node:net:[2m1324:11[22m[39m
+[90m [2m❯[22m Socket._write node:net:[2m1336:8[22m[39m
+[90m [2m❯[22m writeOrBuffer node:internal/streams/writable:[2m574:12[22m[39m
+[90m [2m❯[22m _write node:internal/streams/writable:[2m503:10[22m[39m
+[90m [2m❯[22m Writable.end node:internal/streams/writable:[2m825:17[22m[39m
+[90m [2m❯[22m Socket.end node:net:[2m1088:31[22m[39m
+[90m [2m❯[22m src/shared/git/branches/git-branch-cleanup-real-git.test.ts:[2m77:22[22m[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[22m[39m
+[31m[1mSerialized Error:[22m[39m [90m{ errno: -32, code: 'EPIPE', syscall: 'write' }[39m
+[31mThis error originated in "[1msrc/shared/git/branches/git-branch-cleanup-real-git.test.ts[22m" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.[39m
+[31mThe last test to run before this error was "[1mpreserves the same branch when main never squashed it[22m". This means either:
+- the error was thrown while Vitest was running this test, or
+- the error was thrown after the test completed, and this was the most recent test at that point.[39m
+
+[31m⎯⎯⎯⎯⎯[39m[1m[41m Uncaught Exception [49m[22m[31m⎯⎯⎯⎯⎯[39m
+[31m[1mError[22m: write EPIPE[39m
+[90m [2m❯[22m afterWriteDispatched node:internal/stream_base_commons:[2m138:10[22m[39m
+[90m [2m❯[22m writeGeneric node:internal/stream_base_commons:[2m126:10[22m[39m
+[90m [2m❯[22m Socket._writeGeneric node:net:[2m1324:11[22m[39m
+[90m [2m❯[22m Socket._write node:net:[2m1336:8[22m[39m
+[90m [2m❯[22m writeOrBuffer node:internal/streams/writable:[2m574:12[22m[39m
+[90m [2m❯[22m _write node:internal/streams/writable:[2m503:10[22m[39m
+[90m [2m❯[22m Writable.end node:internal/streams/writable:[2m825:17[22m[39m
+[90m [2m❯[22m Socket.end node:net:[2m1088:31[22m[39m
+[90m [2m❯[22m src/shared/git/branches/git-branch-cleanup-real-git.test.ts:[2m77:22[22m[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[22m[39m
+[31m[1mSerialized Error:[22m[39m [90m{ errno: -32, code: 'EPIPE', syscall: 'write' }[39m
+[31mThis error originated in "[1msrc/shared/git/branches/git-branch-cleanup-real-git.test.ts[22m" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.[39m
+[31mThe last test to run before this error was "[1mpreserves the same branch when main never squashed it[22m". This means either:
+- the error was thrown while Vitest was running this test, or
+- the error was thrown after the test completed, and this was the most recent test at that point.[39m
+[31m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[39m
+
+
+[2m Test Files [22m [1m[32m977 passed[39m[22m[2m | [22m[33m19 skipped[39m[90m (996)[39m
+[2m      Tests [22m [1m[32m5010 passed[39m[22m[2m | [22m[33m102 skipped[39m[90m (5112)[39m
+[2m     Errors [22m [1m[31m2 errors[39m[22m
+[2m   Start at [22m 08:36:23
+[2m   Duration [22m 104.70s[2m (import 32%, tests 29%, transform 27%, environment 7%, setup 4%, worker 1%)[22m
+
+[2m     Import [22m [30m[43m node [49m[39m [33m6116 modules were evaluated 107032 times[39m[2m · 83.30s total, 42% of tracked time[22m
+[2m            [22m [2m~24.25s faster with [22m[33misolate: false[39m[2m — shared modules are evaluated once per worker instead of once per file[22m
+[2m            [22m [2mlearn more: https://vitest.dev/guide/improving-performance#test-isolation[22m
+

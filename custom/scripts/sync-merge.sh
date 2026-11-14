@@ -19,10 +19,6 @@
 # shellcheck source=lib.sh
 . "$(dirname "$0")/lib.sh"
 
-
-count_markers() { grep -a -c -E '^(<<<<<<<|>>>>>>>) ' -- "$1" 2>/dev/null || true; }
-has_markers() { grep -a -q -E '^(<<<<<<<|>>>>>>>|\|\|\|\|\|\|\|) ' -- "$1" 2>/dev/null; }
-
 # conflict_set PATH RESOLUTION: update one entry of facts.conflicts.
 conflict_set() {
   local f="$SYNC_OUT/sync-facts.json" tmp
@@ -310,8 +306,12 @@ cmd_finish_core() {
     caveat "The agent changed $(wc -l < "$oos" | tr -d ' ') file(s) it was not allowed to touch; they were reset: $(paste -sd' ' "$oos")"
   fi
 
-  # 1b. Repair round: edits to files that were NOT conflicted must keep the file present, marker-free and valid.
+  # 1b. Repair round: edits to files that were NOT conflicted must keep the file present, marker-free and valid. The ones that
+  #     stay are recorded (facts.repair_edits, kept across rounds): the PR's resolution diff covers only the conflicted
+  #     files, and a model can make a gate pass by weakening a test, so the reviewer is told which other files it changed.
   if [ -n "$repair" ]; then
+    local kept="$SYNC_OUT/repair-edits.txt"
+    : > "$kept"
     while IFS= read -r p; do
       [ -n "$p" ] || continue
       grep -qxF -- "$p" "$allowed" && continue
@@ -320,8 +320,10 @@ cmd_finish_core() {
         caveat "A repair edit to $p left it missing, with conflict markers or invalid JSON; the edit was reverted."
       else
         git add --sparse -- "$p"
+        printf '%s\n' "$p" >> "$kept"
       fi
     done < <(git diff --name-only $diff_against | sort -u)
+    facts_set repair_edits "$(jq -R -s -c --argjson prev "$(jq -c '.repair_edits // []' "$facts")" 'split("\n") | map(select(length > 0)) | $prev + . | unique' "$kept")"
   fi
 
   # 2. Resolution state of every file the merge left to a model/human.

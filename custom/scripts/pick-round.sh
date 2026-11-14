@@ -18,14 +18,7 @@ for d in "$all"/round-*; do
   [ -d "$d" ] || continue
   n="${d##*round-}"
   [[ "$n" =~ ^[0-9]+$ ]] || continue
-  [ -s "$d/sync-facts.json" ] && [ -s "$d/merge.bundle" ] || continue
-  score=1000
-  if [ "$(jq -r '.unresolved' "$d/sync-facts.json")" != true ]; then
-    files=()
-    for g in "$all"/gates-"$n"-*/gates.json; do [ -s "$g" ] && files+=("$g"); done
-    if [ "${#files[@]}" -gt 0 ]; then score="$(jq -s '[.[].gates[] | select(.status == "fail")] | length' "${files[@]}")"; fi
-  fi
-  if [ "$(jq -r '.key_leak // false' "$d/sync-facts.json")" = true ]; then score=1001; fi
+  score="$(round_score "$all" "$n")" || continue # a round without sync-facts.json or merge.bundle left no candidate
   log "round $n: unresolved=$(jq -r '.unresolved' "$d/sync-facts.json") key_leak=$(jq -r '.key_leak // false' "$d/sync-facts.json") score=$score"
   if [ "$score" -le "$best_score" ]; then best="$n"; best_score="$score"; fi
 done

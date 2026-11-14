@@ -3,10 +3,13 @@
 // Nothing a model wrote is used as a verification claim; model text appears only inside one block labelled as such.
 //
 // Usage: node make-pr-body.mjs --facts F --raw DIR --out DIR [--gates G1.json --gates G2.json ...] [--agent-rounds R.json]
-// Env: PR_TITLE (base title from detect), RELEASE_URL, RUN_URL, REPO (owner/name), FULL_DIFF_ARTIFACT (name, optional)
+// Env: PR_TITLE (base title from detect), RELEASE_URL, RUN_URL, REPO (owner/name), FULL_DIFF_ARTIFACT (name, optional),
+//      RELEASE_WORKFLOW (path of custom-release.yml; default .github/workflows/custom-release.yml, relative to the cwd)
 // Raw inputs in --raw: remerge.patch (restricted to files worth reviewing), numstat-old.txt, numstat-new.txt.
 // Writes: pr-body.md, pr-title.txt, pr-meta.json.
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { basename, dirname } from 'node:path'
 
 const args = process.argv.slice(2)
 const opt = (name) => {
@@ -28,12 +31,101 @@ const esc = (s) => String(s).replace(/\|/g, '\\|').replace(/\n/g, ' ')
 
 // ---- gates -------------------------------------------------------------------------------------------------
 const gates = gateFiles
-  .map((f) => JSON.parse(readFileSync(f, 'utf8')))
-  .flatMap((g) => g.gates.map((x) => ({ ...x, runner: g.runner?.os })))
+  .map((f) => ({ f, g: JSON.parse(readFileSync(f, 'utf8')) }))
+  .flatMap(({ f, g }) => g.gates.map((x) => ({ ...x, runner: g.runner?.os, source: f })))
   .sort((a, b) => GATE_ORDER.indexOf(a.id) - GATE_ORDER.indexOf(b.id))
 const gatesRan = gates.length > 0
 const failedGates = gates.filter((g) => g.status === 'fail')
 const icon = { pass: '✅', fail: '❌', skip: '⏭' }
+// custom-gates.yml uploads Playwright's screenshots and error context as `e2e-results-<round>` when the e2e gate failed. The
+// round is in the name of the directory that holds this gate's gates.json (gates-<round>-e2e).
+const evidenceArtifact = (g) => {
+  const m = g.id === 'e2e' && g.source ? basename(dirname(g.source)).match(/^gates-(\d+|pr)-e2e$/) : null
+  return m ? `e2e-results-${m[1]}` : ''
+}
+
+// ---- does merging start a release? ----------------------------------------------------------------------------------
+// Derived from the checked-out custom-release.yml, never assumed: today it is workflow_dispatch only, and the owner adds the
+// `push:` trigger at the very end. 'yes' | 'no' | 'missing' (no such file) | 'unknown' (no YAML parser or unreadable file).
+const RELEASE_WORKFLOW = process.env.RELEASE_WORKFLOW || '.github/workflows/custom-release.yml'
+const yamlToJson = (path) => {
+  const parsers = [
+    ['python3', ['-I', '-c', 'import sys, json, yaml\nprint(json.dumps(yaml.safe_load(open(sys.argv[1])), default=str))', path]],
+    ['yq', ['-o=json', '.', path]]
+  ]
+  for (const [cmd, a] of parsers) {
+    try {
+      return JSON.parse(execFileSync(cmd, a, { encoding: 'utf8', timeout: 20000, stdio: ['ignore', 'pipe', 'ignore'] }))
+    } catch {
+      /* parser missing or failed: try the next one */
+    }
+  }
+  return undefined
+}
+// GitHub branch filter glob: `*` stays inside one path segment, `**` crosses segments. Everything else is literal.
+const branchGlob = (pattern, name) => {
+  const source = pattern
+    .split('**')
+    .map((part) => part.split('*').map((lit) => lit.replace(/[.+^${}()|[\]\\?]/g, '\\$&')).join('[^/]*'))
+    .join('.*')
+  return new RegExp(`^${source}$`).test(name)
+}
+const releaseStartsOnPush = (path, branch) => {
+  if (!existsSync(path)) return 'missing'
+  const doc = yamlToJson(path)
+  if (!doc || typeof doc !== 'object') return 'unknown'
+  // YAML 1.1 parsers (PyYAML) read the key `on` as the boolean true, which JSON spells "true".
+  const on = doc.on ?? doc.true ?? doc.True
+  let push // undefined = no push trigger; null or an object = there is one
+  if (typeof on === 'string') push = on === 'push' ? null : undefined
+  else if (Array.isArray(on)) push = on.includes('push') ? null : undefined
+  else if (on && typeof on === 'object') push = 'push' in on ? on.push : undefined
+  else return 'unknown'
+  if (push === undefined) return 'no'
+  if (push && typeof push === 'object') {
+    // A push trigger only counts when it can fire for a merge into the PR's base branch.
+    if (Array.isArray(push.branches)) {
+      let hit = false
+      for (const b of push.branches.map(String)) {
+        if (b.startsWith('!')) {
+          if (branchGlob(b.slice(1), branch)) hit = false
+        } else if (branchGlob(b, branch)) hit = true
+      }
+      return hit ? 'yes' : 'no'
+    }
+    if (Array.isArray(push['branches-ignore'])) return push['branches-ignore'].some((b) => branchGlob(String(b), branch)) ? 'no' : 'yes'
+    if (push.tags || push['tags-ignore']) return 'no' // tag pushes only: a merge is a branch push
+  }
+  return 'yes'
+}
+const releaseState = releaseStartsOnPush(RELEASE_WORKFLOW, facts.base_branch || 'custom')
+const handStart = `gh workflow run custom-release.yml --repo ${REPO} --ref custom`
+const releaseSentence = {
+  yes: 'Merging this PR publishes a release.',
+  no: `Merging this PR does not publish by itself: start the release by hand with \`${handStart}\`.`,
+  missing: 'There is no `custom-release.yml` in this checkout, so merging this PR does not publish anything.',
+  unknown: `Check the \`on:\` block of \`custom-release.yml\`: with a \`push:\` trigger a merge starts a release, otherwise start it by hand with \`${handStart}\`.`
+}[releaseState]
+const releaseChecklist = {
+  yes: 'After the merge the release workflow publishes a build.',
+  no: `After the merge, start the release by hand: \`${handStart}\`.`,
+  missing: 'There is no release workflow in this checkout, so nothing is published after the merge.',
+  unknown: `After the merge, check whether the release started; if it did not, run \`${handStart}\`.`
+}[releaseState]
+
+// ---- what an agent round's exit means -------------------------------------------------------------------------------
+// From the CLI's own numbers (exit code, stop reason, turn counts), never from the model's text. Whatever the exit, the round's
+// edits are kept (scope-checked) and the gates judge the result; only a key leak throws them away.
+const safeWord = (v) => String(v ?? '').replace(/[^A-Za-z0-9_.-]/g, '').slice(0, 40)
+const exitReason = (r) => {
+  if (Number(r.key_leaks) > 0) return 'the output contained the API key; edits discarded'
+  if (r.stop === 'error_max_turns') return 'ran out of turns; edits kept; gates decide'
+  if (r.exit_code === 124) return 'hit the wall-clock limit; edits kept; gates decide'
+  if (r.output_parsed === false) return `no readable output; edits kept; gates decide (exit ${safeWord(r.exit_code)})`
+  if (r.exit_code !== 0 || r.is_error) return `ended with an error (exit ${safeWord(r.exit_code)}${r.stop ? `, ${safeWord(r.stop)}` : ''}); edits kept; gates decide`
+  return 'ok'
+}
+const exitCell = (r) => (exitReason(r) === 'ok' ? String(r.exit_code) : `${r.exit_code}: ${exitReason(r)}`)
 
 // ---- state -------------------------------------------------------------------------------------------------
 const conflicts = facts.conflicts ?? []
@@ -69,16 +161,31 @@ const caveats = [...(facts.caveats ?? [])]
 // ---- automatic caveats --------------------------------------------------------------------------------------
 if (!gatesRan) caveats.push('No gates were run on this candidate' + (state === 'manual' ? ' (an unresolved merge is not worth testing).' : '.'))
 for (const g of gates) {
-  if (g.status === 'fail') caveats.push(`Gate failed: ${g.name}. The output tail is in the gates section below.`)
+  if (g.status === 'fail') {
+    const evidence = evidenceArtifact(g)
+    caveats.push(`Gate failed: ${g.name}. The output tail is in the gates section below.${evidence ? ` Playwright screenshots and error context: artifact \`${evidence}\` of${RUN_URL ? ` [this run](${RUN_URL})` : ' this run'} (kept 7 days).` : ''}`)
+  }
   if (g.status === 'skip' && !/only runs on pull requests/.test(g.note || '')) caveats.push(`Gate skipped: ${g.name}${g.note ? ` (${g.note})` : ''}.`)
-  for (const w of g.warnings ?? []) caveats.push(`Near a lint cap: ${w}`)
+  for (const w of g.warnings ?? []) caveats.push(g.id === 'lint-caps' ? `Near a lint cap: ${w}` : `${g.name}: ${w}`)
 }
 if (conflicts.some((c) => c.path === 'src/renderer/src/components/sidebar/index.tsx')) caveats.push('src/renderer/src/components/sidebar/index.tsx was conflicted: where new upstream sidebar sections are placed in our stacked layout is not covered by any test. Open the app and look at the sidebar.')
 if (gatesRan && !gates.some((g) => g.id === 'e2e' && g.status === 'pass')) caveats.push('The Playwright e2e specs for our customizations did NOT pass or did not run. Do not rely on this PR for UI behaviour.')
 if ((facts.scripted?.upstream_ci_removed ?? 0) > 0) caveats.push(`${facts.scripted.upstream_ci_removed} upstream CI file(s) under .github/workflows or dependabot config were removed again (the fork carries none; ${facts.scripted.upstream_ci_new ?? 0} new in ${tag}).`)
 if ((facts.scripted?.our_wins_restored ?? []).length > 0) caveats.push(`Upstream also changed these paths where our side always wins; upstream's change was discarded: ${facts.scripted.our_wins_restored.join(', ')}.`)
 if ((facts.drift ?? []).length > 0) caveats.push(`${facts.drift.length} file(s) differ from upstream ${tag} although no customization commit touched them (a rename that carried our edit, or a contributor change): ${facts.drift.slice(0, 15).join(', ')}${facts.drift.length > 15 ? ', ...' : ''}.`)
-if (agentRounds.some((r) => r.exit_code !== 0 || r.is_error)) caveats.push('At least one agent round ended with an error or a non-zero exit; see the model block.')
+for (const r of agentRounds) {
+  if (r.stop === 'error_max_turns') caveats.push(`Agent round ${r.round} ran out of turns (${r.turns}/${r.max_turns}); its edits were kept and the gates judged the result.`)
+  else if (exitReason(r) !== 'ok' && Number(r.key_leaks) === 0) caveats.push(`Agent round ${r.round} ${exitReason(r)}; see the model block.`)
+}
+// A repair round may edit files that were not conflicted (the ones our customizations own). The resolution diff below covers
+// only the conflicted files, and a model can make a gate pass by weakening a test, so the reviewer is pointed at these edits.
+const repairEdits = Array.isArray(facts.repair_edits) ? facts.repair_edits : []
+if (repairEdits.length > 0) {
+  const isTest = (p) => /\.(test|spec)\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/.test(p) || p.startsWith('tests/')
+  const tests = repairEdits.filter(isTest)
+  const list = (a) => `${a.slice(0, 12).map((p) => `\`${p}\``).join(', ')}${a.length > 12 ? `, and ${a.length - 12} more` : ''}`
+  caveats.push(`Repair round(s) edited ${repairEdits.length} file(s) that were not conflicted: ${list(repairEdits)}. The resolution diff below does not show them; the full diff is in the \`${process.env.FULL_DIFF_ARTIFACT || 'sync-review'}\` artifact.${tests.length > 0 ? ` ${tests.length} of them ${tests.length === 1 ? 'is a test or spec' : 'are tests or specs'} (${list(tests)}): a model can turn a gate green by weakening a test, so read those edits first.` : ''}`)
+}
 // Key leaks, from two independent sources: the round records (they carry the file names) and the workflow's own job outputs
 // (AGENT_KEY_LEAKS="1=0 2=3 3=", set by the run step, so they exist even when `finish` died and wrote no record).
 // A value of "unknown" means the leak check itself did not complete.
@@ -122,7 +229,7 @@ if (agentRounds.length > 0) {
   modelBlock += '### Cloud agent (model-written, unverified)\n\n'
   modelBlock += '| Round | Mode | Model | Turns | Tokens in / out | Est. cost | Wall | Exit |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n'
   for (const r of agentRounds) {
-    modelBlock += `| ${r.round} | ${r.mode} | \`${r.model}\` | ${r.turns}/${r.max_turns} | ${r.input_tokens} / ${r.output_tokens} | $${Number(r.estimated_cost_usd).toFixed(3)} | ${r.wall_s}s | ${r.exit_code}${r.is_error ? ' (error)' : ''} |\n`
+    modelBlock += `| ${r.round} | ${r.mode} | \`${r.model}\` | ${r.turns}/${r.max_turns} | ${r.input_tokens} / ${r.output_tokens} | $${Number(r.estimated_cost_usd).toFixed(3)} | ${r.wall_s}s | ${esc(exitCell(r))} |\n`
   }
   modelBlock += `\nEstimated total: $${total.toFixed(3)}, an upper bound (every input token, cached or not, priced at the full list rate: Flash $0.20 in / $0.60 out per million, Pro $1.30 in / $2.60 out).\n\n`
   const last = agentRounds[agentRounds.length - 1]
@@ -175,7 +282,7 @@ const checklist = [
   failedGates.length > 0 ? 'Look at every failed gate output before anything else.' : 'Gates are green; they are scripts, not opinions.',
   agentResolved.length > 0 ? 'Read the agent-resolved files in full. A model decided those hunks.' : null,
   handDecisions ? 'Run the app from this branch if a conflicted file is user-visible (sidebar, Activity, shortcuts).' : null,
-  'Merge with a MERGE COMMIT. After the merge the release workflow publishes a build.'
+  `Merge with a MERGE COMMIT. ${releaseChecklist}`
 ].filter(Boolean).map((l) => `- [ ] ${l}`).join('\n')
 
 const resolveRecipe = state === 'manual' ? `
@@ -214,7 +321,7 @@ else {
 
 const upstreamLink = process.env.RELEASE_URL || `https://github.com/stablyai/orca/commit/${facts.upstream_sha}`
 const compareLink = facts.tag_is_release ? `https://github.com/stablyai/orca/compare/${oldTag}...${tag}` : ''
-const body = `${leakBanner}**Merge with a MERGE COMMIT (squash is disabled). Merging this PR publishes a release.**
+const body = `${leakBanner}**Merge with a MERGE COMMIT (squash is disabled). ${releaseSentence}**
 ${testNote}
 ## ${state === 'manual' ? 'Needs a manual merge' : 'Upstream sync'}: ${tag}
 
@@ -251,7 +358,7 @@ ${modelBlock ? `\n## What the model did\n\n${modelBlock}\n` : ''}${resolveRecipe
 
 ${checklist}
 
-**Merge with a MERGE COMMIT (squash is disabled). Merging this PR publishes a release.**
+**Merge with a MERGE COMMIT (squash is disabled). ${releaseSentence}**
 
 <sub>Generated by [custom-sync](${RUN_URL}) from facts only. PRs opened with the workflow token do not trigger other workflows, so the gates above were run by the sync run itself.</sub>
 `

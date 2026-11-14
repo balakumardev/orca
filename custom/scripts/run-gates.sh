@@ -15,6 +15,8 @@
 # Output: DIR/gates.json (schema 1), DIR/logs/<id>.log (full output). Gates are scripts: no model is involved.
 # shellcheck source=lib.sh
 . "$(dirname "$0")/lib.sh"
+# shellcheck source=unit-flake.sh
+. "$(dirname "$0")/unit-flake.sh"
 
 TOOLS_DIR="$(cd "$(dirname "$0")" && pwd)"
 OUT="" MODE="" CHANGED_BASE="" OUR_FILES="" ONLY="" SKIP="" EXIT_ZERO=0
@@ -80,7 +82,6 @@ with_timeout() { # SECONDS CMD...
   elif command -v gtimeout >/dev/null 2>&1; then gtimeout "$secs" "$@"
   else "$@"; fi
 }
-strip_ansi() { perl -pe 's/\e\[[0-9;?]*[A-Za-z]//g'; }
 CURRENT_GATE=""
 
 # ------------------------------------------------------------------------------------------------ gates
@@ -136,11 +137,37 @@ gate_format() {
 
 gate_unit() {
   [ -s "$TEST_TARGETS" ] || skip_gate "no unit test files in scope" || return $?
-  local dirs
+  local dirs first rc=0 decision f rc2=0
+  local -a rerun=()
   dirs="$(while IFS= read -r p; do dirname "$p"; done < "$TEST_TARGETS" | sort -u)"
   note "test directories: $(printf '%s' "$dirs" | tr '\n' ' ')"
+  first="$(mktemp)"
+  # tee keeps the whole run in this gate's log; `|| rc=$?` keeps vitest's own exit code (pipefail) without ending the gate.
   # shellcheck disable=SC2086
-  with_timeout 1500 pnpm exec vitest run --config config/vitest.config.ts $dirs
+  with_timeout 1500 pnpm exec vitest run --config config/vitest.config.ts $dirs 2>&1 | tee "$first" || rc=$?
+  if [ "$rc" -eq 0 ]; then rm -f "$first"; return 0; fi
+
+  # Red run. Real failures stay red. The one exception is unit_flake_decide's: nothing failed, vitest only caught an
+  # unhandled error that a test file outside this change's scope raised, so those files get one re-run.
+  if [ "$rc" -eq 1 ]; then decision="$(unit_flake_decide "$first" "$TEST_SCOPE" "$ALL_TARGETS")"
+  else decision="keep-red: vitest exited with code $rc, not a test-failure exit code"; fi
+  rm -f "$first"
+  if [ "$(head -n 1 <<<"$decision")" != rerun ]; then
+    echo "unit flake check: the gate stays red (${decision#keep-red: })"
+    return "$rc"
+  fi
+  while IFS= read -r f; do [ -z "$f" ] || rerun+=("$f"); done < <(tail -n +2 <<<"$decision")
+  for f in "${rerun[@]}"; do
+    [ -f "$f" ] || { echo "unit flake check: the gate stays red ($f does not exist in this checkout)"; return "$rc"; }
+  done
+  echo "unit flake check: vitest exited $rc with no failed test; its only complaint is an unhandled error raised while running ${rerun[*]}, which this change does not touch. Re-running just those files once."
+  with_timeout 600 pnpm exec vitest run --config config/vitest.config.ts "${rerun[@]}" || rc2=$?
+  if [ "$rc2" -ne 0 ]; then
+    echo "unit flake check: the re-run exited with code $rc2, so the gate stays red"
+    return "$rc"
+  fi
+  note "first run threw an unhandled error that did not reproduce: ${rerun[*]} passed on a re-run"
+  warn_note "The first unit run threw an unhandled error that did not reproduce: ${rerun[*]} (a test file this change does not touch) passed on a re-run. The gate passed on that re-run."
 }
 
 gate_unit_related() { # pr mode only: tests that import the changed source files

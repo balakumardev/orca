@@ -7,6 +7,12 @@
 #   agent-round.sh finish    record tokens/cost/report in sync-facts.json, enforce scope, commit, bundle
 #
 # Env (all subcommands): SYNC_OUT, TOOLS_DIR, ROUND (1..3), MODE (first | repair | retry), TIER (flash | pro).
+#   first   resolve the conflicted files of a fresh merge.
+#   repair  start from a candidate an earlier round committed, show the model that candidate's REAL gate output, and let it
+#           edit the conflicted files plus the files our customization commits own. Rounds 2 and 3 use it (round 3 starts from
+#           the best earlier candidate, chosen by pick-repair-base.sh).
+#   retry   a fresh merge again, with the earlier attempt's gate output as context. Round 3 only when no earlier round left
+#           a resolved merge commit to repair.
 # prepare also: PREV_DIR (dir holding the previous round's sync-facts.json and, for repair, merge.bundle),
 #               PREV_GATES (dir holding the previous round's gates.json, optional),
 #               and for MODE first|retry the start variables of sync-merge.sh (UPSTREAM_SHA BASE_SHA BASE_BRANCH BRANCH
@@ -58,7 +64,8 @@ cmd_prepare() {
 
   local files manual nfiles check old_tag
   old_tag="$(facts_get .old_base_tag)"
-  files="$(jq -r '.conflicts[] | select(.resolution != "scripted" and (.resolution | startswith("scripted") | not)) | select(.kind == "content" or .kind == "both-added") | "- \(.path) (\(.kind), \(.hunks) conflict hunk(s))"' "$SYNC_OUT/sync-facts.json")"
+  # A repair has no conflict markers left to count, so only a fresh merge (first, retry) is told the hunk count.
+  files="$(jq -r --arg mode "$MODE" '.conflicts[] | select(.resolution != "scripted" and (.resolution | startswith("scripted") | not)) | select(.kind == "content" or .kind == "both-added") | if $mode == "repair" then "- \(.path) (\(.kind), conflicted in the merge; the file holds the earlier resolution)" else "- \(.path) (\(.kind), \(.hunks) conflict hunk(s))" end' "$SYNC_OUT/sync-facts.json")"
   if [ "$MODE" = repair ]; then
     # A repair may also touch the files our customization commits own (never fork infrastructure or upstream CI).
     while IFS= read -r p; do
@@ -108,8 +115,9 @@ $(jq -r '.gates[] | select(.status == "fail") | "### \(.name) (exit \(.exit_code
     ' > "$prompt"
 
   local turns wall
-  # Rehearsal: Flash resolved 5 conflicted files in 61 turns. The caps are hard limits, not targets.
-  if [ "$MODE" = repair ]; then turns=60; wall=1200
+  # Rehearsal: Flash resolved 5 conflicted files in 61 turns; a repair of 56 editable files hit a cap of 60 (it counted 61) with
+  # its edits intact. The caps are hard limits, not targets; a round that reaches one is reported as such in the PR.
+  if [ "$MODE" = repair ]; then turns=80; wall=1200
   else turns=$((24 + 10 * nfiles)); [ "$turns" -le 70 ] || turns=70; wall=1500; fi
   [ "$TIER" != pro ] || wall=1800
   jq -n -c --arg model "$MODEL" --arg tier "$TIER" --arg mode "$MODE" --argjson round "$ROUND" --argjson turns "$turns" --argjson wall "$wall" --argjson nfiles "$nfiles" \
@@ -283,6 +291,22 @@ cmd_finish() {
         exit_code: $run.exit_code, wall_s: $run.wall_s, key_leaks: $run.key_leaks, key_leak_files: $leak_files, turns: $turns, stop: $stop,
         is_error: ($iserr == "true"), output_parsed: ($usage_ok == "true"), input_tokens: $in_tok, output_tokens: $out_tok,
         estimated_cost_usd: $cost, report: $report }])' "$SYNC_OUT/sync-facts.json" > "$tmp" && mv "$tmp" "$SYNC_OUT/sync-facts.json"
+
+  # The job summary says why the round stopped, from the CLI's own numbers (the stop word is reduced to a-z 0-9 _ . -).
+  # make-pr-body.mjs words the same reasons for the PR; keep the two in step.
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+    local why=ok stop_word rc
+    stop_word="$(printf '%s' "$stop" | tr -cd 'A-Za-z0-9_.-' | head -c 40)"
+    rc="$(jq -r '.exit_code // -1' <<<"$run")"
+    if [ "$leaks" -gt 0 ]; then why="the output contained the API key; edits discarded"
+    elif [ "$stop_word" = error_max_turns ]; then why="ran out of turns; edits kept; gates decide"
+    elif [ "$rc" = 124 ]; then why="hit the wall-clock limit; edits kept; gates decide"
+    elif [ "$usage_ok" != true ]; then why="no readable output; edits kept; gates decide"
+    elif [ "$rc" != 0 ] || [ "$errflag" = true ]; then why="ended with an error (exit $rc, stop: ${stop_word:-none}); edits kept; gates decide"
+    fi
+    printf -- '- Agent round %s (%s, %s): %s of at most %s turns, exit code %s, estimated $%s. Result: %s.\n' \
+      "$ROUND" "$MODE" "$TIER" "$turns" "$(jq -r .max_turns "$plan")" "$rc" "$cost" "$why" >> "$GITHUB_STEP_SUMMARY"
+  fi
 
   # AGENT_KEY_LEAK=1 makes sync-merge.sh throw away every edit of this round and mark the candidate unresolved.
   local leak_flag=0
