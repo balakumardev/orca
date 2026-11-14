@@ -1,9 +1,411 @@
 name: custom-release
-# Placeholder so the workflow can be dispatched while the real version is developed on a feature branch.
+
+# Build, sign, notarize and (optionally) publish the custom Orca build of this fork.
+# Run it by hand:  gh workflow run custom-release.yml --repo balakumardev/orca --ref custom [-f sign=false -f notarize=false -f publish=true]
+# The `push:` trigger that releases on merges into `custom` is added by the owner at the very end; not here.
+#
+# JOB STRUCTURE (one build job, signing inside electron-builder)
+#   plan     ubuntu, no secrets: next version (custom/scripts/next-version.sh) + the upstream base tag's commit.
+#   build    macos-15 (arm64), `environment: release` ONLY when sign=true. Everything runs in this one job because
+#            electron-builder must sign during the build: afterPack signs agent-browser and the orcad template binaries
+#            before the orcad template hashes them, and `signIgnore` stops later passes from rewriting them, so a second
+#            job that re-signs a finished .app would break those hashes. The secrets are protected differently:
+#              - environment `release` only allows ref `custom`, so a run from a feature branch can never read them
+#                (sign=false runs have no environment at all and are the only thing a branch can do);
+#              - the certificate and the notary key are referenced by ONE step each, after `pnpm install` and
+#                `build:desktop` have run, and deleted again right after the build / the notarization;
+#              - the keychain is temporary, locked down to codesign, and removed in an `if: always()` step.
+#   publish  ubuntu, only when publish=true, needs plan+build, `contents: write`: uploads the exact verified zip.
+#
+# ALLOWED ACTIONS: GitHub-owned (`actions/*`) and `pnpm/action-setup` only (repo policy). Everything else is bash.
+#
+# MEASURED ANSWERS (filled in from real runs; see the PR description for the run links)
+#   (a) "+" in releases: tags, release URLs (both `+` and `%2B`), `gh release download <tag>` and asset NAMES all keep
+#       the "+" verbatim (checked 2026-11-14 with a throw-away prerelease, deleted afterwards). The API reports the
+#       asset as `Orca-0.0.0+custom.1-arm64-mac.zip` and its download URL as `.../v0.0.0%2Bcustom.1/Orca-0.0.0%2Bcustom.1-arm64-mac.zip`.
+#       A DRAFT release has no tag until it is published (its URL is `untagged-<id>`), and `--cleanup-tag` on a draft
+#       fails with HTTP 422 after the release itself is already deleted. So: asset = Orca-<version>-arm64-mac.zip with
+#       the "+", and the installer should read URLs from `gh release view --json assets` or manifest.json.
+#   (b) wall time per stage, peak disk, memory: TODO
+#   (c) signing from a temporary keychain on the hosted runner: TODO
+
 on:
   workflow_dispatch:
+    inputs:
+      sign:
+        description: Sign with the Developer ID certificate (runs in environment release, so only from ref custom)
+        type: boolean
+        default: true
+      notarize:
+        description: Notarize and staple (needs sign; skipped with a warning when the notary key is not set)
+        type: boolean
+        default: true
+      publish:
+        description: Create the GitHub release (needs sign). Off by default.
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: custom-release
+  cancel-in-progress: false
+
+env:
+  # Public identifier of the Developer ID team the app must be signed by (integrity check, not a secret).
+  EXPECTED_TEAM_ID: KHD36T7C97
+  UPSTREAM_REPO: stablyai/orca
+
+defaults:
+  run:
+    shell: bash
+
 jobs:
-  stub:
-    runs-on: ubuntu-latest
+  plan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      base: ${{ steps.version.outputs.base }}
+      n: ${{ steps.version.outputs.n }}
+      upstream_commit: ${{ steps.upstream.outputs.upstream_commit }}
     steps:
-      - run: echo "custom-release is a placeholder; run it with --ref <feature branch> to use the real one"
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Refuse to publish an unsigned build
+        env:
+          SIGN: ${{ inputs.sign }}
+          NOTARIZE: ${{ inputs.notarize }}
+          PUBLISH: ${{ inputs.publish }}
+        run: |
+          set -euo pipefail
+          if [ "$PUBLISH" = "true" ] && [ "$SIGN" != "true" ]; then
+            echo "::error title=publish needs sign::publish=true with sign=false would release an ad-hoc build. Run with sign=true."
+            exit 1
+          fi
+          if [ "$SIGN" != "true" ] && [ "$NOTARIZE" = "true" ]; then
+            echo "::notice::notarize is ignored because sign=false"
+          fi
+
+      - name: Next version
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          custom/scripts/next-version.sh --from-github | tee "$RUNNER_TEMP/version.env"
+          while IFS='=' read -r key value; do
+            printf '%s=%s\n' "$(printf '%s' "$key" | tr '[:upper:]' '[:lower:]')" "$value" >>"$GITHUB_OUTPUT"
+          done <"$RUNNER_TEMP/version.env"
+
+      - name: Upstream commit of the base tag
+        id: upstream
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ steps.version.outputs.base }}
+        run: |
+          set -euo pipefail
+          commit="$(custom/scripts/resolve-base-commit.sh "$BASE" "$UPSTREAM_REPO")"
+          echo "upstream_commit=$commit" >>"$GITHUB_OUTPUT"
+          echo "$BASE -> $commit"
+
+      - name: Summary
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+          BASE: ${{ steps.version.outputs.base }}
+          UPSTREAM_COMMIT: ${{ steps.upstream.outputs.upstream_commit }}
+          SIGN: ${{ inputs.sign }}
+          NOTARIZE: ${{ inputs.notarize }}
+          PUBLISH: ${{ inputs.publish }}
+        run: |
+          {
+            echo "### custom-release plan"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| version | \`$VERSION\` |"
+            echo "| tag | \`$TAG\` |"
+            echo "| upstream base | \`$BASE\` (commit \`${UPSTREAM_COMMIT:0:10}\`) |"
+            echo "| sign / notarize / publish | $SIGN / $NOTARIZE / $PUBLISH |"
+          } >>"$GITHUB_STEP_SUMMARY"
+
+  build:
+    needs: plan
+    runs-on: macos-15
+    timeout-minutes: 150
+    # Only a signing run touches environment `release` (and so can only run from ref custom). An unsigned run has no
+    # environment, which is what lets a feature branch test everything but the signature.
+    environment: ${{ inputs.sign && 'release' || '' }}
+    permissions:
+      contents: read
+    outputs:
+      notarized: ${{ steps.notarize.outputs.notarized || 'false' }}
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+      TAG: ${{ needs.plan.outputs.tag }}
+      BASE: ${{ needs.plan.outputs.base }}
+      SIGN: ${{ inputs.sign }}
+      # Upstream's own mac build workflows set these two: no window focus stealing during the packaged-app boot
+      # checks, and a Node heap that survives the web build on a 7 GB runner.
+      ORCA_BACKGROUND_LAUNCH: '1'
+      NODE_OPTIONS: --max-old-space-size=4096
+      # The base tag's commit, so skill-install pins point at a real upstream commit (patch `build-identity`).
+      ORCA_BUILD_COMMIT: ${{ needs.plan.outputs.upstream_commit }}
+      # Used by the unsigned (non-release) config path; the release path gets the version from the command line.
+      ORCA_LOCAL_BUILD_VERSION: ${{ needs.plan.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Machine and disk before the build
+        run: |
+          set -euo pipefail
+          sw_vers
+          uname -m
+          echo "cpu: $(sysctl -n machdep.cpu.brand_string) x $(sysctl -n hw.ncpu), memory: $(( $(sysctl -n hw.memsize) / 1073741824 )) GB"
+          xcodebuild -version
+          df -h /System/Volumes/Data
+          custom/scripts/ci-sampler.sh start "$RUNNER_TEMP/sampler.csv"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          node --version
+          pnpm --version
+          custom/scripts/retry.sh 3 pnpm install --frozen-lockfile
+
+      # mobile/ is a separate pnpm project; build:mobile-web bundles it into out/mobile-web.
+      - name: Install mobile dependencies
+        run: custom/scripts/retry.sh 3 pnpm -C mobile install --frozen-lockfile
+
+      - name: Build the desktop app (typecheck + electron-vite + web + mobile web)
+        run: pnpm run build:desktop
+
+      # The only steps that see the certificate. Everything above ran without it.
+      - name: Import the signing certificate into a temporary keychain
+        if: inputs.sign
+        env:
+          P12_BASE64: ${{ secrets.COOLSOLVE_CERT_P12 }}
+          P12_PASSWORD: ${{ secrets.COOLSOLVE_CERT_PASSWORD }}
+        run: custom/scripts/import-signing-cert.sh
+
+      # With sign=true these run in release mode (ORCA_MAC_RELEASE=1): hardened runtime, secure timestamps, the
+      # custom batch signer. That is what notarization requires, and it is why the helper signing happens here.
+      - name: Build the Swift helper (Orca Computer Use)
+        env:
+          ORCA_MAC_RELEASE: ${{ inputs.sign && '1' || '' }}
+        run: pnpm run build:computer-macos
+
+      - name: Build the small native helpers
+        env:
+          ORCA_MAC_RELEASE: ${{ inputs.sign && '1' || '' }}
+        run: |
+          set -euo pipefail
+          pnpm run build:keyboard-layout-macos
+          pnpm run build:process-footprint-macos
+          pnpm run build:notification-status-macos
+
+      - name: Ensure the Electron runtime
+        run: custom/scripts/retry.sh 3 pnpm run ensure:electron-runtime
+
+      # No ORCA_LOCAL_BUILD_VERSION in release mode (the config ignores it there), so the version goes on the command
+      # line for both paths: one code path for the stamp. electron-builder never notarizes (-c.mac.notarize=false):
+      # custom/scripts/notarize-app.sh does, after the keychain is gone and with the notary key only in that step.
+      - name: Package and sign the app (electron-builder --dir)
+        env:
+          ORCA_MAC_RELEASE: ${{ inputs.sign && '1' || '' }}
+          ORCA_MAC_TEAM_ID: ${{ env.EXPECTED_TEAM_ID }}
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ inputs.sign && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          args=(--config config/electron-builder.config.cjs --mac --arm64 --dir --publish never
+            "-c.extraMetadata.version=${VERSION}" -c.mac.notarize=false)
+          if [ "$SIGN" != "true" ]; then
+            # Ad-hoc seal: an unsealed arm64 bundle does not run.
+            args+=(-c.mac.identity=-)
+          fi
+          pnpm exec electron-builder "${args[@]}"
+          test -d dist/mac-arm64/Orca.app
+
+      - name: Remove the signing keychain
+        if: always()
+        run: custom/scripts/cleanup-signing.sh
+
+      - name: Verify the app
+        run: |
+          set -euo pipefail
+          if [ "$SIGN" = "true" ]; then
+            custom/scripts/verify-app.sh --app dist/mac-arm64/Orca.app --version "$VERSION" --mode signed --team "$EXPECTED_TEAM_ID"
+          else
+            custom/scripts/verify-app.sh --app dist/mac-arm64/Orca.app --version "$VERSION" --mode unsigned
+          fi
+
+      - name: Notarize and staple
+        id: notarize
+        if: inputs.sign && inputs.notarize
+        env:
+          ASC_P8_B64: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}
+          APPLE_API_KEY_ID: ${{ vars.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ vars.APPLE_API_ISSUER }}
+        run: |
+          set -euo pipefail
+          if [ -z "$ASC_P8_B64" ] || [ -z "$APPLE_API_KEY_ID" ] || [ -z "$APPLE_API_ISSUER" ]; then
+            msg="Not notarized: the notary credentials are incomplete (need secret APP_STORE_CONNECT_API_KEY_P8 and variables APPLE_API_KEY_ID, APPLE_API_ISSUER in environment release). The build is signed but NOT notarized."
+            echo "::warning title=Not notarized::$msg"
+            echo "> **$msg**" >>"$GITHUB_STEP_SUMMARY"
+            echo "notarized=false" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          umask 077
+          export ASC_KEY_PATH="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
+          trap 'rm -f "$ASC_KEY_PATH"' EXIT
+          printf '%s' "$ASC_P8_B64" | base64 --decode >"$ASC_KEY_PATH"
+          if ! grep -qF -- '-----BEGIN PRIVATE KEY-----' "$ASC_KEY_PATH"; then
+            echo "::error title=Notary key invalid::APP_STORE_CONNECT_API_KEY_P8 does not decode to a .p8 private key (it must be the base64 of AuthKey_<id>.p8)."
+            exit 1
+          fi
+          custom/scripts/notarize-app.sh dist/mac-arm64/Orca.app
+          echo "notarized=true" >>"$GITHUB_OUTPUT"
+
+      - name: Package, verify the zip, write the manifest
+        env:
+          UPSTREAM_COMMIT: ${{ needs.plan.outputs.upstream_commit }}
+          NOTARIZED: ${{ steps.notarize.outputs.notarized }}
+        run: |
+          set -euo pipefail
+          if [ "$SIGN" != "true" ]; then
+            mode=unsigned
+          elif [ "$NOTARIZED" = "true" ]; then
+            mode=notarized
+          else
+            mode=signed
+          fi
+          team_args=()
+          if [ "$SIGN" = "true" ]; then team_args=(--team "$EXPECTED_TEAM_ID"); fi
+          custom/scripts/package-release.sh --app dist/mac-arm64/Orca.app --out-dir release \
+            --version "$VERSION" --tag "$TAG" --base "$BASE" --upstream-commit "$UPSTREAM_COMMIT" \
+            --built-from "$GITHUB_SHA" --mode "$mode" ${team_args[@]+"${team_args[@]}"}
+          {
+            echo "### Build result"
+            echo
+            echo '```json'
+            cat release/manifest.json
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the release files
+        uses: actions/upload-artifact@v7
+        with:
+          name: orca-release
+          path: release/
+          if-no-files-found: error
+          retention-days: 14
+          # The zip is already compressed; the zip inside the artifact zip must not be recompressed for nothing.
+          compression-level: 0
+
+      - name: Stop the sampler and report peaks
+        if: always()
+        run: |
+          custom/scripts/ci-sampler.sh stop "$RUNNER_TEMP/sampler.csv" || true
+          echo "== peaks"
+          custom/scripts/ci-sampler.sh report "$RUNNER_TEMP/sampler.csv" || true
+          df -h /System/Volumes/Data
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-diagnostics
+          path: ${{ runner.temp }}/sampler.csv
+          if-no-files-found: ignore
+          retention-days: 7
+
+  publish:
+    needs: [plan, build]
+    if: inputs.publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+      TAG: ${{ needs.plan.outputs.tag }}
+      BASE: ${{ needs.plan.outputs.base }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout (full history, no blobs)
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+
+      - name: Make sure the upstream base tag is present
+        run: |
+          set -euo pipefail
+          if ! git rev-parse --verify --quiet "$BASE^{commit}" >/dev/null; then
+            git fetch --no-tags --filter=blob:none "https://github.com/${UPSTREAM_REPO}.git" "refs/tags/${BASE}:refs/tags/${BASE}"
+          fi
+          git rev-parse "$BASE^{commit}"
+
+      - name: Download the release files
+        uses: actions/download-artifact@v8
+        with:
+          name: orca-release
+          path: release
+
+      - name: Check the files against the manifest
+        run: |
+          set -euo pipefail
+          cd release
+          ls -l
+          asset="$(jq -r .asset manifest.json)"
+          test "$asset" = "Orca-${VERSION}-arm64-mac.zip"
+          test "$(jq -r .version manifest.json)" = "$VERSION"
+          test "$(jq -r .tag manifest.json)" = "$TAG"
+          test "$(jq -r .base manifest.json)" = "$BASE"
+          test "$(jq -r .built_from_sha manifest.json)" = "$GITHUB_SHA"
+          jq -e '.signed == true and (.team_id | type == "string")' manifest.json >/dev/null
+          sha256sum -c "$asset.sha256"
+          test "$(awk '{print $1}' "$asset.sha256")" = "$(jq -r .sha256 manifest.json)"
+          test "$(stat -c%s "$asset")" = "$(jq -r .size manifest.json)"
+          echo "notarized: $(jq -r .notarized manifest.json)"
+
+      - name: Refuse to reuse an existing tag
+        run: |
+          set -euo pipefail
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" >/dev/null 2>&1; then
+            echo "::error title=Tag exists::${TAG} already exists in ${GITHUB_REPOSITORY}; refusing to attach files to an old tag"
+            exit 1
+          fi
+
+      - name: Release notes
+        run: custom/scripts/release-notes.sh --manifest release/manifest.json > "$RUNNER_TEMP/notes.txt"
+
+      - name: Create the release
+        run: |
+          set -euo pipefail
+          asset="$(jq -r .asset release/manifest.json)"
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "Orca $VERSION" --notes-file "$RUNNER_TEMP/notes.txt" \
+            "release/$asset" release/manifest.json "release/$asset.sha256"
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json url,assets --jq '.url, (.assets[] | .name)'
