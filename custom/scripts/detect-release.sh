@@ -51,6 +51,9 @@ else
   fi
 fi
 
+# A bare commit sha reads better short in titles and branch names; the full sha is kept in upstream_sha.
+[[ ! "$TAG" =~ ^[0-9a-f]{40}$ ]] || TAG="${TAG:0:7}"
+
 # A throwaway base branch is always a rehearsal, whatever ref was asked for.
 [ "$BASE_BRANCH" = custom ] || IS_TEST=true
 

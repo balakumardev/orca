@@ -73,12 +73,19 @@ for (const g of gates) {
   if (g.status === 'skip') caveats.push(`Gate skipped: ${g.name}${g.note ? ` (${g.note})` : ''}.`)
   for (const w of g.warnings ?? []) caveats.push(`Near a lint cap: ${w}`)
 }
+if (conflicts.some((c) => c.path === 'src/renderer/src/components/sidebar/index.tsx')) caveats.push('src/renderer/src/components/sidebar/index.tsx was conflicted: where new upstream sidebar sections are placed in our stacked layout is not covered by any test. Open the app and look at the sidebar.')
 if (gatesRan && !gates.some((g) => g.id === 'e2e' && g.status === 'pass')) caveats.push('The Playwright e2e specs for our customizations did NOT pass or did not run. Do not rely on this PR for UI behaviour.')
 if ((facts.scripted?.upstream_ci_removed ?? 0) > 0) caveats.push(`${facts.scripted.upstream_ci_removed} upstream CI file(s) under .github/workflows or dependabot config were removed again (the fork carries none; ${facts.scripted.upstream_ci_new ?? 0} new in ${tag}).`)
 if ((facts.scripted?.our_wins_restored ?? []).length > 0) caveats.push(`Upstream also changed these paths where our side always wins; upstream's change was discarded: ${facts.scripted.our_wins_restored.join(', ')}.`)
 if ((facts.drift ?? []).length > 0) caveats.push(`${facts.drift.length} file(s) differ from upstream ${tag} although no customization commit touched them (a rename that carried our edit, or a contributor change): ${facts.drift.slice(0, 15).join(', ')}${facts.drift.length > 15 ? ', ...' : ''}.`)
 if (agentRounds.some((r) => r.exit_code !== 0 || r.is_error)) caveats.push('At least one agent round ended with an error or a non-zero exit; see the model block.')
 if (agentRounds.some((r) => r.key_leaks > 0)) caveats.push('The API key leak check fired in an agent round; rotate DEEPINFRA_API_KEY.')
+// What the model rounds actually did, from the workflow's own job results (data, not model text).
+const roundResults = Object.fromEntries((process.env.AGENT_RESULTS || '').split(/\s+/).filter(Boolean).map((kv) => kv.split('=')))
+for (const [round, result] of Object.entries(roundResults)) {
+  if (result === 'failure' || result === 'cancelled') caveats.push(`Agent round ${round} did not finish (job result: ${result}). It could not start or it crashed; see the run. This PR carries the best candidate that exists without it.`)
+}
+if (state === 'manual' && agentRounds.length === 0 && !Object.values(roundResults).some((r) => r === 'failure' || r === 'cancelled')) caveats.push('The cloud agent did not run (skip_agent was set). The merge is exactly what the scripts could settle.')
 if (isTest) caveats.push('This is a TEST run: custom/BASE ' + (facts.tag_is_release ? `was set to ${tag}` : 'was left unchanged') + `, and the PR is a draft against \`${facts.base_branch}\`.`)
 
 // ---- model-written block -----------------------------------------------------------------------------------
@@ -133,13 +140,14 @@ if (changed.length > 0) {
 const missing = [...oldStat.keys()].filter((p) => !newStat.has(p) && !/^\.github\/|^custom\//.test(p))
 if (missing.length > 0) footprint += `\nFiles our patches changed that no longer differ from upstream (the customization is now redundant or was dropped): ${missing.slice(0, 20).map((p) => `\`${p}\``).join(', ')}.\n`
 
+const handDecisions = state === 'agent' || state === 'manual' || otherConflicts.length > 0
 const checklist = [
   state === 'manual' ? 'Resolve the files listed above locally (see "How to resolve"), delete `custom/UNRESOLVED-MERGE.txt`, push, mark the PR ready and rename it.' : null,
-  'Read the "Merge resolution diff" section: it is exactly what the resolution decided (the merge commit against git\'s own auto-merge).',
+  handDecisions ? 'Read the "Merge resolution diff" section: it is exactly what the resolution decided (the merge commit against git\'s own auto-merge).' : null,
   'Check the customization footprint table: a changed row means upstream moved code our patches sit on.',
   failedGates.length > 0 ? 'Look at every failed gate output before anything else.' : 'Gates are green; they are scripts, not opinions.',
   agentResolved.length > 0 ? 'Read the agent-resolved files in full. A model decided those hunks.' : null,
-  'Run the app from this branch if a conflicted file is user-visible (sidebar, Activity, shortcuts).',
+  handDecisions ? 'Run the app from this branch if a conflicted file is user-visible (sidebar, Activity, shortcuts).' : null,
   'Merge with a MERGE COMMIT. After the merge the release workflow publishes a build.'
 ].filter(Boolean).map((l) => `- [ ] ${l}`).join('\n')
 
