@@ -9157,6 +9157,10 @@
           "workerAutoReleaseDescription": "Closes a worker's terminal or chat 2 minutes after it finishes, unless you choose Keep open. If it starts working again, the 2 minutes start over when it finishes.",
           "workerAutoReleaseKeywordClose": "close",
           "workerAutoReleaseKeywordRelease": "release",
+          "coordinatorApprovalsTitle": "Let coordinators approve worker permission prompts",
+          "coordinatorApprovalsDescription": "A coordinator agent can allow a worker's permission prompt, with a reason. You still see Allow and Deny, and the first answer wins. Applies to workers running on this computer.",
+          "coordinatorApprovalsKeywordApprove": "approve",
+          "coordinatorApprovalsKeywordPermission": "permission",
           "7bc082f4de": "Copy install command",
           "8a94078d05": "Agent orchestration"
         },
@@ -14264,6 +14268,21 @@
             "buckets": "Gemini model buckets",
             "optional": "dropped when a placeholder inside is empty"
           }
+        },
+        "RepositoryRemoveProjectSection": {
+          "filesNoteVmRecipe": "VM recipes decide whether their environments and files are deleted.",
+          "filesNote": "Files stay on disk, so you can add it again later.",
+          "hostCount_one": "{{count}} host",
+          "hostCount_other": "{{count}} hosts",
+          "checkoutCount_one": "{{count}} checkout",
+          "checkoutCount_other": "{{count}} checkouts",
+          "removeButton": "Remove…",
+          "dialogTitle": "Remove {{name}}?",
+          "terminalWarning_one": "{{count}} open terminal in this project will be closed.",
+          "terminalWarning_other": "{{count}} open terminals in this project will be closed.",
+          "cancel": "Cancel",
+          "confirm": "Remove",
+          "unknownHost": "Unknown host"
         }
       },
       "right": {
@@ -20987,6 +21006,7 @@
         "allowedByYou": "Allowed by you",
         "deniedByYou": "Denied by you",
         "deniedByCoordinator": "Denied by coordinator",
+        "allowedByCoordinator": "Allowed by coordinator: {{reason}}",
         "allowedInTerminal": "Allowed in the worker's terminal",
         "deniedInTerminal": "Denied in the worker's terminal",
         "answeredInChat": "Answered in the worker's chat",
@@ -21068,6 +21088,8 @@
         "goToAgent": "Go to agent",
         "messageFromCoordinator": "Message from coordinator",
         "startedWorker": "Started worker",
+        "reopenedWorker": "Reopened worker",
+        "sentFollowUpToWorker": "Sent follow-up to worker",
         "handedOffToAgent": "Handed off to agent",
         "startedAgent": "Started agent",
         "taskFromCoordinator": "Task from coordinator",
@@ -21181,6 +21203,7 @@
         "reconnect": "Reconnect",
         "stopped": "{{distro}} is stopped",
         "start": "Start",
+        "connecting": "Connecting to {{distro}}…",
         "startFailed": "Couldn’t start {{distro}}. Check it in Settings → Remote Orca Servers.",
         "unverifiable": "Orca couldn't check whether {{distro}} is running",
         "startToSend": "Start {{distro}} to send.",
