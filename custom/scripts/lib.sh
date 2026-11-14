@@ -66,7 +66,7 @@ fetch_upstream() {
 # Does the file path match one of the "our side always wins" patterns?
 our_wins_path() {
   case "$1" in
-    custom/*|.github/pull_request_template.md|CUSTOM.md) return 0 ;;
+    custom/*|.github/pull_request_template.md|CUSTOM.md|CLAUDE.md|.claude/skills/fork-*) return 0 ;;
     .github/workflows/custom-*) return 0 ;;
   esac
   return 1

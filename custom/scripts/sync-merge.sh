@@ -116,7 +116,7 @@ parent is the previous BASE tag $old_tag. It exists only so that git uses $old_t
   # (b) our-wins paths: restore exactly our side (and drop anything upstream added there).
   local restored="$SYNC_OUT/our-wins-restored.txt" keep_list
   : > "$restored"
-  keep_list="$(git ls-tree -r --name-only "$BASE_SHA" -- custom .github/pull_request_template.md CUSTOM.md .github/workflows | while IFS= read -r p; do our_wins_path "$p" && printf '%s\n' "$p"; done || true)"
+  keep_list="$(git ls-tree -r --name-only "$BASE_SHA" -- custom .github/pull_request_template.md CUSTOM.md CLAUDE.md .claude/skills .github/workflows | while IFS= read -r p; do our_wins_path "$p" && printf '%s\n' "$p"; done || true)"
   while IFS= read -r p; do
     [ -n "$p" ] || continue
     if [ -n "$(git ls-files -u -- "$p")" ] || ! git diff --cached --quiet "$BASE_SHA" -- "$p"; then
@@ -127,7 +127,7 @@ parent is the previous BASE tag $old_tag. It exists only so that git uses $old_t
   while IFS= read -r p; do
     [ -n "$p" ] || continue
     if our_wins_path "$p" && ! grep -qxF -- "$p" <<<"$keep_list"; then git rm --sparse -q -f -- "$p"; printf '%s\n' "$p" >> "$restored"; fi
-  done < <(git ls-files -- custom .github/pull_request_template.md CUSTOM.md | sort -u)
+  done < <(git ls-files -- custom .github/pull_request_template.md CUSTOM.md CLAUDE.md .claude/skills | sort -u)
 
   # (c) the new base tag. Rehearsals against a branch or sha leave BASE alone.
   if [ "$TAG_IS_RELEASE" = true ]; then

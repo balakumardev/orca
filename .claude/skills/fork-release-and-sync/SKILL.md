@@ -1,0 +1,66 @@
+---
+name: fork-release-and-sync
+description: "Use when operating this fork's automation: reviewing or merging an upstream sync PR, resolving a '[needs manual merge]' PR, starting or checking a release, rehearsing the pipeline, handling secrets or environments, or debugging a failed workflow run."
+---
+
+# Operate the sync and release automation
+
+All commands use `--repo balakumardev/orca`. In a fork `gh` otherwise targets the parent repo stablyai/orca, which you must never write to.
+
+## The upstream sync (`custom-sync.yml`)
+
+Runs every 3 hours (`23 */3 * * *`) and by hand. Inputs for a manual run: `ref` (an upstream tag, branch or sha to rehearse with; empty means the newest stable release), `base_branch` (default `custom`) and `skip_agent`.
+
+Jobs: `detect`, `merge`, then either `gates0` (clean merge) or the model rounds `agent1 > gates1 > agent2 > gates2 > agent3 > gates3`, then `open-pr`.
+
+- `detect` picks the HIGHEST semver tag matching `^v[0-9]+\.[0-9]+\.[0-9]+$` that is not a draft or prerelease (upstream tags are not ancestors of each other, so publication order says nothing). It stops quietly when that tag is not newer than `custom/BASE` or when a PR in ANY state already exists for `sync/<tag>`: an open one is the answer, a merged one means `custom/BASE` moved on, and a closed one means "no" and is never reopened by the automation (reopen it by hand if you change your mind). Open sync PRs for older tags are closed and their branches deleted only after the new PR exists.
+- `merge` merges with an explicit base. Upstream release tags are not on one lineage, so a plain `git merge <tag>` conflicts in dozens of files nobody touched. The script merges a synthetic "link" commit whose tree is the new tag and whose parents are the new tag and the old base tag, which makes the old base the merge base: only OUR changes are replayed. Scripted steps follow: delete upstream's workflows and `dependabot.yml`; keep our side for our-wins paths (`custom/**`, `.github/workflows/custom-*`, `.github/pull_request_template.md`, `CLAUDE.md`, `.claude/skills/fork-*`); write the new tag to `custom/BASE`; take upstream's version of any conflicted file that no customization touches and of generated files; regenerate `pnpm-lock.yaml` with `--lockfile-only --ignore-scripts --ignore-pnpmfile` (then restore the pnpmfile checksum line, so frozen installs still pass).
+- The model rounds (`custom-agent.yml`) only run for conflicts in files our customizations own. Round 1 resolves with the cheap model, round 2 repairs using the real gate output, round 3 retries with the stronger model. The job has a read-only token, the key is in the environment of one step only, no repository code runs before that step, scripts enforce which files may change, and a key-leak scan discards any round whose output contains the key. The model never runs a gate and its text is never treated as a verification result.
+- Gates (`custom/scripts/run-gates.sh`, shared with `custom-pr-gates.yml`): `hygiene lint-caps install typecheck lint format unit unit-related localization e2e-ratchet e2e`. Gate scope: on a sync, the files our customizations touch; on a PR, the files the PR changes plus our own files. The e2e gate runs the Playwright specs inside that scope (and skips when there are none), on macOS because one pixel-layout assertion differs on Linux. Every result is a real exit code.
+- `open-pr` is the only job with write access. It pushes only `sync/<tag>` (or `sync-test/*` for rehearsals), never force-pushes and runs no repository code.
+
+### PR kinds
+
+- Normal: title `Sync upstream <tag>`, labels `upstream-sync` (plus `agent-resolved`, `needs-review`).
+- `[gates failed]`: a draft; the body says which gates failed.
+- `[needs manual merge]`: a draft with conflict markers committed and `custom/UNRESOLVED-MERGE.txt` listing the files. Resolve it: `gh pr checkout <n> --repo balakumardev/orca`, edit the listed files until no `<<<<<<<`, `|||||||`, `=======` or `>>>>>>>` line remains, `git rm custom/UNRESOLVED-MERGE.txt`, commit, push, then mark the PR ready and drop the prefix from the title.
+- `[test]`: a rehearsal draft. Close it and delete its branch.
+
+PRs opened with the workflow token do not trigger `pull_request` workflows, so the job posts commit statuses named `gates / static`, `gates / e2e` and `gates / result` from the real gate results.
+
+### Review checklist for a sync PR
+
+Read the gate table; the conflict table (which file, resolved by script, by the model or left for you); the `--remerge-diff` block (what the resolution decided); the caveats (files within 10 lines of a lint cap, gates skipped, out-of-scope edits the script reverted); and the model's own report, which is labelled unverified. Look at the sidebar by eye: no test covers where a new upstream section lands. A CAUTION block about a key leak means rotate `DEEPINFRA_API_KEY`. **Merge with a merge commit.** Squash and rebase are disabled because they would drop the upstream merge base.
+
+### Rehearse without touching `custom`
+
+```
+gh api -X POST repos/balakumardev/orca/git/refs -f ref=refs/heads/test/sync-base -f sha=$(gh api repos/balakumardev/orca/commits/custom --jq .sha)
+gh workflow run custom-sync.yml --repo balakumardev/orca --ref custom -f ref=<upstream ref> -f base_branch=test/sync-base
+```
+
+Use `-f skip_agent=true` to skip the model. The model job (environment `agent`) only runs from `custom`; from a feature branch it is skipped and the PR opens as `[needs manual merge]`. Afterwards close the `[test]` PR and delete the `sync-test/*` branches and `test/sync-base`.
+
+## Releases (`custom-release.yml`)
+
+Dispatch: `gh workflow run custom-release.yml --repo balakumardev/orca --ref custom -f sign=true -f notarize=true -f publish=false`. Inputs: `sign` (default true), `notarize` (default true, needs sign), `publish` (default false, needs sign). Check the `on:` block to see whether a push to `custom` also starts it.
+
+- Jobs: `plan` (version) > `build` (macos-15 arm64; `environment: release` only when `sign=true`) > `publish` (only when `publish=true`).
+- Version: base tag from `custom/BASE`; `N` is the highest `N` among existing `v*+custom.*` release tags (global across bases) plus one, minimum 4. Tag `v<base>+custom.<N>`; asset `Orca-<version>-arm64-mac.zip` plus `<asset>.sha256` and `manifest.json` (`version, tag, base, upstream_commit, built_from_sha, signed, team_id, notarized, asset, sha256, size`). Read asset URLs from `gh release view --json assets`; never assemble them from strings.
+- A feature branch can only run `sign=false` (no environment, so no secrets); a signed run only works from `custom`. Measured on hosted runners: about 7 min unsigned, 9 min signed, about 3 more for notarization. Notarization waits up to 40 minutes (`NOTARY_TIMEOUT`); exit code 3 means Apple still had the submission "In Progress" (the ticket stays valid: check `xcrun notarytool info <id>`, do not resubmit).
+- Verify a build before publishing: `gh run download <run> --repo balakumardev/orca -n orca-release`, then `shasum -a 256 -c`, `ditto -x -k`, `codesign --verify --deep --strict`, `xcrun stapler validate`, `spctl -a -vvv -t exec` (expect `source=Notarized Developer ID`).
+- Roll back: `gh release delete <tag> --cleanup-tag --yes`. `N` is computed from existing release tags, so the next release reuses a deleted `N`: if anyone could have installed it, ship a higher `N` instead of deleting.
+
+## Secrets and environments
+
+Environment `agent` (only the `custom` branch may deploy): secret `DEEPINFRA_API_KEY`. Environment `release` (only `custom`): secrets `COOLSOLVE_CERT_P12` (base64 of the Developer ID Application `.p12`), `COOLSOLVE_CERT_PASSWORD`, `APP_STORE_CONNECT_API_KEY_P8` (base64 of the `.p8`); variables `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`. The notary key must be a least-privilege team key (role Developer), never an Admin key: this repo is public and runs dependency code. Set with `gh secret set <NAME> --env <env> --repo balakumardev/orca` (value on stdin) and `gh variable set`. Never print a value; list names only.
+
+## Traps that cost time
+
+- A called (reusable) workflow only receives a secret the caller passes BY NAME (`secrets: NAME: ${{ secrets.NAME }}`), even if it exists only in the called job's environment; the calling job cannot declare `environment`. Never use `secrets: inherit` here.
+- `workflow_dispatch` needs the workflow file on the default branch; `--ref <branch>` then runs that branch's copy.
+- Scheduled workflows in a public repo are disabled by GitHub after 60 days without repository activity: if the sync goes quiet, re-enable it in the Actions tab.
+- `+` survives in tags, release URLs, `gh release download` and asset names. A draft release has no git tag until it is published.
+- Do not register self-hosted runners on this public repo (a fork PR could run code on them); hosted macOS runners are free for public repos.
+- Where to look when a run fails: the job logs, and the artifacts `round-0` / `round-N` (the candidate plus `sync-facts.json`), `gates-<round or pr>-static` and `gates-<round or pr>-e2e`, `e2e-results-*`, `sync-review`, `orca-release` and `build-diagnostics`.
+- Branch protection on `custom` (check the repo settings for the current state): a pull request is required, force-push and deletion are blocked, and the required status check `gates / result` may not be enforced yet. Repository admins are not forced to follow it, so the rule "open a PR" is a convention you keep, not only a setting.
