@@ -11,7 +11,7 @@ tag="${1:?usage: resolve-base-commit.sh <tag> [owner/repo]}"
 repo="${2:-stablyai/orca}"
 
 # Tags look like vMAJOR.MINOR.PATCH; refuse anything else before it reaches an API path.
-if ! printf '%s' "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+if ! grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' <<<"$tag"; then
   echo "resolve-base-commit: unexpected tag '$tag'" >&2
   exit 1
 fi
@@ -33,7 +33,7 @@ if [ "$type" != "commit" ]; then
   echo "resolve-base-commit: $tag resolves to a $type, not a commit" >&2
   exit 1
 fi
-if ! printf '%s' "$sha" | grep -Eq '^[0-9a-f]{40}$'; then
+if ! grep -Eq '^[0-9a-f]{40}$' <<<"$sha"; then
   echo "resolve-base-commit: '$sha' is not a 40-hex commit sha" >&2
   exit 1
 fi

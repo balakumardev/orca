@@ -86,8 +86,9 @@ if [ "$count" -gt 1 ]; then
   echo "::warning title=Several Developer ID identities::$count valid identities in the .p12; using the first one."
 fi
 identity_hash="$(printf '%s\n' "$matches" | awk 'NR==1{print $2}')"
-if ! printf '%s' "$identity_hash" | grep -Eq '^[0-9A-F]{40}$'; then
-  echo "import-signing-cert: could not read a SHA-1 from: $(printf '%s' "$matches" | head -n 1 | sed 's/[0-9A-F]\{40\}/<hash>/')" >&2
+if ! grep -Eq '^[0-9A-F]{40}$' <<<"$identity_hash"; then
+  first_match="${matches%%$'\n'*}"
+  echo "import-signing-cert: could not read a SHA-1 from: $(sed 's/[0-9A-F]\{40\}/<hash>/' <<<"$first_match")" >&2
   exit 1
 fi
 echo "::add-mask::$identity_hash"

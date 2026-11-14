@@ -60,7 +60,7 @@ esac
 }
 base="$(head -n 1 "$base_file" | tr -d '[:space:]')"
 # Plain vX.Y.Z only: a hyphen in the version would make Orca's release-channel code treat the build as an rc.
-if ! printf '%s' "$base" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+if ! grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' <<<"$base"; then
   echo "next-version: base tag '$base' in $base_file is not vMAJOR.MINOR.PATCH" >&2
   exit 1
 fi
@@ -79,7 +79,7 @@ tags="$(list_tags)"
 max=-1
 while IFS= read -r tag; do
   [ -n "$tag" ] || continue
-  if printf '%s' "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+\+custom\.[0-9]+$'; then
+  if grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+\+custom\.[0-9]+$' <<<"$tag"; then
     n="${tag##*+custom.}"
     # Strip leading zeros so bash does not read "08" as octal.
     n="$((10#$n))"

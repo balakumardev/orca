@@ -74,7 +74,7 @@ cmd_prepare() {
       grep -qxF -- "- $p" <<<"$(printf '%s\n' "$files" | sed -E 's/ \(.*//')" || files="$files
 - $p (owned by a customization)"
     done < "$SYNC_OUT/our-files.txt"
-    files="$(printf '%s\n' "$files" | grep -v '^$')"
+    files="$(printf '%s\n' "$files" | sed '/^$/d')" # not grep -v: it exits 1 when nothing is left, and set -e would end the step
   fi
   manual="$(jq -r '[.conflicts[] | select((.resolution | startswith("scripted") | not) and .kind != "content" and .kind != "both-added") | "- \(.path) (\(.kind))"] | if length == 0 then "" else "NOT YOURS (modify/delete conflicts need a human; leave these files exactly as they are):\n" + join("\n") end' "$SYNC_OUT/sync-facts.json")"
   nfiles="$(printf '%s\n' "$files" | grep -c . || true)"
@@ -87,7 +87,7 @@ cmd_prepare() {
     [ -z "${PREV_GATES:-}" ] || while IFS= read -r p; do gate_files+=("$p"); done < <(find "$PREV_GATES" -name gates.json 2>/dev/null | sort)
     if [ "${#gate_files[@]}" -gt 0 ] && [ -n "$(jq -r '.gates[] | select(.status == "fail") | .id' "${gate_files[@]}" 2>/dev/null)" ]; then
       check="$check
-$(jq -r '.gates[] | select(.status == "fail") | "### \(.name) (exit \(.exit_code))\n\(.output_tail)"' "${gate_files[@]}" | head -c 7000)"
+$(jq -r '.gates[] | select(.status == "fail") | "### \(.name) (exit \(.exit_code))\n\(.output_tail)"' "${gate_files[@]}" | trunc_bytes 7000)"
     else
       check="$check
 (no check output; the previous attempt left these files unresolved: $(jq -r '(.unresolved_files // []) | join(", ")' "${prev_facts:-/dev/null}" 2>/dev/null))"
@@ -95,8 +95,9 @@ $(jq -r '.gates[] | select(.status == "fail") | "### \(.name) (exit \(.exit_code
   fi
 
   local customizations
-  # Only commits that change product code: fork scaffolding (custom/, .github/) is none of the model's business.
-  customizations="$(git log --no-merges --grep='^Orca-Custom-Patch:' --format='- %h: %s%n%b' "$(facts_get .base_sha)" -- . ':(exclude)custom' ':(exclude).github' ':(exclude)CUSTOM.md' | head -c 6000)"
+  # Only commits that change product code: fork scaffolding (custom/, .github/, CLAUDE.md, our skills) is none of the model's
+  # business (customization_log in lib.sh). trunc_bytes, not head -c: a closed pipe would kill the log under pipefail.
+  customizations="$(customization_log "$(facts_get .base_sha)" | trunc_bytes 6000)"
 
   local prompt="$SYNC_OUT/agent-prompt.txt" sections
   if [ "$MODE" = repair ]; then sections="all repair"; else sections="all merge"; fi
@@ -163,7 +164,7 @@ names_with_key() { # DIR
 
 # Only ever print a path that is itself free of the key.
 safe_name() {
-  if printf '%s\n' "$1" | grep -q -F -f <(leak_needles "$DEEPINFRA_API_KEY"); then printf '<name contained the key>'; else printf '%s' "$1"; fi
+  if grep -q -F -f <(leak_needles "$DEEPINFRA_API_KEY") <<<"$1"; then printf '<name contained the key>'; else printf '%s' "$1"; fi
 }
 
 cmd_run() {
@@ -278,7 +279,9 @@ cmd_finish() {
     stop="$(jq -r '(.subtype // .stop_reason // "")' "$out")"
     errflag="$(jq -r '(.is_error // false)' "$out")"
     # Untrusted text: keep printable characters, bound the size, and drop anything that could close a markdown fence.
-    report="$(jq -r '(.result // "")' "$out" | LC_ALL=C tr -d '\000-\010\013\014\016-\037' | grep -v -F '~~~~' | head -c 6000 || true)"
+    # grep -v exits 1 when every line was dropped (an empty report is fine); only that status is tolerated. Any other failure
+    # of the pipeline leaves the report empty. trunc_bytes lets every stage finish, so no stage dies of SIGPIPE.
+    report="$(jq -r '(.result // "")' "$out" | LC_ALL=C tr -d '\000-\010\013\014\016-\037' | { grep -v -F '~~~~' || [ $? -eq 1 ]; } | trunc_bytes 6000)" || report=""
   fi
   # A round that leaked the key has no report: nothing the model wrote is shown, in any encoding.
   if [ "$leaks" -gt 0 ]; then report="[report withheld: this round's output contained the API key]"; fi
@@ -299,7 +302,7 @@ cmd_finish() {
   # make-pr-body.mjs words the same reasons for the PR; keep the two in step.
   if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
     local why=ok stop_word rc
-    stop_word="$(printf '%s' "$stop" | tr -cd 'A-Za-z0-9_.-' | head -c 40)"
+    stop_word="$(printf '%s' "$stop" | tr -cd 'A-Za-z0-9_.-' | trunc_bytes 40)"
     rc="$(jq -r '.exit_code // -1' <<<"$run")"
     if [ "$leaks" -gt 0 ]; then why="the output contained the API key; edits discarded"
     elif [ "$stop_word" = error_max_turns ]; then why="ran out of turns; edits kept; gates decide"

@@ -136,11 +136,11 @@ round() {
   git -C "$repo" checkout -q custom
   printf '%s' "$stub" > "$tmp/bin/mode"
   agent_env "$name" "$mode" "$n" "$prev"
-  (
-    cd "$repo"
-    env "${AGENT_ENV[@]}" bash "$scripts/agent-round.sh" prepare > "$tmp/$name.prepare.log" 2>&1
-    env "${AGENT_ENV[@]}" DEEPINFRA_API_KEY="$FAKE_KEY" bash "$scripts/agent-round.sh" run > "$tmp/$name.run.log" 2>&1
-    env "${AGENT_ENV[@]}" bash "$scripts/agent-round.sh" finish > "$tmp/$name.finish.log" 2>&1
+  # An && chain: this subshell sits in an `||` list, where `set -e` is off, so a step that died would not stop the next one.
+  ( cd "$repo" \
+    && env "${AGENT_ENV[@]}" bash "$scripts/agent-round.sh" prepare > "$tmp/$name.prepare.log" 2>&1 \
+    && env "${AGENT_ENV[@]}" DEEPINFRA_API_KEY="$FAKE_KEY" bash "$scripts/agent-round.sh" run > "$tmp/$name.run.log" 2>&1 \
+    && env "${AGENT_ENV[@]}" bash "$scripts/agent-round.sh" finish > "$tmp/$name.finish.log" 2>&1
   ) || { bad "round $name ran to the end"; sed 's/^/    /' "$tmp/$name".*.log | tail -n 40; return 1; }
   ok "round $name ran to the end"
 }

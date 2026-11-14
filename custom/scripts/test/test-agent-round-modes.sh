@@ -77,11 +77,11 @@ round() {
     UPSTREAM_SHA="$UPSTREAM_SHA" BASE_SHA="$BASE_SHA" BASE_BRANCH=custom BRANCH="sync/test-$name" LABEL=test TAG=v1.0.1 IS_TEST=true TAG_IS_RELEASE=false)
   [ -z "$prev" ] || env_+=(PREV_DIR="$tmp/$prev.out")
   mkdir -p "$tmp/$name.runner"; : > "$tmp/$name.summary"
-  (
-    cd "$repo"
-    env "${env_[@]}" bash "$scripts/agent-round.sh" prepare > "$tmp/$name.prepare.log" 2>&1
-    env "${env_[@]}" DEEPINFRA_API_KEY="$FAKE_KEY" bash "$scripts/agent-round.sh" run > "$tmp/$name.run.log" 2>&1
-    env "${env_[@]}" GITHUB_STEP_SUMMARY="$tmp/$name.summary" bash "$scripts/agent-round.sh" finish > "$tmp/$name.finish.log" 2>&1
+  # An && chain: this subshell sits in an `||` list, where `set -e` is off, so a step that died would not stop the next one.
+  ( cd "$repo" \
+    && env "${env_[@]}" bash "$scripts/agent-round.sh" prepare > "$tmp/$name.prepare.log" 2>&1 \
+    && env "${env_[@]}" DEEPINFRA_API_KEY="$FAKE_KEY" bash "$scripts/agent-round.sh" run > "$tmp/$name.run.log" 2>&1 \
+    && env "${env_[@]}" GITHUB_STEP_SUMMARY="$tmp/$name.summary" bash "$scripts/agent-round.sh" finish > "$tmp/$name.finish.log" 2>&1
   ) || { bad "round $name ran to the end"; sed 's/^/    /' "$tmp/$name".*.log | tail -n 30; return 1; }
   ok "round $name ran to the end"
 }

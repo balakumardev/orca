@@ -63,13 +63,45 @@ fetch_upstream() {
   done
 }
 
+# Fork scaffolding: paths that are not product code, that upstream never owns, and where our side always wins a merge.
+# ONE list, two uses, so they cannot drift apart: our_wins_path matches a file path against it with `case`, and
+# customization_log_pathspecs turns it into git pathspecs (git's default pathspec matching lets `*` match `/`, like `case` does).
+# test-scaffolding-paths.sh asserts that the two agree.
+OUR_WINS_PATTERNS=('custom/*' '.github/pull_request_template.md' '.github/workflows/custom-*' 'CUSTOM.md' 'CLAUDE.md' '.claude/skills/fork-*')
+
 # Does the file path match one of the "our side always wins" patterns?
 our_wins_path() {
-  case "$1" in
-    custom/*|.github/pull_request_template.md|CUSTOM.md|CLAUDE.md|.claude/skills/fork-*) return 0 ;;
-    .github/workflows/custom-*) return 0 ;;
-  esac
+  local pat
+  for pat in "${OUR_WINS_PATTERNS[@]}"; do
+    # shellcheck disable=SC2254 # the pattern is meant to be a glob
+    case "$1" in $pat) return 0 ;; esac
+  done
   return 1
+}
+
+# Pathspecs (one per line) that keep fork scaffolding out of a git log of our customization commits: every our-wins pattern,
+# plus all of .github (fork CI, and the upstream CI the fork drops). Pass them after `-- .` to `git log`.
+customization_log_pathspecs() {
+  printf ':(exclude)%s\n' "${OUR_WINS_PATTERNS[@]}" '.github/*'
+}
+
+# customization_log BASE_SHA: the customization commits (trailer Orca-Custom-Patch) reachable from BASE_SHA that change
+# product code, newest first, as "- <hash>: <subject>" plus the body. Commits that only touch fork scaffolding are left out.
+customization_log() {
+  local -a excludes=()
+  local x
+  while IFS= read -r x; do excludes+=("$x"); done < <(customization_log_pathspecs)
+  git log --no-merges --grep='^Orca-Custom-Patch:' --format='- %h: %s%n%b' "$1" -- . "${excludes[@]}"
+}
+
+# trunc_bytes N: copy at most the first N bytes of stdin to stdout and READ ALL of stdin. Use it instead of `| head -c N` in
+# a script that runs with `set -o pipefail`: `head` exits once it has its N bytes, the producer then writes into a closed
+# pipe and dies of SIGPIPE, pipefail turns that into exit 141, and `set -e` ends the script (the sync's model step died of
+# exactly this when the customization log passed 6000 bytes). Here the producer always finishes, so a pipeline's status is
+# the producer's real one. Bytes, not characters (a multibyte character can be cut), like head -c.
+trunc_bytes() {
+  head -c "$1"
+  cat > /dev/null
 }
 
 # Workflow files and dependabot config that upstream owns and the fork must not carry.
@@ -125,7 +157,8 @@ generated_path() {
 regen_lockfile() {
   pnpm install --lockfile-only --ignore-scripts --ignore-pnpmfile --no-frozen-lockfile >&2
   local pf sum
-  pf="$(sed -n -E "s/^pnpmfile:[[:space:]]*[\"']?([^\"'#[:space:]]+).*/\\1/p" pnpm-workspace.yaml 2>/dev/null | head -n 1)"
+  pf="$(sed -n -E "s/^pnpmfile:[[:space:]]*[\"']?([^\"'#[:space:]]+).*/\\1/p" pnpm-workspace.yaml 2>/dev/null)"
+  pf="${pf%%$'\n'*}" # the first match; taken after sed has finished, so sed can never be cut off by a closed pipe
   [ -n "$pf" ] || pf=.pnpmfile.cjs
   [ -f "$pf" ] || return 0
   sum="sha256-$(openssl dgst -sha256 -binary "$pf" | base64 | tr -d '\n')"
