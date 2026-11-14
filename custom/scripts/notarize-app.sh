@@ -25,7 +25,8 @@ timeout="${NOTARY_TIMEOUT:-40m}"
 [ -d "$app" ] || { echo "notarize-app: $app is not a directory" >&2; exit 2; }
 [ -s "$ASC_KEY_PATH" ] || { echo "notarize-app: $ASC_KEY_PATH is missing or empty" >&2; exit 2; }
 
-work="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/orca-notary.XXXXXX")"
+tmp_base="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
+work="$(mktemp -d "${tmp_base%/}/orca-notary.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 zip_file="$work/Orca-notarize.zip"
 auth=(--key "$ASC_KEY_PATH" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER")

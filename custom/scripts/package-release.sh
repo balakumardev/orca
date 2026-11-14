@@ -54,7 +54,9 @@ size="$(stat -f%z "$zip_path")"
 echo "sha256 $hash, $size bytes"
 
 echo "== round trip: extract the zip and verify the copy"
-check_dir="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/orca-roundtrip.XXXXXX")"
+tmp_base="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
+# TMPDIR ends in a slash on macOS, and codesign does not cope with a "//" in a bundle path.
+check_dir="$(mktemp -d "${tmp_base%/}/orca-roundtrip.XXXXXX")"
 trap 'rm -rf "$check_dir"' EXIT
 ditto -x -k "$zip_path" "$check_dir"
 extracted="$check_dir/$(basename "$app")"

@@ -14,7 +14,9 @@
 # signing hands CSC_NAME to codesign, and a hash satisfies both (and is never ambiguous between certificates).
 #
 # This changes the user's keychain search list and default keychain, so it only runs on a CI runner unless
-# ORCA_SIGN_ALLOW_LOCAL=1 is set (use a throw-away HOME when testing locally). cleanup-signing.sh undoes all of it.
+# ORCA_SIGN_ALLOW_LOCAL=1 is set. Test hook: ORCA_SIGN_SKIP_SEARCH_LIST=1 leaves the search list and the default
+# keychain alone (the import, the key partition list and the identity lookup, which names the keychain, still run), which
+# is how this is exercised on a developer's Mac. cleanup-signing.sh undoes whatever was changed.
 set -euo pipefail
 
 : "${P12_BASE64:?P12_BASE64 is not set}"
@@ -35,9 +37,12 @@ if [ -e "$state" ]; then
 fi
 mkdir -p "$state"
 
-# Remember what to restore: the current user search list and default keychain.
-security list-keychains -d user | sed -E 's/^[[:space:]]*"//; s/"[[:space:]]*$//' >"$state/search-list.txt"
-security default-keychain -d user 2>/dev/null | sed -E 's/^[[:space:]]*"//; s/"[[:space:]]*$//' >"$state/default-keychain.txt" || true
+skip_search_list="${ORCA_SIGN_SKIP_SEARCH_LIST:-}"
+if [ "$skip_search_list" != "1" ]; then
+  # Remember what to restore: the current user search list and default keychain.
+  security list-keychains -d user | sed -E 's/^[[:space:]]*"//; s/"[[:space:]]*$//' >"$state/search-list.txt"
+  security default-keychain -d user 2>/dev/null | sed -E 's/^[[:space:]]*"//; s/"[[:space:]]*$//' >"$state/default-keychain.txt" || true
+fi
 
 keychain_password="$(openssl rand -hex 24)"
 echo "::add-mask::$keychain_password"
@@ -59,20 +64,22 @@ rm -f "$state/cert.p12"
 # Without this the first codesign call waits for a UI prompt that never comes.
 security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" >/dev/null
 
-# Search list: ours first, the existing ones after it (Apple's intermediate certificates live in the system keychain).
-existing=()
-while IFS= read -r entry; do
-  if [ -n "$entry" ]; then existing+=("$entry"); fi
-done <"$state/search-list.txt"
-security list-keychains -d user -s "$keychain" ${existing[@]+"${existing[@]}"}
-security default-keychain -d user -s "$keychain"
+if [ "$skip_search_list" != "1" ]; then
+  # Search list: ours first, the existing ones after it (Apple's intermediate certificates live in the system keychain).
+  existing=()
+  while IFS= read -r entry; do
+    if [ -n "$entry" ]; then existing+=("$entry"); fi
+  done <"$state/search-list.txt"
+  security list-keychains -d user -s "$keychain" ${existing[@]+"${existing[@]}"}
+  security default-keychain -d user -s "$keychain"
+fi
 
 identities="$(security find-identity -v -p codesigning "$keychain" || true)"
 matches="$(printf '%s\n' "$identities" | grep -F '"Developer ID Application:' || true)"
 count="$(printf '%s' "$matches" | grep -c . || true)"
 if [ "$count" -lt 1 ]; then
-  echo "::error title=No Developer ID identity::the imported .p12 has no valid 'Developer ID Application' identity (missing, expired or not trusted). Valid code-signing identities found:" >&2
-  printf '%s\n' "$identities" | sed -n 's/^ *[0-9]*) [0-9A-F]* /  /p' >&2
+  echo "::error title=No Developer ID identity::the imported .p12 has no valid 'Developer ID Application' identity (missing, expired or not trusted); every code-signing identity in it, with the reason, is listed above." >&2
+  security find-identity -p codesigning "$keychain" | sed -E 's/[0-9A-F]{40}/<sha1>/' >&2 || true
   exit 1
 fi
 if [ "$count" -gt 1 ]; then

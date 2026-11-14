@@ -43,7 +43,7 @@ base_version="${base#v}"
 patches="$(git log --reverse --format='%(trailers:key=Orca-Custom-Patch,valueonly,separator=%x2C)%x09%s' "$base..$head" |
   awk -F'\t' '$1 != "" && $1 !~ /^(fork|release)-/ { sub(/^[a-z]+(\([^)]*\))?!?: /, "", $2); print $1 "\t" $2 }')"
 
-echo "**Unofficial community build.** This is Orca ${base_version} from [stablyai/orca](https://github.com/stablyai/orca) with a few local changes, built and signed by the maintainer of this fork. It is not affiliated with or endorsed by Stably. It keeps the upstream bundle ID \`com.stablyai.orca\`, and the in-app updater is disabled in this build: updates come from new releases here."
+echo "**Unofficial community build.** This is Orca ${base_version} from [stablyai/orca](https://github.com/stablyai/orca) with a few local changes, built by GitHub Actions in this fork. It is not affiliated with or endorsed by Stably. It keeps the upstream bundle ID \`com.stablyai.orca\`, and the in-app updater is disabled in this build: updates come from new releases here."
 echo
 echo "## Upstream base"
 echo
