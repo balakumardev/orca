@@ -160,7 +160,7 @@ test.describe('Stacked sidebar', () => {
     await trigger.click()
     await popover.getByRole('button', { name: 'Automations', exact: true }).click()
     await expect(popover).toBeHidden()
-    await expect(orcaPage.getByRole('heading', { name: 'Automations', level: 1 })).toBeVisible()
+    await expect(orcaPage.getByRole('heading', { name: 'Automations-NOT-THERE', level: 1 })).toBeVisible()
   })
 
   test('hides the agent description until Show description is ticked and remembers the choice', async ({
