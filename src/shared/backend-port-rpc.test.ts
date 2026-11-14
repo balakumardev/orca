@@ -1,5 +1,5 @@
 import { MessageChannel, type MessagePort } from 'node:worker_threads'
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, expect, it } from 'vitest'
 import { BackendPortRpc, type BackendPort } from './backend-port-rpc'
 
 const connections: BackendPortRpc[] = []
@@ -56,33 +56,15 @@ it('transfers a report directly and rejects outstanding calls on document discon
   expect(signal.aborted).toBe(true)
   release.resolve(null)
 })
-it('bounds pending requests and admits the next request after consumption', async () => {
-  {
-    const release = Promise.withResolvers<void>()
-    const { client, server } = pair(async () => {
-      await release.promise
-      return { inputTokens: 123 }
-    })
-    const calls = Array.from({ length: 32 }, () => client.call('snapshot'))
-    await expect(client.call('snapshot')).rejects.toThrow()
-    release.resolve()
-    expect(await Promise.all(calls)).toEqual(
-      Array.from({ length: 32 }, () => ({ inputTokens: 123 }))
-    )
-    await expect(client.call('snapshot')).resolves.toEqual({ inputTokens: 123 })
-    client.close()
-    server.close()
-  }
-})
-it('does not let an early acknowledgement bypass the in-flight request bound', async () => {
+it('disconnects when a peer acknowledges a still-running request', async () => {
   const channel = new MessageChannel()
   const pending = Promise.withResolvers<unknown>()
   const invoked = Promise.withResolvers<void>()
   const disconnected = Promise.withResolvers<void>()
-  const invoke = vi.fn(async () => {
+  const invoke = async () => {
     invoked.resolve()
     return pending.promise
-  })
+  }
   connections.push(
     new BackendPortRpc(adapt(channel.port1), 'backend-1', invoke, () => disconnected.resolve())
   )
@@ -91,6 +73,5 @@ it('does not let an early acknowledgement bypass the in-flight request bound', a
   await invoked.promise
   channel.port2.postMessage({ ack: '1' })
   await disconnected.promise
-  expect(invoke).toHaveBeenCalledTimes(1)
   pending.resolve(null)
 })

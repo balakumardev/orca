@@ -6,7 +6,7 @@ import {
 import type { AgentStatusEntry } from '../../../../shared/agent-status/contracts/agent-status-types'
 import { parsePaneKey } from '../../../../shared/workspace-layout/stable-pane-id'
 import type { TerminalLayoutSnapshot } from '../../../../shared/workspace-layout/terminal-tab-types'
-import { resolveAgentRowPaneLiveTitle } from '../dashboard/agent-row-pane-live-title'
+import { resolveAgentRowPaneLiveTitle } from '../dashboard/rows/agent-row-pane-live-title'
 import type {
   ActivityEvent,
   ActivityLiveAgentSnapshot,
