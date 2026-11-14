@@ -62,14 +62,15 @@ echo "== codesign --verify --deep --strict"
 codesign --verify --deep --strict --verbose=1 "$app" || fail "codesign verification failed"
 
 details="$(codesign -dv --verbose=4 "$app" 2>&1)"
-team_id="$(printf '%s\n' "$details" | sed -n 's/^TeamIdentifier=//p' | head -n 1)"
-signature="$(printf '%s\n' "$details" | sed -n 's/^Signature=//p' | head -n 1)"
-flags="$(printf '%s\n' "$details" | sed -n 's/^CodeDirectory .*flags=\(0x[0-9a-f]*\)(\(.*\)) .*/\1 \2/p' | head -n 1)"
+# First match of each; taken after sed has read everything (a `| head -n 1` after sed could cut it off under pipefail).
+team_id="$(sed -n 's/^TeamIdentifier=//p' <<<"$details")"; team_id="${team_id%%$'\n'*}"
+signature="$(sed -n 's/^Signature=//p' <<<"$details")"; signature="${signature%%$'\n'*}"
+flags="$(sed -n 's/^CodeDirectory .*flags=\(0x[0-9a-f]*\)(\(.*\)) .*/\1 \2/p' <<<"$details")"; flags="${flags%%$'\n'*}"
 echo "== signature"
-printf '%s\n' "$details" | grep -E '^(Identifier|Format|Authority|TeamIdentifier|Signature|Timestamp|CodeDirectory)' || true
+grep -E '^(Identifier|Format|Authority|TeamIdentifier|Signature|Timestamp|CodeDirectory)' <<<"$details" || true
 
 # codesign prints "Signature=adhoc" only for ad-hoc seals; a certificate signature has no such line.
-if [ -z "$signature" ] && printf '%s\n' "$details" | grep -q '^Authority='; then
+if [ -z "$signature" ] && grep -q '^Authority=' <<<"$details"; then
   signature="certificate"
 fi
 
@@ -83,10 +84,10 @@ case "$mode" in
     ;;
   signed | notarized)
     [ "$signature" != "adhoc" ] || fail "the app is ad-hoc signed, not Developer ID signed"
-    printf '%s\n' "$details" | grep -q '^Authority=Developer ID Application:' || fail "the signing authority is not a Developer ID Application certificate"
+    grep -q '^Authority=Developer ID Application:' <<<"$details" || fail "the signing authority is not a Developer ID Application certificate"
     [ "$team_id" = "$team" ] || fail "TeamIdentifier is '$team_id', expected '$team'"
     [ "$hardened" = "true" ] || fail "hardened runtime is not enabled (flags: ${flags:-none}); notarization would be rejected"
-    printf '%s\n' "$details" | grep -q '^Timestamp=' || fail "the signature carries no secure timestamp; notarization would be rejected"
+    grep -q '^Timestamp=' <<<"$details" || fail "the signature carries no secure timestamp; notarization would be rejected"
     ;;
 esac
 
@@ -96,8 +97,8 @@ printf '%s\n' "$spctl_out"
 if [ "$mode" = "notarized" ]; then
   echo "== stapler validate"
   xcrun stapler validate "$app" || fail "no valid notarization ticket stapled to the app"
-  printf '%s\n' "$spctl_out" | grep -q 'accepted' || fail "spctl did not accept the app"
-  printf '%s\n' "$spctl_out" | grep -q 'source=Notarized Developer ID' || fail "spctl accepted the app, but not as Notarized Developer ID"
+  grep -q 'accepted' <<<"$spctl_out" || fail "spctl did not accept the app"
+  grep -q 'source=Notarized Developer ID' <<<"$spctl_out" || fail "spctl accepted the app, but not as Notarized Developer ID"
 elif [ "$mode" = "signed" ]; then
   # Informational: a signed-but-not-notarized build is expected to be rejected by Gatekeeper.
   echo "(signed, not notarized: Gatekeeper rejection above is expected)"

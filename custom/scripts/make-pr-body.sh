@@ -25,7 +25,10 @@ if [ -n "$paths" ] && [ "$(fj '.conflicts | length')" -gt 0 ]; then
   git show --remerge-diff --format= "$merge_sha" -- "${path_args[@]}" > "$PR_OUT/raw/remerge.patch" 2>"$PR_OUT/raw/remerge.err" \
     || warn "restricted remerge-diff failed: $(head -c 300 "$PR_OUT/raw/remerge.err")"
 fi
-git show --remerge-diff --format= "$merge_sha" 2>/dev/null | head -c 20000000 > "$PR_OUT/full-remerge-diff.patch" || true
+# The full diff is an optional artifact: capped at 20 MB (trunc_bytes lets git finish, so a bigger diff is not a SIGPIPE), and a
+# failure to produce it is a warning, not the end of the PR.
+git show --remerge-diff --format= "$merge_sha" 2>/dev/null | trunc_bytes 20000000 > "$PR_OUT/full-remerge-diff.patch" \
+  || warn "the full remerge diff could not be produced; the PR has no full-diff artifact"
 
 # 2. Footprint of our customization: numstat on the old base vs the new tag, restricted to code files we own.
 grep -v -E '^(\.github/|custom/)' "$OUR_FILES" > "$PR_OUT/raw/footprint-paths.txt" || true
