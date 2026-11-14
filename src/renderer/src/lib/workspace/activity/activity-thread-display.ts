@@ -3,10 +3,17 @@ import type {
   AgentStatusEntry,
   AgentStatusState
 } from '../../../../../shared/agent-status/contracts/agent-status-types'
+<<<<<<< HEAD
 import {
   getAgentRowConversationName,
   type ConversationNameTab
 } from '../../../../../shared/agent-status/presentation/agent-row-conversation-name'
+||||||| c91a7a6ee3
+import type { TerminalTab } from '../../../../../shared/workspace-layout/terminal-tab-types'
+=======
+import type { TerminalTab } from '../../../../../shared/workspace-layout/terminal-tab-types'
+import { aiVaultTitleOfSession } from '../../../../../shared/ai-vault/contracts/ai-vault-session-title'
+>>>>>>> cacd9f7f591e3fba8661194c22ee515f93ff6a5b
 import type { Worktree } from '../../../../../shared/worktree/types'
 import {
   getAgentRowPrimaryText,
@@ -90,7 +97,17 @@ export function getActivityThreadTaskTitle(args: {
     AgentStatusEntry,
     'orchestration' | 'prompt' | 'stateHistory' | 'agentType' | 'providerSession'
   >
+<<<<<<< HEAD
   tab: ConversationNameTab
+||||||| c91a7a6ee3
+  entry: Pick<AgentStatusEntry, 'orchestration' | 'prompt' | 'stateHistory'>
+  tab: Pick<TerminalTab, 'customTitle' | 'generatedTitle' | 'title' | 'defaultTitle'>
+=======
+  tab: Pick<
+    TerminalTab,
+    'customTitle' | 'aiVaultTitle' | 'generatedTitle' | 'title' | 'defaultTitle'
+  >
+>>>>>>> cacd9f7f591e3fba8661194c22ee515f93ff6a5b
   generatedTitlesEnabled: boolean
   /** This row's own pane title in a split tab (`null` when unresolved); `undefined` for a single-pane tab. */
   paneLiveTitle?: string | null
@@ -105,6 +122,7 @@ export function getActivityThreadTaskTitle(args: {
     return orchestrationLabel
   }
 
+<<<<<<< HEAD
   // Why: the agent's session name outranks the last prompt like the sidebar, and keeps the tabAutoGenerateTitle gate.
   const conversationName = getAgentRowConversationName(
     args.tab,
@@ -115,6 +133,28 @@ export function getActivityThreadTaskTitle(args: {
   )
   if (conversationName) {
     return conversationName
+||||||| c91a7a6ee3
+  // Respect tabAutoGenerateTitle here too so disabled generated titles cannot resurface.
+  const generatedTitle = args.generatedTitlesEnabled ? args.tab.generatedTitle?.trim() : ''
+  if (generatedTitle) {
+    return generatedTitle
+=======
+  // Like the tab, a session's own name outranks the first prompt this tab saw, e.g. after a resume.
+  const sessionTitle = aiVaultTitleOfSession(
+    args.tab.aiVaultTitle,
+    args.entry.agentType,
+    args.entry.providerSession?.id
+  )
+  const sessionName = sessionTitle?.kind === 'named' ? sessionTitle.title.trim() : ''
+  if (sessionName) {
+    return sessionName
+  }
+
+  // Respect tabAutoGenerateTitle here too so disabled generated titles cannot resurface.
+  const generatedTitle = args.generatedTitlesEnabled ? args.tab.generatedTitle?.trim() : ''
+  if (generatedTitle) {
+    return generatedTitle
+>>>>>>> cacd9f7f591e3fba8661194c22ee515f93ff6a5b
   }
 
   // Substantive live prompts win; only terse follow-ups reuse the prior task’s history label.
