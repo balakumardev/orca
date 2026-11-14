@@ -27,7 +27,7 @@ jobs:
           git merge --no-commit --no-ff "$LINK" || true
           git ls-files -u | cut -f2 | sort -u | head -20
           # strip non-custom workflows and take ours for every unmerged file (probe only)
-          for p in $(git ls-files -- .github/workflows); do case "${p#.github/workflows/}" in custom-*) ;; *) git rm -q -f -- "$p";; esac; done
+          for p in $(git ls-files -- .github/workflows | sort -u); do case "${p#.github/workflows/}" in custom-*) ;; *) git rm -q -f -- "$p";; esac; done
           git rm -q -f --ignore-unmatch -- .github/dependabot.yml
           for p in $(git diff --name-only --diff-filter=U); do git checkout "$BASE" -- "$p"; done
           git ls-files -u | wc -l
