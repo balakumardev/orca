@@ -70,7 +70,7 @@ const caveats = [...(facts.caveats ?? [])]
 if (!gatesRan) caveats.push('No gates were run on this candidate' + (state === 'manual' ? ' (an unresolved merge is not worth testing).' : '.'))
 for (const g of gates) {
   if (g.status === 'fail') caveats.push(`Gate failed: ${g.name}. The output tail is in the gates section below.`)
-  if (g.status === 'skip') caveats.push(`Gate skipped: ${g.name}${g.note ? ` (${g.note})` : ''}.`)
+  if (g.status === 'skip' && !/only runs on pull requests/.test(g.note || '')) caveats.push(`Gate skipped: ${g.name}${g.note ? ` (${g.note})` : ''}.`)
   for (const w of g.warnings ?? []) caveats.push(`Near a lint cap: ${w}`)
 }
 if (conflicts.some((c) => c.path === 'src/renderer/src/components/sidebar/index.tsx')) caveats.push('src/renderer/src/components/sidebar/index.tsx was conflicted: where new upstream sidebar sections are placed in our stacked layout is not covered by any test. Open the app and look at the sidebar.')
