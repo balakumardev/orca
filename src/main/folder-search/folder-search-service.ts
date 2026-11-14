@@ -8,7 +8,7 @@ import { LOCAL_EXECUTION_HOST_ID, type ExecutionHostId } from '../../shared/exec
 import { normalizeRuntimePathForComparison } from '../../shared/cross-platform-path'
 import { getDefaultWorkspaceDir } from '../../shared/constants'
 import { getEffectiveHostSetting } from '../../shared/host-setting-overrides'
-import { buildKnownOrcaWorkspaceLayouts } from '../../shared/worktree/ownership'
+import { buildKnownOrcaWorkspaceLayouts } from '../../shared/worktree/visibility/ownership'
 import { readGitMarker } from './git-marker'
 import {
   deriveFolderSearchRoots,

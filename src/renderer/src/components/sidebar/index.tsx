@@ -9,6 +9,7 @@ import { setSidebarLiveWidth } from './sidebar-live-width'
 import SetupScriptPromptCard from './SetupScriptPromptCard'
 import WorktreeList from './worktree-list/listing/WorktreeList'
 import WslMovedProjectsSection from './WslMovedProjectsSection'
+import HiddenProjectsSection from './hidden-projects/HiddenProjectsSection'
 import SidebarToolbar from './SidebarToolbar'
 import WorkspaceKanbanDrawer from './workspace-board/surface/WorkspaceKanbanDrawer'
 import type { VirtualizedScrollAnchor } from '@/hooks/useVirtualizedScrollAnchor'
@@ -206,6 +207,7 @@ function Sidebar({
                       projectsCollapseTarget={projectsCollapseTarget}
                     />
                     <WslMovedProjectsSection />
+                    <HiddenProjectsSection />
                   </>
                 }
                 activityHeader={
