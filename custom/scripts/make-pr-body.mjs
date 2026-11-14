@@ -169,7 +169,8 @@ const remerge = read(`${rawDir}/remerge.patch`)
 const fixed = [summary, caveats.join('\n'), gatesTable, failTails, conflictTable, footprint, modelBlock, checklist, resolveRecipe, testNote].join('\n').length + 4000
 const diffBudget = Math.max(2500, Math.min(28000, BODY_LIMIT - fixed))
 let diffSection
-if (!remerge.trim()) diffSection = state === 'clean' ? '_Clean merge: git made every decision, so there is no resolution diff._\n' : '_No resolution diff (nothing was resolved by hand or by the agent)._\n'
+if (state === 'manual') diffSection = '_The conflicted files are committed with their conflict markers, so there is no resolution to diff. Resolve them as described below._\n'
+else if (!remerge.trim()) diffSection = state === 'clean' ? '_Clean merge: git made every decision, so there is no resolution diff._\n' : '_No resolution diff (nothing was resolved by hand or by the agent)._\n'
 else {
   const cut = remerge.length > diffBudget
   const shown = cut ? `${remerge.slice(0, diffBudget).replace(/\n[^\n]*$/, '')}\n... [truncated: ${remerge.length - diffBudget} more characters]\n` : remerge

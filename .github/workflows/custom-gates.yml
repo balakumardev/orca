@@ -77,12 +77,12 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: round-${{ inputs.round }}
-          path: ${{ runner.temp }}/round
+          path: ${{ runner.temp }}/rounds
       - name: Load the candidate merge
         if: inputs.mode == 'sync'
         working-directory: repo
         env:
-          ROUND_DIR: ${{ runner.temp }}/round
+          ROUND_DIR: ${{ runner.temp }}/rounds/round-${{ inputs.round }}
         run: |
           bash "$GITHUB_WORKSPACE/tools/custom/scripts/load-candidate.sh"
           cp "$ROUND_DIR/our-files.txt" "$RUNNER_TEMP/our-files.txt"
@@ -106,18 +106,19 @@ jobs:
         env:
           MODE: ${{ inputs.mode }}
           CHANGED_BASE: ${{ github.event.pull_request.base.sha }}
+          GATES_OUT: ${{ runner.temp }}/gates-out/gates-${{ inputs.mode == 'pr' && 'pr' || inputs.round }}-static
         run: |
           extra=()
           # A sync run records failures in gates.json and goes on to open a draft PR; a PR check goes red.
           if [ "$MODE" = sync ]; then extra+=(--exit-zero); fi
-          bash "$GITHUB_WORKSPACE/tools/custom/scripts/run-gates.sh" --out "$RUNNER_TEMP/gates" --mode "$MODE" \
+          bash "$GITHUB_WORKSPACE/tools/custom/scripts/run-gates.sh" --out "$GATES_OUT" --mode "$MODE" \
             --changed-base "${CHANGED_BASE:-}" --our-files "$RUNNER_TEMP/our-files.txt" --skip e2e "${extra[@]}"
       - name: Upload gate results
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: gates-${{ inputs.mode == 'pr' && 'pr' || inputs.round }}-static
-          path: ${{ runner.temp }}/gates/
+          path: ${{ runner.temp }}/gates-out/
           retention-days: 14
           if-no-files-found: ignore
 
@@ -158,12 +159,12 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: round-${{ inputs.round }}
-          path: ${{ runner.temp }}/round
+          path: ${{ runner.temp }}/rounds
       - name: Load the candidate merge
         if: inputs.mode == 'sync'
         working-directory: repo
         env:
-          ROUND_DIR: ${{ runner.temp }}/round
+          ROUND_DIR: ${{ runner.temp }}/rounds/round-${{ inputs.round }}
         run: |
           bash "$GITHUB_WORKSPACE/tools/custom/scripts/load-candidate.sh"
           cp "$ROUND_DIR/our-files.txt" "$RUNNER_TEMP/our-files.txt"
@@ -187,17 +188,18 @@ jobs:
         env:
           MODE: ${{ inputs.mode }}
           CHANGED_BASE: ${{ github.event.pull_request.base.sha }}
+          GATES_OUT: ${{ runner.temp }}/gates-out/gates-${{ inputs.mode == 'pr' && 'pr' || inputs.round }}-e2e
         run: |
           extra=()
           if [ "$MODE" = sync ]; then extra+=(--exit-zero); fi
-          bash "$GITHUB_WORKSPACE/tools/custom/scripts/run-gates.sh" --out "$RUNNER_TEMP/gates" --mode "$MODE" \
+          bash "$GITHUB_WORKSPACE/tools/custom/scripts/run-gates.sh" --out "$GATES_OUT" --mode "$MODE" \
             --changed-base "${CHANGED_BASE:-}" --our-files "$RUNNER_TEMP/our-files.txt" --only e2e "${extra[@]}"
       - name: Upload gate results
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: gates-${{ inputs.mode == 'pr' && 'pr' || inputs.round }}-e2e
-          path: ${{ runner.temp }}/gates/
+          path: ${{ runner.temp }}/gates-out/
           retention-days: 14
           if-no-files-found: ignore
       - name: Upload Playwright failure evidence

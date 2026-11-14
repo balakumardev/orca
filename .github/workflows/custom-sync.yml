@@ -117,7 +117,7 @@ jobs:
         id: start
         working-directory: repo
         env:
-          SYNC_OUT: ${{ runner.temp }}/sync
+          SYNC_OUT: ${{ runner.temp }}/out/round-0
           UPSTREAM_SHA: ${{ needs.detect.outputs.upstream_sha }}
           BASE_SHA: ${{ needs.detect.outputs.base_sha }}
           BASE_BRANCH: ${{ needs.detect.outputs.base_branch }}
@@ -135,7 +135,7 @@ jobs:
         if: steps.start.outputs.outcome == 'conflicts'
         working-directory: repo
         env:
-          SYNC_OUT: ${{ runner.temp }}/sync
+          SYNC_OUT: ${{ runner.temp }}/out/round-0
         # Round 0 is what scripts alone can do. When git left real conflicts this is the fallback that always exists:
         # the merge with its conflict markers and a sentinel file, which the agent rounds try to improve on and which
         # becomes a draft [needs manual merge] PR if nothing better comes out of them (or skip_agent is set).
@@ -144,7 +144,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: round-0
-          path: ${{ runner.temp }}/sync/
+          path: ${{ runner.temp }}/out/
           retention-days: 14
 
   gates0:
@@ -277,17 +277,21 @@ jobs:
           filter: blob:none
           # Credentials stay in the git config on purpose: this job pushes sync/<tag>.
           persist-credentials: true
+      # Every artifact holds one top-level directory named like itself (round-N/, gates-N-static/), so the layout
+      # under `all/` is the same whether one artifact matches or several.
       - name: Download every round
         uses: actions/download-artifact@v8
         with:
           path: ${{ runner.temp }}/all
           pattern: round-*
+          merge-multiple: true
       - name: Download every gate result
         uses: actions/download-artifact@v8
-        continue-on-error: true # none exist when the merge could not be resolved and no round got as far as the gates
+        continue-on-error: true # none exist when no round got as far as the gates
         with:
           path: ${{ runner.temp }}/all
           pattern: gates-*
+          merge-multiple: true
       - name: Choose the candidate
         id: pick
         run: bash "$GITHUB_WORKSPACE/tools/custom/scripts/pick-round.sh" "$RUNNER_TEMP/all"

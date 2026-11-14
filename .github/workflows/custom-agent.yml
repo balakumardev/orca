@@ -98,13 +98,14 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: round-${{ inputs.prev_round }}
-          path: ${{ runner.temp }}/prev-round
+          path: ${{ runner.temp }}/prev
       - name: Download the previous gate results
         if: inputs.prev_gates_round != ''
         uses: actions/download-artifact@v8
         with:
           pattern: gates-${{ inputs.prev_gates_round }}-*
-          path: ${{ runner.temp }}/prev-gates
+          path: ${{ runner.temp }}/prev
+          merge-multiple: true
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
           package_json_file: repo/package.json
@@ -126,13 +127,13 @@ jobs:
       - name: Prepare the merge and the prompt
         working-directory: repo
         env:
-          SYNC_OUT: ${{ runner.temp }}/sync
+          SYNC_OUT: ${{ runner.temp }}/out/round-${{ inputs.round }}
           TOOLS_DIR: ${{ github.workspace }}/tools/custom/scripts
           ROUND: ${{ inputs.round }}
           MODE: ${{ inputs.mode }}
           TIER: ${{ inputs.tier }}
-          PREV_DIR: ${{ inputs.prev_round != '' && format('{0}/prev-round', runner.temp) || '' }}
-          PREV_GATES: ${{ inputs.prev_gates_round != '' && format('{0}/prev-gates', runner.temp) || '' }}
+          PREV_DIR: ${{ inputs.prev_round != '' && format('{0}/prev/round-{1}', runner.temp, inputs.prev_round) || '' }}
+          PREV_GATES: ${{ inputs.prev_gates_round != '' && format('{0}/prev', runner.temp) || '' }}
           UPSTREAM_SHA: ${{ inputs.upstream_sha }}
           BASE_SHA: ${{ inputs.base_sha }}
           BASE_BRANCH: ${{ inputs.base_branch }}
@@ -145,7 +146,7 @@ jobs:
       - name: Run the agent
         working-directory: repo
         env:
-          SYNC_OUT: ${{ runner.temp }}/sync
+          SYNC_OUT: ${{ runner.temp }}/out/round-${{ inputs.round }}
           TOOLS_DIR: ${{ github.workspace }}/tools/custom/scripts
           ROUND: ${{ inputs.round }}
           MODE: ${{ inputs.mode }}
@@ -156,7 +157,7 @@ jobs:
         id: finish
         working-directory: repo
         env:
-          SYNC_OUT: ${{ runner.temp }}/sync
+          SYNC_OUT: ${{ runner.temp }}/out/round-${{ inputs.round }}
           TOOLS_DIR: ${{ github.workspace }}/tools/custom/scripts
           ROUND: ${{ inputs.round }}
           MODE: ${{ inputs.mode }}
@@ -167,6 +168,6 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: round-${{ inputs.round }}
-          path: ${{ runner.temp }}/sync/
+          path: ${{ runner.temp }}/out/
           retention-days: 14
           if-no-files-found: ignore
