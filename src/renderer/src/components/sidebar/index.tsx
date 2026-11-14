@@ -3,7 +3,8 @@ import { useAppStore } from '@/store/index'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { useSidebarResize } from '@/hooks/useSidebarResize'
 import SidebarHeader from './SidebarHeader'
-import SidebarNav from './SidebarNav'
+import { SidebarActivityHeader } from './sidebar-activity-header'
+import { SidebarStackedBody } from './sidebar-stacked-body'
 import { setSidebarLiveWidth } from './sidebar-live-width'
 import SetupScriptPromptCard from './SetupScriptPromptCard'
 import WorktreeList from './worktree-list/listing/WorktreeList'
@@ -69,6 +70,8 @@ function Sidebar({
   const startupWorktreeRefreshCompleted = useAppStore((s) => s.startupWorktreeRefreshCompleted)
   const settings = useAppStore((s) => s.settings)
   const sidebarBody = useAppStore((s) => s.sidebarBody ?? 'workspaces')
+  const activityPaneOpen = useAppStore((s) => s.activityPaneOpen)
+  const toggleActivityPane = useAppStore((s) => s.toggleActivityPane)
   const showAgentDashboard = settings?.experimentalAgentDashboardPopout === true
   const agentDashboardDrawerOpen = useAppStore((s) => s.agentDashboardDrawerOpen)
   const setAgentDashboardDrawerOpen = useAppStore((s) => s.setAgentDashboardDrawerOpen)
@@ -180,50 +183,60 @@ function Sidebar({
         >
           {sidebarOpen && (
             <>
-              <SidebarNav />
-              <SidebarHeader
-                activityBadgeTarget={setAgentBadgeTarget}
-                onWorkspaceBoardMenuOpenChange={setWorkspaceBoardMenuOpen}
-                activityOptionsTarget={setAgentOptionsTarget}
-                projectsCollapseTarget={setProjectsCollapseTarget}
+              <SidebarStackedBody
+                activityOpen={activityPaneOpen}
+                workspaces={
+                  <>
+                    <SidebarHeader
+                      onWorkspaceBoardMenuOpenChange={setWorkspaceBoardMenuOpen}
+                      projectsCollapseTarget={setProjectsCollapseTarget}
+                    />
+                    <SeveredTerminalDaemonBanner />
+                    <StalledTerminalDaemonBanner />
+                    <LocalGitToolchainScanBanner />
+                    <StartupWorktreeRefreshStatus />
+                    <WorktreeList
+                      scrollOffsetRef={worktreeScrollOffsetRef}
+                      scrollAnchorRef={worktreeScrollAnchorRef}
+                      workspaceBoardOpen={workspaceBoardOpen}
+                      onWorktreeCardClick={closeWorkspaceBoard}
+                      onWorkspaceBoardDragPreviewStart={previewWorkspaceBoardFromDrag}
+                      onWorkspaceBoardDragPreviewCommit={solidifyWorkspaceBoardFromDrag}
+                      onWorkspaceBoardDragPreviewCancel={cancelWorkspaceBoardDragPreview}
+                      projectsCollapseTarget={projectsCollapseTarget}
+                    />
+                    <WslMovedProjectsSection />
+                  </>
+                }
+                activityHeader={
+                  <SidebarActivityHeader
+                    open={activityPaneOpen}
+                    onToggle={toggleActivityPane}
+                    badgeTarget={setAgentBadgeTarget}
+                    optionsTarget={setAgentOptionsTarget}
+                  />
+                }
+                activity={
+                  <React.Suspense
+                    fallback={activityPaneOpen ? <div className="min-h-0 flex-1" /> : null}
+                  >
+                    <ActivityThreadCollapseContext.Provider value={agentsCollapseState}>
+                      <SidebarAgentsList
+                        active={activityPaneOpen}
+                        readFilter={agentReadFilter}
+                        setReadFilter={setAgentReadFilter}
+                        groupBy={agentGroupBy}
+                        setGroupBy={setAgentGroupBy}
+                        query={agentQuery}
+                        setQuery={setAgentQuery}
+                        optionsTarget={agentOptionsTarget}
+                        badgeTarget={agentBadgeTarget}
+                        scrollTopRef={agentsScrollTopRef}
+                      />
+                    </ActivityThreadCollapseContext.Provider>
+                  </React.Suspense>
+                }
               />
-              <SeveredTerminalDaemonBanner />
-              <StalledTerminalDaemonBanner />
-              <React.Suspense
-                fallback={sidebarBody === 'agents' ? <div className="min-h-0 flex-1" /> : null}
-              >
-                <ActivityThreadCollapseContext.Provider value={agentsCollapseState}>
-                  <SidebarAgentsList
-                    active={sidebarBody === 'agents'}
-                    readFilter={agentReadFilter}
-                    setReadFilter={setAgentReadFilter}
-                    groupBy={agentGroupBy}
-                    setGroupBy={setAgentGroupBy}
-                    query={agentQuery}
-                    setQuery={setAgentQuery}
-                    optionsTarget={agentOptionsTarget}
-                    badgeTarget={agentBadgeTarget}
-                    scrollTopRef={agentsScrollTopRef}
-                  />
-                </ActivityThreadCollapseContext.Provider>
-              </React.Suspense>
-              {sidebarBody !== 'agents' && (
-                <>
-                  <LocalGitToolchainScanBanner />
-                  <StartupWorktreeRefreshStatus />
-                  <WorktreeList
-                    scrollOffsetRef={worktreeScrollOffsetRef}
-                    scrollAnchorRef={worktreeScrollAnchorRef}
-                    workspaceBoardOpen={workspaceBoardOpen}
-                    onWorktreeCardClick={closeWorkspaceBoard}
-                    onWorkspaceBoardDragPreviewStart={previewWorkspaceBoardFromDrag}
-                    onWorkspaceBoardDragPreviewCommit={solidifyWorkspaceBoardFromDrag}
-                    onWorkspaceBoardDragPreviewCancel={cancelWorkspaceBoardDragPreview}
-                    projectsCollapseTarget={projectsCollapseTarget}
-                  />
-                  <WslMovedProjectsSection />
-                </>
-              )}
 
               <div className="relative shrink-0">
                 <SetupScriptPromptCard />

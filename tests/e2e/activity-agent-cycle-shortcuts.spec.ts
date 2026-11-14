@@ -4,101 +4,31 @@ import {
   focusActiveTerminalInput,
   splitActiveTerminalPane,
   waitForActiveTerminalManager,
-  waitForPaneCount,
-  waitForPaneIdentitySnapshot
+  waitForPaneCount
 } from './helpers/terminal'
-import { ensureTerminalVisible, waitForActiveWorktree, waitForSessionReady } from './helpers/store'
+import {
+  ensureTerminalVisible,
+  getActiveWorktreeId,
+  switchToOtherWorktree,
+  waitForActiveWorktree,
+  waitForSessionReady
+} from './helpers/store'
+import {
+  readActiveWorkspaceRowIds,
+  readRenderedAgentOrder,
+  readSelectedAgentIndex,
+  readSidebarChrome,
+  seedAgentsForActivePanes,
+  setSidebarChrome,
+  showActivityPane,
+  threadRows
+} from './helpers/activity-sidebar'
 
 test.use({ launchEnv: { ORCA_BACKGROUND_LAUNCH: '1' } })
 
 const PREVIOUS_CHORD = 'ControlOrMeta+Shift+Semicolon'
 const NEXT_CHORD = 'ControlOrMeta+Shift+Quote'
 const TOGGLE_CHORD = 'ControlOrMeta+Shift+KeyL'
-
-type SeededAgent = {
-  paneKey: string
-  leafId: string
-  title: string
-  prompt: string
-}
-
-type SidebarChrome = { sidebarOpen: boolean; sidebarBody: string | null }
-
-async function seedThreeAgentPanes(page: Page): Promise<SeededAgent[]> {
-  await splitActiveTerminalPane(page, 'vertical')
-  await splitActiveTerminalPane(page, 'vertical')
-  await waitForPaneCount(page, 3)
-  const snapshot = await waitForPaneIdentitySnapshot(page, 3)
-  const now = Date.now()
-  const agents = snapshot.panes.map((pane, index) => ({
-    paneKey: `${snapshot.tabId}:${pane.leafId}`,
-    leafId: pane.leafId,
-    title: `Cycle agent ${index}`,
-    prompt: `ACTIVITY_CYCLE_PROMPT_${index}_${now}`
-  }))
-  await page.evaluate(
-    ({ agents, now }) => {
-      const store = window.__store
-      if (!store) {
-        throw new Error('window.__store is not available')
-      }
-      agents.forEach((agent, index) => {
-        const startedAt = now - (index + 1) * 1_000
-        store.getState().setAgentStatus(
-          agent.paneKey,
-          {
-            state: 'done',
-            prompt: agent.prompt,
-            agentType: 'codex',
-            lastAssistantMessage: `Agent ${index} finished.`
-          },
-          agent.title,
-          { updatedAt: startedAt, stateStartedAt: startedAt }
-        )
-      })
-    },
-    { agents, now }
-  )
-  return agents
-}
-
-async function showActivityView(page: Page): Promise<void> {
-  await page.evaluate(() => {
-    const state = window.__store?.getState()
-    if (!state) {
-      throw new Error('window.__store is not available')
-    }
-    // Ungrouped rows keep every thread rendered, so DOM order is the walk order.
-    state.setAgentsGroupBy('none')
-    state.setSidebarOpen(true)
-    state.setSidebarBody('agents')
-  })
-}
-
-function threadRows(page: Page) {
-  return page.locator('[data-activity-virtual-list] [data-worktree-card-surface]')
-}
-
-// The row shows either the session title or the prompt, depending on how the name resolves.
-function agentIndexForRowText(agents: SeededAgent[], text: string): number {
-  return agents.findIndex((agent) => text.includes(agent.title) || text.includes(agent.prompt))
-}
-
-async function readRenderedAgentOrder(page: Page, agents: SeededAgent[]): Promise<number[]> {
-  const rowTexts = await threadRows(page).evaluateAll((rows) =>
-    rows.map((row) => `${row.getAttribute('aria-label') ?? ''} ${row.textContent ?? ''}`)
-  )
-  return rowTexts.map((text) => agentIndexForRowText(agents, text))
-}
-
-async function readSelectedAgentIndex(page: Page, agents: SeededAgent[]): Promise<number | null> {
-  const selectedTexts = await threadRows(page).evaluateAll((rows) =>
-    rows
-      .filter((row) => row.getAttribute('aria-current') === 'true')
-      .map((row) => `${row.getAttribute('aria-label') ?? ''} ${row.textContent ?? ''}`)
-  )
-  return selectedTexts.length === 1 ? agentIndexForRowText(agents, selectedTexts[0]) : null
-}
 
 async function readFocusedTerminalLeaf(page: Page): Promise<string | null> {
   return page.evaluate(() => {
@@ -117,28 +47,7 @@ async function readActivePaneLeaf(page: Page): Promise<string | null> {
   })
 }
 
-async function readSidebarChrome(page: Page): Promise<SidebarChrome> {
-  return page.evaluate(() => {
-    const state = window.__store?.getState()
-    return {
-      sidebarOpen: state?.sidebarOpen ?? false,
-      sidebarBody: state?.sidebarBody ?? null
-    }
-  })
-}
-
-async function setSidebarChrome(page: Page, chrome: SidebarChrome): Promise<void> {
-  await page.evaluate((chrome) => {
-    const state = window.__store?.getState()
-    if (!state) {
-      throw new Error('window.__store is not available')
-    }
-    state.setSidebarBody(chrome.sidebarBody === 'agents' ? 'agents' : 'workspaces')
-    state.setSidebarOpen(chrome.sidebarOpen)
-  }, chrome)
-}
-
-test.describe('Activity view shortcuts', () => {
+test.describe('Activity pane shortcuts', () => {
   test.beforeEach(async ({ orcaPage }) => {
     await waitForSessionReady(orcaPage)
     await orcaPage.evaluate(async () => {
@@ -161,8 +70,11 @@ test.describe('Activity view shortcuts', () => {
   test('previous and next agent walk the rendered rows, wrap, and focus the agent terminal', async ({
     orcaPage
   }) => {
-    const agents = await seedThreeAgentPanes(orcaPage)
-    await showActivityView(orcaPage)
+    await splitActiveTerminalPane(orcaPage, 'vertical')
+    await splitActiveTerminalPane(orcaPage, 'vertical')
+    await waitForPaneCount(orcaPage, 3)
+    const agents = await seedAgentsForActivePanes(orcaPage, 3, 'Cycle agent')
+    await showActivityPane(orcaPage)
     await expect(threadRows(orcaPage)).toHaveCount(3)
     const order = await readRenderedAgentOrder(orcaPage, agents)
     expect([...order].sort()).toEqual([0, 1, 2])
@@ -177,9 +89,11 @@ test.describe('Activity view shortcuts', () => {
         .toBe(agentIndex)
       await expect.poll(() => readActivePaneLeaf(orcaPage)).toBe(agents[agentIndex].leafId)
       await expect.poll(() => readFocusedTerminalLeaf(orcaPage)).toBe(agents[agentIndex].leafId)
+      // Both panes stay on screen: the workspace list is never swapped out for Activity.
       expect(await readSidebarChrome(orcaPage)).toEqual({
         sidebarOpen: true,
-        sidebarBody: 'agents'
+        activityPaneOpen: true,
+        sidebarBody: 'workspaces'
       })
     }
 
@@ -200,14 +114,56 @@ test.describe('Activity view shortcuts', () => {
     await expectSelected(2)
   })
 
-  test('leaves the cycle chords alone when the workspace list is showing', async ({ orcaPage }) => {
-    const agents = await seedThreeAgentPanes(orcaPage)
-    await showActivityView(orcaPage)
-    await expect(threadRows(orcaPage)).toHaveCount(3)
-    await setSidebarChrome(orcaPage, { sidebarOpen: true, sidebarBody: 'workspaces' })
+  test('the workspace list follows the agent the chords select', async ({ orcaPage }) => {
+    const workspaceA = await getActiveWorktreeId(orcaPage)
+    expect(workspaceA).not.toBeNull()
+    const [agentA] = await seedAgentsForActivePanes(orcaPage, 1, 'Follow A')
+    const workspaceB = await switchToOtherWorktree(orcaPage, workspaceA!)
+    expect(workspaceB).not.toBeNull()
+    await ensureTerminalVisible(orcaPage)
+    await waitForActiveTerminalManager(orcaPage, 30_000)
+    await waitForPaneCount(orcaPage, 1, 30_000)
+    const [agentB] = await seedAgentsForActivePanes(orcaPage, 1, 'Follow B')
+    const agents = [agentA, agentB]
+    const workspaceOfAgent = [workspaceA!, workspaceB!]
+    await showActivityPane(orcaPage)
+    await expect(threadRows(orcaPage)).toHaveCount(2)
     await focusActiveTerminalInput(orcaPage)
-    const activeLeafBefore = await readActivePaneLeaf(orcaPage)
-    expect(agents.map((agent) => agent.leafId)).toContain(activeLeafBefore)
+
+    // The collapsed project hides both workspaces; selecting an agent must open it again.
+    // The control sits under the section title until hover, so click it through the DOM.
+    await orcaPage
+      .getByRole('button', { name: 'Collapse all projects', exact: true })
+      .evaluate((button) => (button as HTMLElement).click())
+    await expect(orcaPage.locator('[data-sidebar-workspaces-pane] [role="option"]')).toHaveCount(0)
+
+    for (let press = 0; press < 4; press += 1) {
+      await orcaPage.keyboard.press(NEXT_CHORD)
+      await expect.poll(async () => readSelectedAgentIndex(orcaPage, agents)).not.toBeNull()
+      const selected = (await readSelectedAgentIndex(orcaPage, agents))!
+      await expect
+        .poll(() => readActiveWorkspaceRowIds(orcaPage), {
+          message: `press ${press}: the top pane does not show agent ${selected}'s workspace as active`
+        })
+        .toEqual([workspaceOfAgent[selected]])
+      await expect(
+        orcaPage.locator(
+          `[data-sidebar-workspaces-pane] [role="option"][data-worktree-id="${workspaceOfAgent[selected]}"]`
+        )
+      ).toBeInViewport()
+    }
+  })
+
+  test('leaves the cycle chords alone while the Activity pane is collapsed', async ({
+    orcaPage
+  }) => {
+    const [agentA] = await seedAgentsForActivePanes(orcaPage, 1, 'Collapsed agent')
+    await showActivityPane(orcaPage)
+    await expect(threadRows(orcaPage)).toHaveCount(1)
+    await setSidebarChrome(orcaPage, { sidebarOpen: true, activityPaneOpen: false })
+    await expect(threadRows(orcaPage)).toHaveCount(0)
+    await focusActiveTerminalInput(orcaPage)
+    expect(await readActivePaneLeaf(orcaPage)).toBe(agentA.leafId)
     await orcaPage.evaluate(() => {
       window.addEventListener('keydown', (event) => {
         if (event.code === 'Quote') {
@@ -219,35 +175,40 @@ test.describe('Activity view shortcuts', () => {
     await orcaPage.keyboard.press(NEXT_CHORD)
 
     await expect(orcaPage.locator('body')).toHaveAttribute('data-cycle-chord-claimed', 'false')
-    expect(await readActivePaneLeaf(orcaPage)).toBe(activeLeafBefore)
   })
 
-  test('toggle flips the sidebar body both ways and opens a closed sidebar on Activity', async ({
+  test('toggle collapses and expands the Activity pane and opens a closed sidebar on it', async ({
     orcaPage
   }) => {
-    await setSidebarChrome(orcaPage, { sidebarOpen: true, sidebarBody: 'workspaces' })
+    await seedAgentsForActivePanes(orcaPage, 1, 'Toggle agent')
+    await showActivityPane(orcaPage)
+    await expect(threadRows(orcaPage)).toHaveCount(1)
     await focusActiveTerminalInput(orcaPage)
+    const activityHeaderButton = (name: string) =>
+      orcaPage.locator('[data-sidebar-activity-header]').getByRole('button', { name, exact: true })
 
     await orcaPage.keyboard.press(TOGGLE_CHORD)
-    await expect
-      .poll(() => readSidebarChrome(orcaPage))
-      .toEqual({ sidebarOpen: true, sidebarBody: 'agents' })
-    await expect(
-      orcaPage.getByRole('button', { name: 'Turn off activity view', exact: true })
-    ).toHaveAttribute('aria-pressed', 'true')
+    await expect(threadRows(orcaPage)).toHaveCount(0)
+    await expect(activityHeaderButton('Expand Activity')).toBeVisible()
+    await expect(orcaPage.locator('[data-sidebar-workspaces-pane]')).toBeVisible()
+    expect(await readSidebarChrome(orcaPage)).toEqual({
+      sidebarOpen: true,
+      activityPaneOpen: false,
+      sidebarBody: 'workspaces'
+    })
 
     await orcaPage.keyboard.press(TOGGLE_CHORD)
-    await expect
-      .poll(() => readSidebarChrome(orcaPage))
-      .toEqual({ sidebarOpen: true, sidebarBody: 'workspaces' })
+    await expect(threadRows(orcaPage)).toHaveCount(1)
+    await expect(activityHeaderButton('Collapse Activity')).toBeVisible()
 
-    for (const lastBody of ['workspaces', 'agents']) {
-      await setSidebarChrome(orcaPage, { sidebarOpen: false, sidebarBody: lastBody })
+    for (const lastPaneState of [true, false]) {
+      await setSidebarChrome(orcaPage, { sidebarOpen: false, activityPaneOpen: lastPaneState })
       await focusActiveTerminalInput(orcaPage)
       await orcaPage.keyboard.press(TOGGLE_CHORD)
       await expect
         .poll(() => readSidebarChrome(orcaPage))
-        .toEqual({ sidebarOpen: true, sidebarBody: 'agents' })
+        .toEqual({ sidebarOpen: true, activityPaneOpen: true, sidebarBody: 'workspaces' })
+      await expect(threadRows(orcaPage)).toHaveCount(1)
     }
   })
 })

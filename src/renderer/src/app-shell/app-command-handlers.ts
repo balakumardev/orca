@@ -148,7 +148,7 @@ export function createAppCommandHandlers(
     ['sidebar.left.toggle', () => claim('sidebar.left.toggle', () => actions.toggleSidebar())],
     [
       'sidebar.activity.toggle',
-      () => claim('sidebar.activity.toggle', () => useAppStore.getState().toggleSidebarBody())
+      () => claim('sidebar.activity.toggle', () => useAppStore.getState().toggleActivityPane())
     ],
     [
       'sidebar.sleepingWorkspaces.toggle',

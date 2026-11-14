@@ -8,6 +8,7 @@ import {
   ContextMenuItem,
   ContextMenuTrigger
 } from '@/components/ui/context-menu'
+import { SidebarNavPopoverButton } from '@/components/sidebar/sidebar-nav-popover'
 import { shouldShowWorktreeHistoryControls } from './chrome/titlebar-worktree-history-controls'
 import {
   canGoBackWorktreeHistory,
@@ -98,6 +99,7 @@ export function TitlebarLeftControls({ layout }: { layout: AppChromeLayout }): R
             </TooltipContent>
           </Tooltip>
         )}
+        {layout.showSidebar && <SidebarNavPopoverButton />}
       </div>
       {/* Show shared workspace/page history wherever its shortcut is available. */}
       {shouldShowWorktreeHistoryControls(layout.activeView) && (

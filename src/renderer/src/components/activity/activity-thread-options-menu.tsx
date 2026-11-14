@@ -20,6 +20,10 @@ import { translate } from '@/i18n/i18n'
 import { useTranslate, type Translate } from '@/i18n/use-translate'
 import { OptionsFilterCountBadge } from '@/components/sidebar/worktree-list/controls/options-filter-count-badge'
 import {
+  setActivityDescriptionVisible,
+  useActivityDescriptionVisible
+} from './activity-description-visibility'
+import {
   ActivityScopeFilterMenuItems,
   useActivityScopeFilterCount
 } from './activity-scope-filter-controls'
@@ -80,6 +84,7 @@ export function ActivityThreadOptionsMenu({
   onUnreadOnlyChange?: (unreadOnly: boolean) => void
 }): React.JSX.Element {
   const t = useTranslate()
+  const showDescription = useActivityDescriptionVisible()
   const skipCloseAutoFocusRef = React.useRef(false)
   const activeFilterCount =
     useActivityScopeFilterCount() + (onUnreadOnlyChange && unreadOnly ? 1 : 0)
@@ -205,6 +210,13 @@ export function ActivityThreadOptionsMenu({
           onSelect={(event) => event.preventDefault()}
         >
           {t('auto.components.activity.ActivityPrototypePage.f70e4bec47', 'Compact mode')}
+        </DropdownMenuCheckboxItem>
+        <DropdownMenuCheckboxItem
+          checked={showDescription}
+          onCheckedChange={(checked) => setActivityDescriptionVisible(checked === true)}
+          onSelect={(event) => event.preventDefault()}
+        >
+          {t('auto.components.activity.ActivityPrototypePage.showDescription', 'Show description')}
         </DropdownMenuCheckboxItem>
         {onShowSearchChange ? (
           <DropdownMenuCheckboxItem

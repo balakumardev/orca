@@ -1,4 +1,5 @@
 import type { ActivityGroupBy } from '../../../../shared/agents-view-thread-filters'
+import { getActivityDescriptionVisible } from './activity-description-visibility'
 import type { ActivityThreadGroup, AgentPaneThread } from './activity-thread-types'
 
 /** One row of the virtualized Activity list: a group header or a thread. */
@@ -9,6 +10,8 @@ export type ActivityVirtualItemDescriptor =
 export const ACTIVITY_HEADER_ROW_ESTIMATE = 32
 export const ACTIVITY_THREAD_ROW_COMPACT_ESTIMATE = 96
 export const ACTIVITY_THREAD_ROW_FULL_ESTIMATE = 116
+const ACTIVITY_THREAD_ROW_COMPACT_NO_DESCRIPTION_ESTIMATE = 56
+const ACTIVITY_THREAD_ROW_FULL_NO_DESCRIPTION_ESTIMATE = 64
 
 /**
  * Flatten grouped threads into a single virtualizable row list, honoring
@@ -52,6 +55,11 @@ export function estimateActivityVirtualItemSize(
 ): number {
   if (!item || item.type === 'header') {
     return ACTIVITY_HEADER_ROW_ESTIMATE
+  }
+  if (!getActivityDescriptionVisible()) {
+    return compactMode
+      ? ACTIVITY_THREAD_ROW_COMPACT_NO_DESCRIPTION_ESTIMATE
+      : ACTIVITY_THREAD_ROW_FULL_NO_DESCRIPTION_ESTIMATE
   }
   return compactMode ? ACTIVITY_THREAD_ROW_COMPACT_ESTIMATE : ACTIVITY_THREAD_ROW_FULL_ESTIMATE
 }

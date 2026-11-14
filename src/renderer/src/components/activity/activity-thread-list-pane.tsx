@@ -27,6 +27,7 @@ import {
 import { ActivityThreadCollapseContext } from './activity-thread-collapse-context'
 import { useActivityThreadSelection } from './use-activity-thread-selection'
 import { useActivityAgentCycleShortcut } from './use-activity-agent-cycle-shortcut'
+import { useActivityListRemeasure } from './use-activity-list-remeasure'
 import type {
   ActivityGroupBy,
   ThreadReadFilter
@@ -257,15 +258,7 @@ export function ActivityThreadListPane({
     virtualizer
   })
 
-  // Row heights differ between densities; drop stale measurements on toggle (not on mount).
-  const measuredCompactModeRef = useRef(compactMode)
-  useEffect(() => {
-    if (measuredCompactModeRef.current === compactMode) {
-      return
-    }
-    measuredCompactModeRef.current = compactMode
-    virtualizer.measure()
-  }, [virtualizer, compactMode])
+  useActivityListRemeasure(virtualizer, compactMode)
 
   // Wait for content to contain the saved offset; pre-hydration clamping would consume the one restore.
   const totalSize = virtualizer.getTotalSize()

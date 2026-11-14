@@ -46,11 +46,13 @@ export function createUiPreferenceActions(set: UISliceSet, get: UISliceGet): Par
     gitGraphFiltersByWorktree: {},
     sidebarBody: 'workspaces',
     setSidebarBody: (body) => set({ sidebarBody: body }),
-    toggleSidebarBody: () =>
+    activityPaneOpen: true,
+    setActivityPaneOpen: (open) => set({ activityPaneOpen: open }),
+    toggleActivityPane: () =>
       set((s) =>
         s.sidebarOpen
-          ? { sidebarBody: s.sidebarBody === 'agents' ? 'workspaces' : 'agents' }
-          : { sidebarOpen: true, sidebarBody: 'agents' }
+          ? { activityPaneOpen: !s.activityPaneOpen }
+          : { sidebarOpen: true, activityPaneOpen: true }
       ),
 
     groupBy: 'repo',

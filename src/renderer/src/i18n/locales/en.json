@@ -8012,6 +8012,17 @@
           "browseFolder": "Browse folder…",
           "cloneFromUrl": "Clone from URL…",
           "createNewProject": "Create new project…"
+        },
+        "SidebarActivityHeader": {
+          "collapse": "Collapse Activity",
+          "expand": "Expand Activity",
+          "title": "Activity"
+        },
+        "SidebarNavPopover": {
+          "label": "Quick links"
+        },
+        "SidebarStackedBody": {
+          "resize": "Resize Activity pane"
         }
       },
       "shared": {
@@ -19070,7 +19081,8 @@
           "threadListOptionsActiveFilters_one": "Thread list options ({{count}} filter active)",
           "threadListOptionsActiveFilters_other": "Thread list options ({{count}} filters active)",
           "activityOptionsFilterCount_one": "Activity options ({{count}} filter)",
-          "activityOptionsFilterCount_other": "Activity options ({{count}} filters)"
+          "activityOptionsFilterCount_other": "Activity options ({{count}} filters)",
+          "showDescription": "Show description"
         },
         "clearCompleted": {
           "undo": "Undo",
@@ -24328,7 +24340,7 @@
       "d286d1ab85": "Clear pane title",
       "sidebarActivityPreviousAgent": "Previous agent in Activity",
       "sidebarActivityNextAgent": "Next agent in Activity",
-      "sidebarActivityToggle": "Toggle Activity view"
+      "sidebarActivityToggle": "Toggle Activity pane"
     },
     "group": {
       "global": "Global",

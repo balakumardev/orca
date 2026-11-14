@@ -12,6 +12,7 @@ import { FilledBellIcon } from '../sidebar/workspace-card/identity/worktree-card
 import CommentMarkdown from '../sidebar/CommentMarkdown'
 import { EventTime, ThreadAgentStateIndicator } from './activity-thread-controls'
 import { ActivityThreadHoverCard } from './activity-thread-hover-card'
+import { useActivityDescriptionVisible } from './activity-description-visibility'
 import { activityThreadRowCopy } from './activity-thread-presentation'
 import type { AgentPaneThread } from './activity-thread-types'
 import type { ActivityThreadClickEvent } from './use-activity-thread-selection'
@@ -88,6 +89,7 @@ export const ActivityThreadRow = React.memo(function ActivityThreadRow({
 }): React.JSX.Element {
   const t = useTranslate()
   useUiLanguageRevision()
+  const showDescription = useActivityDescriptionVisible()
   const { taskTitle, statusLine, statusKind, needsAttention, workspaceLabel } =
     activityThreadRowCopy(thread, t)
   const showMarkdownStatus = statusKind === 'message'
@@ -141,7 +143,7 @@ export const ActivityThreadRow = React.memo(function ActivityThreadRow({
               />
             </div>
 
-            {statusLine ? (
+            {statusLine && showDescription ? (
               showMarkdownStatus ? (
                 <CommentMarkdown
                   content={statusLine}

@@ -1,28 +1,30 @@
 import { describe, expect, it } from 'vitest'
 import { createUIStore } from './ui-slice-test-harness'
 
-describe('toggleSidebarBody', () => {
-  it('flips an open sidebar between Workspaces and Activity', () => {
+describe('toggleActivityPane', () => {
+  it('expands and collapses the Activity pane of an open sidebar without changing the workspace list', () => {
     const store = createUIStore()
-    store.setState({ sidebarOpen: true, sidebarBody: 'workspaces' })
+    store.setState({ sidebarOpen: true, sidebarBody: 'workspaces', activityPaneOpen: true })
 
-    store.getState().toggleSidebarBody()
-    expect(store.getState().sidebarBody).toBe('agents')
+    store.getState().toggleActivityPane()
+    expect(store.getState().activityPaneOpen).toBe(false)
     expect(store.getState().sidebarOpen).toBe(true)
+    expect(store.getState().sidebarBody).toBe('workspaces')
 
-    store.getState().toggleSidebarBody()
+    store.getState().toggleActivityPane()
+    expect(store.getState().activityPaneOpen).toBe(true)
     expect(store.getState().sidebarBody).toBe('workspaces')
   })
 
-  it('opens a closed sidebar on Activity whichever body it last showed', () => {
+  it('opens a closed sidebar with the pane expanded whichever state it was left in', () => {
     const store = createUIStore()
-    for (const lastBody of ['workspaces', 'agents'] as const) {
-      store.setState({ sidebarOpen: false, sidebarBody: lastBody })
+    for (const lastPaneState of [true, false]) {
+      store.setState({ sidebarOpen: false, activityPaneOpen: lastPaneState })
 
-      store.getState().toggleSidebarBody()
+      store.getState().toggleActivityPane()
 
       expect(store.getState().sidebarOpen).toBe(true)
-      expect(store.getState().sidebarBody).toBe('agents')
+      expect(store.getState().activityPaneOpen).toBe(true)
     }
   })
 })

@@ -45,7 +45,7 @@ const STATIC_TITLE_COPY = {
   'sidebar.activity.nextAgent': () =>
     translate('keybindings.title.sidebarActivityNextAgent', 'Next agent in Activity'),
   'sidebar.activity.toggle': () =>
-    translate('keybindings.title.sidebarActivityToggle', 'Toggle Activity view'),
+    translate('keybindings.title.sidebarActivityToggle', 'Toggle Activity pane'),
   'sidebar.right.toggle': () => translate('keybindings.title.e0d7e6b665', 'Toggle right sidebar'),
   'sidebar.explorer.toggle': () =>
     translate('keybindings.title.sidebarExplorerToggle', 'Show Explorer'),
