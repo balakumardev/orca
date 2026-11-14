@@ -66,6 +66,13 @@ on:
       key_leaks:
         description: Number of places where the API key (or a derived form of it) was found after the model ran. 0 = none. 'unknown' = the leak check itself failed. Anything but 0 stops the later agent rounds.
         value: ${{ jobs.agent.outputs.key_leaks }}
+    secrets:
+      DEEPINFRA_API_KEY:
+        description: >-
+          The DeepInfra API key. It is stored in the `agent` environment. GitHub only resolves a secret inside a called
+          workflow when the caller passes it BY NAME, and then gives this job (which declares `environment: agent`) the
+          environment's value. Never use `secrets: inherit` here: it would hand over every secret.
+        required: true
 
 permissions:
   contents: read
