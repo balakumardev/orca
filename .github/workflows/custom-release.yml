@@ -1,0 +1,9 @@
+name: custom-release
+# Placeholder so the workflow can be dispatched while the real version is developed on a feature branch.
+on:
+  workflow_dispatch:
+jobs:
+  stub:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "custom-release is a placeholder; run it with --ref <feature branch> to use the real one"
