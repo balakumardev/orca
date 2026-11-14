@@ -5,7 +5,9 @@ name: custom-gates
 # The scripts come from a trusted commit (the `tools` checkout), never from the code under test: for a pull request
 # that is the base branch tip, so a PR cannot edit the gate scripts it is judged by (a PR that changes custom/scripts
 # is judged by the old scripts; review those changes by eye). The workflow files themselves are read from the PR merge
-# ref by GitHub, so changes under .github/workflows need the owner's review too.
+# ref by GitHub, so changes under .github/workflows need the owner's review too. Bootstrap exception: while the base
+# branch has no custom/scripts/run-gates.sh yet (the pull request that introduces the gates), the scripts of the pull
+# request itself are used, so that very PR is a real test of the gates.
 #
 # Jobs: `static` (install, typecheck, lint, format, unit tests, localization, e2e typecheck ratchet, hygiene, lint
 # caps) on Linux and `e2e` (our Playwright specs) on macOS. Measured on 2026-11-14: Linux ran the same specs 6 of 7
@@ -55,6 +57,27 @@ jobs:
           path: tools
           sparse-checkout: custom
           persist-credentials: false
+      - name: Check that the base branch has the gate scripts
+        if: inputs.mode == 'pr'
+        id: tools
+        run: |
+          if [ -f tools/custom/scripts/run-gates.sh ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::The base branch has no gate scripts yet, so this run uses the ones from the pull request itself. This only happens for the pull request that introduces them."
+          fi
+      - name: Take the gate scripts from the pull request (bootstrap only)
+        if: inputs.mode == 'pr' && steps.tools.outputs.present == 'false'
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          path: tools-bootstrap
+          sparse-checkout: custom
+          persist-credentials: false
+      - name: Use the bootstrap gate scripts
+        if: inputs.mode == 'pr' && steps.tools.outputs.present == 'false'
+        run: rm -rf tools && mv tools-bootstrap tools
       - name: Checkout the pull request
         if: inputs.mode == 'pr'
         uses: actions/checkout@v6
@@ -137,6 +160,27 @@ jobs:
           path: tools
           sparse-checkout: custom
           persist-credentials: false
+      - name: Check that the base branch has the gate scripts
+        if: inputs.mode == 'pr'
+        id: tools
+        run: |
+          if [ -f tools/custom/scripts/run-gates.sh ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::The base branch has no gate scripts yet, so this run uses the ones from the pull request itself. This only happens for the pull request that introduces them."
+          fi
+      - name: Take the gate scripts from the pull request (bootstrap only)
+        if: inputs.mode == 'pr' && steps.tools.outputs.present == 'false'
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          path: tools-bootstrap
+          sparse-checkout: custom
+          persist-credentials: false
+      - name: Use the bootstrap gate scripts
+        if: inputs.mode == 'pr' && steps.tools.outputs.present == 'false'
+        run: rm -rf tools && mv tools-bootstrap tools
       - name: Checkout the pull request
         if: inputs.mode == 'pr'
         uses: actions/checkout@v6
