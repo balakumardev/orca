@@ -4,9 +4,9 @@ import type {
   CodexAppServerConnectionHandlers
 } from '../../../../codex/app-server/codex-app-server-connection-types'
 import type { openCodexAppServerConnection } from '../../../../codex/app-server/codex-app-server-connection'
-import { computeAgentSessionPayloadFingerprint } from '../../../../../shared/agent-session/lifecycle/agent-session-mutation-envelope'
+import { computeAgentSessionPayloadFingerprint } from '../../../../../shared/agent-session/lifecycle/operations/agent-session-mutation-envelope'
 import { attachFingerprintFields } from '../../../../native-chat/agent-session-wire/acquisition/structured-agent-session-attach'
-import { isRecord } from '../../../rpc/orchestration-session-caller-test-fixture'
+import { isRecord } from '../../../rpc/orchestration/callers/session.test-fixture'
 
 const WORKSPACE = 'workspace-1'
 

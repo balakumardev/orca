@@ -160,7 +160,12 @@ test.describe('Stacked sidebar', () => {
     await trigger.click()
     await popover.getByRole('button', { name: 'Automations', exact: true }).click()
     await expect(popover).toBeHidden()
-    await expect(orcaPage.getByRole('heading', { name: 'Automations', level: 1 })).toBeVisible()
+    // Upstream now renders the Automations list header as tabs, not an h1 page heading.
+    const automationsTab = orcaPage
+      .getByRole('navigation', { name: 'Automations', exact: true })
+      .getByRole('button', { name: /^Automations/ })
+    await expect(automationsTab).toBeVisible()
+    await expect(automationsTab).toHaveAttribute('aria-current', 'page')
   })
 
   test('hides the agent description until Show description is ticked and remembers the choice', async ({
