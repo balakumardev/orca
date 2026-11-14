@@ -209,8 +209,13 @@ job_block() { awk -v job="  $2:" '$0 == job { on = 1; next } on && /^  [a-z0-9_-
 check "custom-agent exports key_leaks from the run step" grep -q 'key_leaks: ${{ steps.run.outputs.key_leaks' "$agent_yml"
 check "custom-agent: the run step has an id" test -n "$(job_block "$agent_yml" agent | grep -F 'id: run' || true)"
 check "agent2 is conditional on key_leaks == '0'" test -n "$(job_block "$sync_yml" agent2 | grep "agent1.outputs.key_leaks == '0'" || true)"
-check "agent3 is conditional on agent1 key_leaks == '0'" test -n "$(job_block "$sync_yml" agent3 | grep "agent1.outputs.key_leaks == '0'" || true)"
-check "agent3 is conditional on agent2 key_leaks == '0' (or agent2 skipped)" test -n "$(job_block "$sync_yml" agent3 | grep "agent2.outputs.key_leaks == '0'" || true)"
+# Round 3 is gated in two steps: the pick3 job (which chooses the round 3 base) carries the leak conditions, and agent3 only runs
+# when pick3 succeeded, so a leak in round 1 or 2 still keeps every later model round from starting.
+check "pick3 is conditional on agent1 key_leaks == '0'" test -n "$(job_block "$sync_yml" pick3 | grep "agent1.outputs.key_leaks == '0'" || true)"
+check "pick3 is conditional on agent2 key_leaks == '0' (or agent2 skipped)" test -n "$(job_block "$sync_yml" pick3 | grep "agent2.outputs.key_leaks == '0'" || true)"
+# shellcheck disable=SC2016 # a literal workflow expression
+check "agent3 only runs when pick3 succeeded" test -n "$(job_block "$sync_yml" agent3 | grep -F "needs.pick3.result == 'success'" || true)"
+check "agent3 does not start on its own conditions (needs pick3 only, no model round)" test -z "$(job_block "$sync_yml" agent3 | grep -E '^    needs:.*agent[12]' || true)"
 check "gates1 does not run on an unresolved round" test -n "$(job_block "$sync_yml" gates1 | grep "outputs.unresolved == 'false'" || true)"
 
 echo "A. the PR is a draft [needs manual merge] and opens with the loud caveat"

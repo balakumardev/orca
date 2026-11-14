@@ -9,10 +9,18 @@ import { existsSync, readFileSync } from 'node:fs'
 const MARGIN = 10
 
 export function capFor(path) {
-  if (/\.(test|spec)\.(ts|tsx|mts|cts)$/.test(path)) return 800
-  if (/\.tsx$/.test(path)) return 400
-  if (/\.(ts|mts|cts)$/.test(path)) return 300
-  if (/\.mjs$/.test(path)) return 600
+  if (/\.(test|spec)\.(ts|tsx|mts|cts)$/.test(path)) {
+    return 800
+  }
+  if (path.endsWith('.tsx')) {
+    return 400
+  }
+  if (/\.(ts|mts|cts)$/.test(path)) {
+    return 300
+  }
+  if (path.endsWith('.mjs')) {
+    return 600
+  }
   return null
 }
 
@@ -41,7 +49,9 @@ export function countCodeLines(source) {
           i += 2
           continue
         }
-        if (c === '`') inTemplate = false
+        if (c === '`') {
+          inTemplate = false
+        }
         i += 1
         continue
       }
@@ -49,7 +59,9 @@ export function countCodeLines(source) {
         i += 1
         continue
       }
-      if (c === '/' && n === '/') break
+      if (c === '/' && n === '/') {
+        break
+      }
       if (c === '/' && n === '*') {
         inBlock = true
         i += 2
@@ -71,10 +83,14 @@ export function countCodeLines(source) {
         }
         continue
       }
-      if (c === '`') inTemplate = true
+      if (c === '`') {
+        inTemplate = true
+      }
       i += 1
     }
-    if (hasCode) count += 1
+    if (hasCode) {
+      count += 1
+    }
   }
   return count
 }
@@ -85,11 +101,16 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   let checked = 0
   for (const path of process.argv.slice(2)) {
     const cap = capFor(path)
-    if (cap === null || !existsSync(path)) continue
+    if (cap === null || !existsSync(path)) {
+      continue
+    }
     checked += 1
     const lines = countCodeLines(readFileSync(path, 'utf8'))
-    if (lines > cap) over.push({ path, lines, cap })
-    else if (lines >= cap - MARGIN) near.push({ path, lines, cap })
+    if (lines > cap) {
+      over.push({ path, lines, cap })
+    } else if (lines >= cap - MARGIN) {
+      near.push({ path, lines, cap })
+    }
   }
   console.log(JSON.stringify({ checked, near, over }))
 }

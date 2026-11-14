@@ -246,8 +246,11 @@ jobs:
           path: ${{ runner.temp }}/gates-out/
           retention-days: 14
           if-no-files-found: ignore
+      # `if: failure()` was never true in a sync run: the gate step runs with --exit-zero, so the job stays green and the
+      # screenshots and error context of a failed spec were lost. Upload whenever the gate recorded a failure (or never
+      # reported). Playwright writes to <package.json directory>/test-results, which is repo/test-results here.
       - name: Upload Playwright failure evidence
-        if: failure()
+        if: always() && steps.gates.outputs.failed != '0'
         uses: actions/upload-artifact@v7
         with:
           name: e2e-results-${{ inputs.mode == 'pr' && 'pr' || inputs.round }}

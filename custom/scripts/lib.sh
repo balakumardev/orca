@@ -81,6 +81,32 @@ foreign_ci_path() {
   return 1
 }
 
+# strip_ansi: remove terminal colour codes from stdin (CI logs keep them).
+strip_ansi() { perl -pe 's/\e\[[0-9;?]*[A-Za-z]//g'; }
+
+# Conflict markers in a file. count_markers counts conflict HUNKS (one `<<<<<<<` start line per hunk; the `>>>>>>>` end
+# line of the same hunk is not a second one). has_markers is the detection: any marker line at all, including the
+# `|||||||` ancestor line of the zdiff3 style.
+count_markers() { grep -a -c -E '^<<<<<<< ' -- "$1" 2>/dev/null || true; }
+has_markers() { grep -a -q -E '^(<<<<<<<|>>>>>>>|\|\|\|\|\|\|\|) ' -- "$1" 2>/dev/null; }
+
+# round_score ALL_DIR N: print how bad round N's candidate is (lower wins); return 1 when the round left no candidate (no
+# sync-facts.json or no merge.bundle, e.g. its job crashed). ALL_DIR holds the downloaded round-N/ and gates-N-*/ directories.
+# Score = number of failed gates. 1000 when the merge is unresolved or its gates never reported (any candidate that really
+# passed or failed its gates beats it); 1001 when the round's output contained the API key (its edits were discarded).
+round_score() {
+  local all="$1" n="$2" d score=1000 g
+  local -a files=()
+  d="$all/round-$n"
+  [ -s "$d/sync-facts.json" ] && [ -s "$d/merge.bundle" ] || return 1
+  if [ "$(jq -r '.unresolved' "$d/sync-facts.json")" != true ]; then
+    for g in "$all"/gates-"$n"-*/gates.json; do if [ -s "$g" ]; then files+=("$g"); fi; done
+    if [ "${#files[@]}" -gt 0 ]; then score="$(jq -s '[.[].gates[] | select(.status == "fail")] | length' "${files[@]}")"; fi
+  fi
+  if [ "$(jq -r '.key_leak // false' "$d/sync-facts.json")" = true ]; then score=1001; fi
+  printf '%s\n' "$score"
+}
+
 # Generated files are never merged by hand or by a model: upstream's version wins and the reviewer is told.
 generated_path() {
   case "$1" in

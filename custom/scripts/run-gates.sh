@@ -15,6 +15,8 @@
 # Output: DIR/gates.json (schema 1), DIR/logs/<id>.log (full output). Gates are scripts: no model is involved.
 # shellcheck source=lib.sh
 . "$(dirname "$0")/lib.sh"
+# shellcheck source=unit-flake.sh
+. "$(dirname "$0")/unit-flake.sh"
 
 TOOLS_DIR="$(cd "$(dirname "$0")" && pwd)"
 OUT="" MODE="" CHANGED_BASE="" OUR_FILES="" ONLY="" SKIP="" EXIT_ZERO=0
@@ -80,7 +82,6 @@ with_timeout() { # SECONDS CMD...
   elif command -v gtimeout >/dev/null 2>&1; then gtimeout "$secs" "$@"
   else "$@"; fi
 }
-strip_ansi() { perl -pe 's/\e\[[0-9;?]*[A-Za-z]//g'; }
 CURRENT_GATE=""
 
 # ------------------------------------------------------------------------------------------------ gates
@@ -122,25 +123,57 @@ gate_lint_caps() {
 gate_install() { pnpm install --frozen-lockfile; }
 gate_typecheck() { pnpm tc; }
 
+# lint and format end in `note`, which always succeeds, so they keep the checker's own status in a variable and return it:
+# they stay correct even if the harness's errexit handling ever changes again.
 gate_lint() {
   [ -s "$CODE_TARGETS" ] || skip_gate "no JS/TS files in scope" || return $?
-  xargs -r -0 pnpm exec oxlint < <(tr '\n' '\0' < "$CODE_TARGETS")
+  local rc=0
+  xargs -r -0 pnpm exec oxlint < <(tr '\n' '\0' < "$CODE_TARGETS") || rc=$?
   note "$(wc -l < "$CODE_TARGETS" | tr -d ' ') files"
+  return "$rc"
 }
 
 gate_format() {
   [ -s "$CODE_TARGETS" ] || skip_gate "no JS/TS files in scope" || return $?
-  xargs -r -0 pnpm exec oxfmt --check < <(tr '\n' '\0' < "$CODE_TARGETS")
+  local rc=0
+  xargs -r -0 pnpm exec oxfmt --check < <(tr '\n' '\0' < "$CODE_TARGETS") || rc=$?
   note "$(wc -l < "$CODE_TARGETS" | tr -d ' ') files"
+  return "$rc"
 }
 
 gate_unit() {
   [ -s "$TEST_TARGETS" ] || skip_gate "no unit test files in scope" || return $?
-  local dirs
+  local dirs first rc=0 decision f rc2=0
+  local -a rerun=()
   dirs="$(while IFS= read -r p; do dirname "$p"; done < "$TEST_TARGETS" | sort -u)"
   note "test directories: $(printf '%s' "$dirs" | tr '\n' ' ')"
+  first="$(mktemp)"
+  # tee keeps the whole run in this gate's log; `|| rc=$?` keeps vitest's own exit code (pipefail) without ending the gate.
   # shellcheck disable=SC2086
-  with_timeout 1500 pnpm exec vitest run --config config/vitest.config.ts $dirs
+  with_timeout 1500 pnpm exec vitest run --config config/vitest.config.ts $dirs 2>&1 | tee "$first" || rc=$?
+  if [ "$rc" -eq 0 ]; then rm -f "$first"; return 0; fi
+
+  # Red run. Real failures stay red. The one exception is unit_flake_decide's: nothing failed, vitest only caught an
+  # unhandled error that a test file outside this change's scope raised, so those files get one re-run.
+  if [ "$rc" -eq 1 ]; then decision="$(unit_flake_decide "$first" "$TEST_SCOPE" "$ALL_TARGETS")"
+  else decision="keep-red: vitest exited with code $rc, not a test-failure exit code"; fi
+  rm -f "$first"
+  if [ "$(head -n 1 <<<"$decision")" != rerun ]; then
+    echo "unit flake check: the gate stays red (${decision#keep-red: })"
+    return "$rc"
+  fi
+  while IFS= read -r f; do [ -z "$f" ] || rerun+=("$f"); done < <(tail -n +2 <<<"$decision")
+  for f in "${rerun[@]}"; do
+    [ -f "$f" ] || { echo "unit flake check: the gate stays red ($f does not exist in this checkout)"; return "$rc"; }
+  done
+  echo "unit flake check: vitest exited $rc with no failed test; its only complaint is an unhandled error raised while running ${rerun[*]}, which this change does not touch. Re-running just those files once."
+  with_timeout 600 pnpm exec vitest run --config config/vitest.config.ts "${rerun[@]}" || rc2=$?
+  if [ "$rc2" -ne 0 ]; then
+    echo "unit flake check: the re-run exited with code $rc2, so the gate stays red"
+    return "$rc"
+  fi
+  note "first run threw an unhandled error that did not reproduce: ${rerun[*]} passed on a re-run"
+  warn_note "The first unit run threw an unhandled error that did not reproduce: ${rerun[*]} (a test file this change does not touch) passed on a re-run. The gate passed on that re-run."
 }
 
 gate_unit_related() { # pr mode only: tests that import the changed source files
@@ -188,8 +221,37 @@ record() { # id name status exit seconds
     >> "$OUT/results.jsonl"
 }
 
+# in_gate_shell FUNCTION LOGFILE: run FUNCTION in a subshell with errexit really on; its output goes to LOGFILE and its
+# exit status to GATE_RC. Two traps made the lint and format gates unable to fail (every earlier "green" PR run):
+#   1. `( set -e; "$fn" ) || rc=$?` is a command in an `||` list, and bash then ignores `set -e` for everything inside,
+#      so a gate function's status was only the status of its LAST command (and `note` is always 0).
+#   2. The same happens if this function or run_gate is ever called from an `||`, `&&` or `if` list.
+# A background subshell that is waited for is not part of any list: `set -e` stays on inside it, and `wait` hands back the
+# real status. Call this (and run_gate) as a plain statement, never inside an `||`, `&&` or `if` list.
+GATE_RC=0
+in_gate_shell() {
+  GATE_RC=0
+  ( set -euo pipefail; "$1" ) > "$2" 2>&1 &
+  wait $! || GATE_RC=$?
+}
+
+# A gate that cannot fail is worse than no gate. Before EVERY gate, run a function whose first command fails through the same
+# in_gate_shell path: if it gets past that command, errexit is off in the gate shell (a changed in_gate_shell, or a caller that
+# put run_gate in an `||`, `&&` or `if` list), and the run stops instead of reporting gates that cannot fail.
+errexit_canary() { false; echo errexit-is-off; }
+check_errexit() {
+  local log
+  log="$(mktemp)"
+  in_gate_shell errexit_canary "$log"
+  if [ "$GATE_RC" -eq 0 ] || grep -q errexit-is-off "$log"; then
+    rm -f "$log"
+    die "set -e is not effective inside the gate shell: gates would pass while their commands fail (see in_gate_shell)"
+  fi
+  rm -f "$log"
+}
+
 run_gate() { # id name function
-  local id="$1" name="$2" fn="$3" rc=0 t0 status
+  local id="$1" name="$2" fn="$3" rc t0 status
   selected "$id" || return 0
   CURRENT_GATE="$id"
   if [ "$INSTALL_FAILED" -eq 1 ] && needs_install "$id"; then
@@ -198,11 +260,10 @@ run_gate() { # id name function
     return 0
   fi
   log "=== gate: $id ($name)"
+  check_errexit
   t0="$(date +%s)"
-  (
-    set -euo pipefail
-    "$fn"
-  ) > "$OUT/logs/$id.log" 2>&1 || rc=$?
+  in_gate_shell "$fn" "$OUT/logs/$id.log"
+  rc="$GATE_RC"
   tail -n 15 "$OUT/logs/$id.log" >&2 || true
   case "$rc" in
     0) status=pass ;;

@@ -20,7 +20,7 @@ on:
         type: string
         required: true
       mode:
-        description: first (resolve from scratch), repair (fix the previous candidate using real gate output), retry (resolve from scratch again, with the previous attempt's gate output as context)
+        description: first (resolve from scratch), repair (fix the previous candidate using real gate output; may also edit the files our customizations own), retry (resolve from scratch again, with the previous attempt's output as context; only when there is no resolved candidate to repair)
         type: string
         required: true
       tier:
@@ -28,7 +28,7 @@ on:
         type: string
         required: true
       prev_round:
-        description: Round whose artifact holds the previous candidate (repair, retry)
+        description: Round whose artifact holds the candidate to repair (repair), or the latest earlier attempt to learn from (retry)
         type: string
         default: ''
       prev_gates_round:
