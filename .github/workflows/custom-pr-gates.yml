@@ -1,0 +1,29 @@
+name: custom-pr-gates
+# Quality gates for every pull request into `custom`: contributor PRs and the owner's own. It runs the SAME script
+# as the sync workflow (custom/scripts/run-gates.sh through custom-gates.yml), so a sync PR and a contributor PR are
+# held to one standard.
+#
+# Security: plain `pull_request` (never pull_request_target), no secrets, a read-only token. For a PR from a fork
+# GitHub already withholds secrets and gives a read-only token; with "Require approval for all outside contributors"
+# set in the repository's Actions settings nothing runs until the owner approves.
+#
+# What runs: static gates (hygiene, lint line caps, install, typecheck, oxlint and oxfmt on the files the PR changed,
+# unit tests for the touched areas and for our customization's tests, localization coverage, e2e typecheck ratchet) on
+# Linux, and our Playwright e2e specs on macOS (7 of 7 green there; the same specs gave 6 of 7 on Linux because one
+# pixel-layout assertion differs). Required check to set on `custom`: "gates / result".
+on:
+  pull_request:
+    branches: [custom]
+
+concurrency:
+  group: custom-pr-gates-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  gates:
+    uses: ./.github/workflows/custom-gates.yml
+    with:
+      mode: pr

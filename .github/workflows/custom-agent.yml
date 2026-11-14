@@ -1,0 +1,181 @@
+name: custom-agent
+# One round of the cloud coding agent that resolves merge conflicts. Reusable; called by custom-sync.yml.
+#
+# Trust model (the reason this is its own job):
+#   - The job has a read-only token and `persist-credentials: false`: the model can write nothing to GitHub.
+#   - It runs ONLY from the `custom` branch (the `agent` environment's branch policy), because the environment holds
+#     DEEPINFRA_API_KEY. A rehearsal from a feature branch skips this job; see the PR description for how to exercise it.
+#   - No repository code runs before the key-bearing step: no install, no build, no test, no pnpm script. The key is in
+#     the environment of exactly one step (`Run the agent`), which is `agent-round.sh run`: it starts the CLI with a
+#     scrubbed environment, a restricted tool list and hard caps on turns and wall time. When the CLI has exited, that
+#     same step scans the whole work tree (and everything uploaded) for the key in its plain, base64, hex, reversed and
+#     partial forms; a hit discards the round's edits and stops the later agent rounds (see `key_leaks` below).
+#   - The model's output is untrusted text. The state it hands back is a set of edited files; scripts (never the model)
+#     enforce which files may change, check for conflict markers, commit, and later run every gate.
+on:
+  workflow_call:
+    inputs:
+      round:
+        description: Round number, 1 to 3. Names the artifact round-N
+        type: string
+        required: true
+      mode:
+        description: first (resolve from scratch), repair (fix the previous candidate using real gate output), retry (resolve from scratch again, with the previous attempt's gate output as context)
+        type: string
+        required: true
+      tier:
+        description: flash or pro
+        type: string
+        required: true
+      prev_round:
+        description: Round whose artifact holds the previous candidate (repair, retry)
+        type: string
+        default: ''
+      prev_gates_round:
+        description: Round whose gates-N-* artifacts hold the gate output to show the model (repair, retry)
+        type: string
+        default: ''
+      tag:
+        type: string
+        required: true
+      tag_is_release:
+        type: string
+        required: true
+      is_test:
+        type: string
+        required: true
+      label:
+        type: string
+        required: true
+      branch:
+        type: string
+        required: true
+      base_branch:
+        type: string
+        required: true
+      base_sha:
+        type: string
+        required: true
+      upstream_sha:
+        type: string
+        required: true
+    outputs:
+      unresolved:
+        description: true when conflict markers remain in the candidate this round produced
+        value: ${{ jobs.agent.outputs.unresolved }}
+      key_leaks:
+        description: Number of places where the API key (or a derived form of it) was found after the model ran. 0 = none. 'unknown' = the leak check itself failed. Anything but 0 stops the later agent rounds.
+        value: ${{ jobs.agent.outputs.key_leaks }}
+
+permissions:
+  contents: read
+
+env:
+  # Pinned: the flag set below was rehearsed against exactly this version. Never `latest`.
+  CLAUDE_CODE_VERSION: '2.1.325'
+
+jobs:
+  agent:
+    name: agent
+    runs-on: ubuntu-latest
+    environment: agent
+    timeout-minutes: 45
+    outputs:
+      unresolved: ${{ steps.finish.outputs.unresolved }}
+      # Set by the `run` step, so it survives a crash in `finish`. No value when the model step never ran (no key was used).
+      key_leaks: ${{ steps.run.outputs.key_leaks || ((steps.run.conclusion == 'failure' || steps.run.conclusion == 'cancelled') && 'unknown') || '0' }}
+    steps:
+      - name: Checkout the sync scripts
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          path: tools
+          sparse-checkout: custom
+          persist-credentials: false
+      - name: Checkout the base branch
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.base_sha }}
+          path: repo
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+      - name: Download the previous candidate
+        if: inputs.prev_round != ''
+        uses: actions/download-artifact@v8
+        with:
+          name: round-${{ inputs.prev_round }}
+          path: ${{ runner.temp }}/prev
+      - name: Download the previous gate results
+        if: inputs.prev_gates_round != ''
+        uses: actions/download-artifact@v8
+        with:
+          pattern: gates-${{ inputs.prev_gates_round }}-*
+          path: ${{ runner.temp }}/prev
+          merge-multiple: true
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          package_json_file: repo/package.json
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Install and verify the agent CLI
+        run: |
+          npm install --global --no-audit --no-fund "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+          version="$(claude --version)"
+          echo "claude --version: $version"
+          [ "$version" = "${CLAUDE_CODE_VERSION} (Claude Code)" ] || { echo "::error::unexpected Claude Code version"; exit 1; }
+          help="$(claude --help 2>&1)"
+          for flag in --restricted --safe-mode --permission-prompts --setting-sources --disable-slash-commands \
+                      --strict-mcp-config --no-session-persistence --disallowedTools --allowedTools --tools \
+                      --output-format --permission-mode; do
+            if grep -q -- "$flag" <<<"$help"; then echo "flag present: $flag"; else echo "::error::flag missing in this CLI version: $flag"; exit 1; fi
+          done
+      - name: Prepare the merge and the prompt
+        working-directory: repo
+        env:
+          SYNC_OUT: ${{ runner.temp }}/out/round-${{ inputs.round }}
+          TOOLS_DIR: ${{ github.workspace }}/tools/custom/scripts
+          ROUND: ${{ inputs.round }}
+          MODE: ${{ inputs.mode }}
+          TIER: ${{ inputs.tier }}
+          PREV_DIR: ${{ inputs.prev_round != '' && format('{0}/prev/round-{1}', runner.temp, inputs.prev_round) || '' }}
+          PREV_GATES: ${{ inputs.prev_gates_round != '' && format('{0}/prev', runner.temp) || '' }}
+          UPSTREAM_SHA: ${{ inputs.upstream_sha }}
+          BASE_SHA: ${{ inputs.base_sha }}
+          BASE_BRANCH: ${{ inputs.base_branch }}
+          BRANCH: ${{ inputs.branch }}
+          LABEL: ${{ inputs.label }}
+          TAG: ${{ inputs.tag }}
+          IS_TEST: ${{ inputs.is_test }}
+          TAG_IS_RELEASE: ${{ inputs.tag_is_release }}
+        run: bash "$TOOLS_DIR/agent-round.sh" prepare
+      - name: Run the agent
+        id: run
+        working-directory: repo
+        env:
+          SYNC_OUT: ${{ runner.temp }}/out/round-${{ inputs.round }}
+          TOOLS_DIR: ${{ github.workspace }}/tools/custom/scripts
+          ROUND: ${{ inputs.round }}
+          MODE: ${{ inputs.mode }}
+          TIER: ${{ inputs.tier }}
+          DEEPINFRA_API_KEY: ${{ secrets.DEEPINFRA_API_KEY }}
+        run: bash "$TOOLS_DIR/agent-round.sh" run
+      - name: Enforce scope, commit, bundle
+        id: finish
+        working-directory: repo
+        env:
+          SYNC_OUT: ${{ runner.temp }}/out/round-${{ inputs.round }}
+          TOOLS_DIR: ${{ github.workspace }}/tools/custom/scripts
+          ROUND: ${{ inputs.round }}
+          MODE: ${{ inputs.mode }}
+          TIER: ${{ inputs.tier }}
+        run: bash "$TOOLS_DIR/agent-round.sh" finish
+      - name: Upload the candidate
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: round-${{ inputs.round }}
+          path: ${{ runner.temp }}/out/
+          retention-days: 14
+          if-no-files-found: ignore
