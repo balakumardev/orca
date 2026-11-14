@@ -13,7 +13,7 @@ jobs:
     steps:
       - name: Probe
         run: |
-          set -u
+          set +e
           git --version
           git config --global user.name probe; git config --global user.email probe@localhost
           URL=https://github.com/stablyai/orca.git
