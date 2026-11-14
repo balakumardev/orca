@@ -139,9 +139,7 @@ export abstract class UpdaterInstallExecution extends UpdaterMacInstallPreflight
         this.quitAndInstallNativeInvoked = true
         // Invoke before destroying PTYs/close guards so synchronous failure leaves the app usable.
         const supervisorOwnsRelaunch = this.updateInstallMode === 'supervised-headless-serve'
-        runWithLaunchPath(() =>
-          this.getAutoUpdater().quitAndInstall(supervisorOwnsRelaunch, !supervisorOwnsRelaunch)
-        )
+        runWithLaunchPath(() => this.invokeNativeQuitAndInstall(supervisorOwnsRelaunch))
         span.addEvent('native_quit_and_install_invoked')
 
         // Synchronous error dispatch may already have cleared the handoff; skip destructive prep.
@@ -218,6 +216,11 @@ export abstract class UpdaterInstallExecution extends UpdaterMacInstallPreflight
           : 'Could not restart to install the update. Quit and reopen Orca, then try again.'
       })
     }
+  }
+
+  // Overridable so custom builds can swap through the native updater without loading electron-updater.
+  protected invokeNativeQuitAndInstall(supervisorOwnsRelaunch: boolean): void {
+    this.getAutoUpdater().quitAndInstall(supervisorOwnsRelaunch, !supervisorOwnsRelaunch)
   }
 
   // Supervised serve disables autoInstallOnAppQuit; MacUpdater only stages inside quitAndInstall, so waiting first deadlocks.

@@ -10,8 +10,9 @@
 #   manifest.json                       {version, tag, base, upstream_commit, built_from_sha, built_at, signed, team_id,
 #                                        notarized, asset, sha256, size}
 #
-# The zip is extracted again and verify-app.sh runs on the extracted copy, so a zip that lost a symlink or the
-# stapled ticket fails here and not on the owner's Mac. The asset name keeps the "+" of the version verbatim: GitHub
+# The zip must stay inside the size rule the in-app updater enforces (update-size-limits.sh), or every installed copy would
+# refuse the release. The zip is extracted again and verify-app.sh runs on the extracted copy, so a zip that lost a symlink or
+# the stapled ticket fails here and not on the owner's Mac. The asset name keeps the "+" of the version verbatim: GitHub
 # stores it as-is (measured), and the manifest, not URL guessing, is what the installer reads.
 set -euo pipefail
 
@@ -52,6 +53,10 @@ hash="$(shasum -a 256 "$zip_path" | awk '{print $1}')"
 printf '%s  %s\n' "$hash" "$asset" >"$zip_path.sha256"
 size="$(stat -f%z "$zip_path")"
 echo "sha256 $hash, $size bytes"
+
+# The app refuses a zip outside its size rule; fail here, before the release is published and not on the owner's Mac.
+echo "== size limits of the in-app updater (update-size-limits.sh)"
+bash "$here/update-size-limits.sh" "$zip_path"
 
 echo "== round trip: extract the zip and verify the copy"
 tmp_base="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
