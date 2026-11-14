@@ -1,39 +1,82 @@
 name: custom-sync
-# PROBE 2 (temporary): can GITHUB_TOKEN push a merge whose history edits workflows but whose tree does not?
+# PROBE 3 (temporary): fetch cost on the runner (blobless vs full vs shallow) and whether a merge commit whose
+# parents are shallow upstream commits can be pushed to the fork.
 on:
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
-  push-probe2:
+  fetch-probe:
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-          filter: blob:none
-      - name: Merge upstream main (link-commit trick), strip workflows, push
+      - name: Probe
         run: |
-          git config user.name probe; git config user.email probe@localhost
-          git remote add stablyai https://github.com/stablyai/orca.git
-          git fetch --no-tags --filter=blob:none stablyai main
-          UP=$(git rev-parse FETCH_HEAD)
-          OLD=$(git rev-parse c91a7a6ee3^{commit})
-          BASE=$(git rev-parse origin/custom)
-          git checkout -q -B probe-merge "$BASE"
-          LINK=$(git commit-tree "$UP^{tree}" -p "$UP" -p "$OLD" -m link)
-          git merge --no-commit --no-ff "$LINK" || true
-          git ls-files -u | cut -f2 | sort -u | head -20
-          # strip non-custom workflows and take ours for every unmerged file (probe only)
-          for p in $(git ls-files -- .github/workflows | sort -u); do case "${p#.github/workflows/}" in custom-*) ;; *) git rm -q -f -- "$p";; esac; done
-          git rm -q -f --ignore-unmatch -- .github/dependabot.yml
-          for p in $(git diff --name-only --diff-filter=U); do git checkout "$BASE" -- "$p"; done
-          git ls-files -u | wc -l
-          git commit -q -m "probe merge"
-          echo "tree diff vs base touching workflows:"; git diff --name-only "$BASE" HEAD -- .github/workflows | head
-          echo "new commits: $(git rev-list --count HEAD ^"$BASE")"
-          set +e
-          git push origin HEAD:refs/heads/test/probe-merge 2>&1 | tee push.out
-          echo "PUSH_RC=${PIPESTATUS[0]}"
+          set -u
+          git --version
+          git config --global user.name probe; git config --global user.email probe@localhost
+          URL=https://github.com/stablyai/orca.git
+          NEW=$(git ls-remote --tags --refs "$URL" 'refs/tags/v*' | sed 's#.*refs/tags/##' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+          OLD=v1.4.258
+          echo "old=$OLD new=$NEW"
+          now() { date +%s.%N; }
+          el() { awk -v a="$1" -v b="$(now)" 'BEGIN{printf "%.1f", b-a}'; }
+          size() { du -sh .git | cut -f1; }
+
+          echo "::group::A. blobless clone of the fork (what actions/checkout does) + blobless fetch of both tags, full history"
+          t=$(now)
+          git clone -q --filter=blob:none --no-checkout "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" a 2>&1 | tail -2
+          echo "A1 fork blobless clone: $(el $t)s, .git=$(cd a && size)"
+          cd a
+          t=$(now)
+          git remote add stablyai "$URL"
+          git fetch -q --no-tags --filter=blob:none stablyai "+refs/tags/$OLD:refs/tags/$OLD" "+refs/tags/$NEW:refs/tags/$NEW"
+          echo "A2 blobless fetch of both tags: $(el $t)s, .git=$(size)"
+          git config --get-regexp '^remote\.stablyai\.(promisor|partialclonefilter)' || true
+          CUSTOM=$(git rev-parse origin/custom)
+          t=$(now)
+          git merge-tree --write-tree --name-only --merge-base="refs/tags/$OLD" "$CUSTOM" "refs/tags/$NEW" > ../mt-a.txt; echo "A3 merge-tree rc=$? in $(el $t)s, .git=$(size)"; head -1 ../mt-a.txt; sed -n '2,12p' ../mt-a.txt
+          cd ..
+          echo "::endgroup::"
+
+          echo "::group::B. full clone of upstream (no filter): both tags"
+          t=$(now)
+          git init -q b && cd b
+          git fetch -q --no-tags "$URL" "+refs/tags/$OLD:refs/tags/$OLD" "+refs/tags/$NEW:refs/tags/$NEW"
+          echo "B full fetch of both tags: $(el $t)s, .git=$(size), objects: $(git count-objects -v | grep -E '^(count|in-pack)' | tr '\n' ' ')"
+          cd ..
+          echo "::endgroup::"
+
+          echo "::group::C. shallow depth=1 of the fork branch and both tags; merge-tree; push a merge commit with shallow upstream parents"
+          t=$(now)
+          git init -q c && cd c
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git fetch -q --depth=1 --no-tags origin +refs/heads/custom:refs/remotes/origin/custom
+          git fetch -q --depth=1 --no-tags "$URL" "+refs/tags/$OLD:refs/tags/$OLD" "+refs/tags/$NEW:refs/tags/$NEW"
+          echo "C1 shallow fetch (custom + two tags): $(el $t)s, .git=$(size)"
+          CUSTOM=$(git rev-parse origin/custom)
+          t=$(now)
+          git merge-tree --write-tree --name-only --merge-base="refs/tags/$OLD" "$CUSTOM" "refs/tags/$NEW" > ../mt-c.txt; echo "C2 merge-tree rc=$? in $(el $t)s"; head -1 ../mt-c.txt
+          TREE=$(head -1 ../mt-c.txt)
+          # strip upstream workflows from the tree: the push is made with GITHUB_TOKEN, which may not touch workflow files
+          export GIT_INDEX_FILE="$PWD/idx"
+          git read-tree "$TREE"
+          git rm -q --cached -r --ignore-unmatch .github >/dev/null
+          git read-tree --prefix=.github/ "$CUSTOM:.github"
+          T2=$(git write-tree); unset GIT_INDEX_FILE
+          NEWC=$(git rev-parse "refs/tags/$NEW^{commit}"); OLDC=$(git rev-parse "refs/tags/$OLD^{commit}")
+          LINK=$(git commit-tree "$NEWC^{tree}" -p "$NEWC" -p "$OLDC" -m link)
+          M1=$(git commit-tree "$T2" -p "$CUSTOM" -p "$NEWC" -m "probe: merge with the tag commit as second parent")
+          M2=$(git commit-tree "$T2" -p "$CUSTOM" -p "$LINK" -m "probe: merge with the link commit as second parent")
+          for pair in "shallow-direct:$M1" "shallow-link:$M2"; do
+            name="${pair%%:*}"; sha="${pair#*:}"
+            t=$(now); set +e
+            git push origin "$sha:refs/heads/test/probe-$name" 2>&1 | sed -E 's#x-access-token:[^@]*@#***@#g' | tail -6
+            echo "C3 push $name rc=${PIPESTATUS[0]} in $(el $t)s"
+            set -e
+          done
+          cd ..
+          echo "::endgroup::"
+        env:
+          GH_TOKEN: ${{ github.token }}
