@@ -15,6 +15,12 @@ import type { GitHubWorkItem } from '../../../../shared/github/work-item-types'
 import { buildTaskSourceContextFromRepo } from '../../../../shared/work-items/task-source-context'
 
 vi.mock('../cmd-j/task-search-requests', () => ({ createCmdJTaskSearchRequests: vi.fn() }))
+const taskSearchSwitch = vi.hoisted(() => ({ enabled: true }))
+vi.mock('../cmd-j/cmd-j-task-search-switch', () => ({
+  get CMD_J_TASK_SEARCH_ENABLED() {
+    return taskSearchSwitch.enabled
+  }
+}))
 const input: Parameters<typeof useWorktreeJumpPaletteTaskSearch>[0] = {
   visible: true,
   query: 'login redirect',
@@ -33,12 +39,30 @@ const input: Parameters<typeof useWorktreeJumpPaletteTaskSearch>[0] = {
   })
 }
 beforeEach(() => {
+  taskSearchSwitch.enabled = true
   vi.useFakeTimers()
   vi.mocked(createCmdJTaskSearchRequests).mockReset()
 })
 afterEach(() => {
   cleanup()
   vi.useRealTimers()
+})
+
+it('sends no request and lists no task while the Cmd+J task search switch is off', async () => {
+  taskSearchSwitch.enabled = false
+  vi.mocked(createCmdJTaskSearchRequests).mockReturnValue([
+    {
+      id: 'fast',
+      provider: 'jira',
+      hostId: 'local',
+      hostLabel: 'Local',
+      run: async () => [jiraTaskResult]
+    }
+  ])
+  const { result } = renderHook(useWorktreeJumpPaletteTaskSearch, { initialProps: input })
+  await act(async () => vi.advanceTimersByTimeAsync(2000))
+  expect(createCmdJTaskSearchRequests).not.toHaveBeenCalled()
+  expect(result.current.taskItems).toEqual([])
 })
 
 it('publishes a fast source while a second is pending, then discards both after close', async () => {

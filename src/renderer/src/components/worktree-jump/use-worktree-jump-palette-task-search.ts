@@ -4,6 +4,7 @@ import { useEffect, useEffectEvent, useMemo, useState } from 'react'
 import { useAppStore } from '@/store/index'
 import { useShallow } from 'zustand/react/shallow'
 import { forEachWithConcurrency } from '../../../../shared/map-with-concurrency'
+import { CMD_J_TASK_SEARCH_ENABLED } from '../cmd-j/cmd-j-task-search-switch'
 import { createCmdJTaskSearchRequests } from '../cmd-j/task-search-requests'
 import {
   isCmdJTaskSearchQuery,
@@ -64,7 +65,7 @@ export function useWorktreeJumpPaletteTaskSearch({
       )
     ]
   }
-  const searchEnabled = visible && isCmdJTaskSearchQuery(query)
+  const searchEnabled = CMD_J_TASK_SEARCH_ENABLED && visible && isCmdJTaskSearchQuery(query)
   const requestKey = JSON.stringify([
     query.trim(),
     effectiveFilter,
