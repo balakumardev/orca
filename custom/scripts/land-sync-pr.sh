@@ -7,14 +7,16 @@
 #      with base branch custom, not a rehearsal, a release tag, a sync/vX.Y.Z branch. Anything else dies with zero gh calls.
 #   2. The PR is not a draft, and the gates of the CHOSEN round finished green: its custom-gates job result is `success` and its
 #      `failed` output is the number 0 (the output counts a crashed gate job as a failure; gates.json files do not).
-#   3. The PR is still the one opened (open, base custom, same-repo, head == MERGE_SHA) and the tip of custom is still BASE_SHA.
+#   3. The PR is still the one opened (open, base custom, same-repo, head == MERGE_SHA) and the tip of custom is still BASE_SHA
+#      (read once, right before the check-run, so a decline never leaves a green attested check behind).
 #   4. Post the check-run `gates / result` (conclusion success) on MERGE_SHA. Commit statuses cannot satisfy the required check,
 #      which is pinned to the GitHub Actions app; a check-run made with the workflow token belongs to that app.
 #   5. Merge with a MERGE COMMIT pinned to MERGE_SHA (never squash, rebase, --admin or --auto) and verify: PR merged, the merge
 #      commit's parents are exactly BASE_SHA and MERGE_SHA, and custom's tip is that commit.
 #   6. Ask for the release ONCE: `gh workflow run custom-release.yml --ref custom` with sign, notarize and publish true. A merge made
 #      with the workflow token does not start the release's `push:` trigger, so this dispatch is the only request. It is skipped
-#      when a dispatched run for the merge commit already exists (a re-run of this job must not release twice).
+#      when ANY run of custom-release.yml on custom already exists for the merge commit, pushed or dispatched (a re-run of this
+#      job, or a person's merge landing in the same minute, must not release twice).
 # Not landing is not an error when the reason is expected (draft, red gates, custom moved): exit 0, the reason goes to the job
 # summary and to a PR comment, and the PR stays open for a human. An unexpected error exits non-zero and never dispatches.
 #
@@ -78,11 +80,11 @@ fi
 
 # ---- 3. the PR and the tip of custom ---------------------------------------------------------------------------------------
 pr="$(gh pr view "$PR_NUMBER" --repo "$REPO" --json state,isDraft,baseRefName,headRefName,headRefOid,isCrossRepository)" \
-  || fail "could not read PR #$PR_NUMBER. Nothing was merged."
+  || fail "could not read PR #$PR_NUMBER. This run merged nothing."
 jq -e --arg sha "$MERGE_SHA" --arg branch "$BRANCH" \
   '.state == "OPEN" and .isDraft == false and .baseRefName == "custom" and .headRefName == $branch and .headRefOid == $sha and .isCrossRepository == false' \
-  <<<"$pr" >/dev/null || fail "PR #$PR_NUMBER is not the PR this run opened (not open, a draft, another base, or its head is not ${MERGE_SHA:0:10}). Nothing was merged."
-now="$(tip)" || fail "could not read the tip of custom. Nothing was merged."
+  <<<"$pr" >/dev/null || fail "PR #$PR_NUMBER is not the open PR this run created (not open, a draft, another base or branch, a fork, or its head is not ${MERGE_SHA:0:10}). This run merged nothing; if the PR is already merged, an earlier attempt of this job did it: check that the release was requested."
+now="$(tip)" || fail "could not read the tip of custom. This run merged nothing."
 [ "$now" = "$BASE_SHA" ] || decline "custom moved from ${BASE_SHA:0:10} to ${now:0:10} while the sync ran, so the gates ran against an old base."
 
 # ---- 4. the required check -------------------------------------------------------------------------------------------------
@@ -91,7 +93,7 @@ jq -n --arg sha "$MERGE_SHA" --arg url "$RUN_URL" --arg summary "$summary" \
   '{name: "gates / result", head_sha: $sha, status: "completed", conclusion: "success",
     output: {title: "Gates passed in the custom-sync run", summary: $summary}} + (if $url == "" then {} else {details_url: $url} end)' \
   | gh api "repos/$REPO/check-runs" --method POST --input - >/dev/null \
-  || fail "could not post the gates / result check-run. Nothing was merged."
+  || fail "could not post the gates / result check-run. This run merged nothing."
 
 # ---- 5. merge and verify ---------------------------------------------------------------------------------------------------
 for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do # the required check can take a moment to count
@@ -99,12 +101,10 @@ for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do # the required check can take a moment t
   case "$mstate" in BLOCKED | UNKNOWN | '') nap ;; *) break ;; esac
 done
 case "$mstate" in
-  BEHIND | DIRTY) fail "PR #$PR_NUMBER cannot be merged as it stands (merge state $mstate). Nothing was merged." ;;
+  BEHIND | DIRTY) fail "PR #$PR_NUMBER cannot be merged as it stands (merge state $mstate). This run merged nothing." ;;
 esac
-now="$(tip)" || fail "could not read the tip of custom. Nothing was merged."
-[ "$now" = "$BASE_SHA" ] || decline "custom moved from ${BASE_SHA:0:10} to ${now:0:10} just before the merge."
 if ! out="$(gh pr merge "$PR_NUMBER" --repo "$REPO" --merge --match-head-commit "$MERGE_SHA" 2>&1)"; then
-  [ "$(view state .state || true)" = MERGED ] || fail "GitHub refused the merge: ${out:0:400}. Nothing was merged."
+  [ "$(view state .state || true)" = MERGED ] || fail "GitHub refused the merge: ${out:0:400}. This run merged nothing."
   warn "gh pr merge reported an error but the PR is merged; going on to verify it"
 fi
 merged=""
@@ -125,9 +125,9 @@ say "PR #$PR_NUMBER merged as ${merged:0:10} ($gates_note). Requesting the relea
 comment "Merged automatically by custom-sync: every gate passed (${gates_note}). Merge commit ${merged:0:10}. The release is requested next.${RUN_URL:+ Run: $RUN_URL}"
 
 # ---- 6. the release, exactly once ------------------------------------------------------------------------------------------
-release_requested() { # a dispatched custom-release run for the merge commit exists
+release_requested() { # a custom-release run on custom for the merge commit exists, whatever started it (push or dispatch)
   local r n
-  r="$(gh api "repos/$REPO/actions/workflows/custom-release.yml/runs?head_sha=$merged&event=workflow_dispatch")" || return 1
+  r="$(gh api "repos/$REPO/actions/workflows/custom-release.yml/runs?head_sha=$merged&branch=custom")" || return 1
   n="$(jq -r '.total_count' <<<"$r")"
   [[ "$n" =~ ^[0-9]+$ ]] && [ "$n" -gt 0 ]
 }

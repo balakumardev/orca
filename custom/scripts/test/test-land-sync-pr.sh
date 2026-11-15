@@ -4,7 +4,9 @@
 #
 # What it proves: a rehearsal-shaped run makes ZERO gh calls; a run with any red or missing gate, a draft PR, a moved custom tip
 # or a refused merge never merges and never dispatches; the happy path posts the check-run, merges with a merge commit pinned to the
-# head sha, and dispatches the release exactly once with the three inputs, in that order; a re-run does not release twice.
+# head sha, and dispatches the release exactly once with the three inputs, in that order; a re-run, or a release run that a
+# person's merge already started for the same commit, does not release twice. Every check the script makes has a case that fails
+# when that check is removed (the stub varies each PR field, the tip and the PR number).
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -38,10 +40,11 @@ case "$1 $2" in
     if [ -f "$S/dispatches" ] && [ "${DISPATCH_FAILS_BUT_STARTS:-0}" = 1 ]; then n=1; fi
     printf '{"total_count":%s}\n' "$n" ;;
   "pr view")
-    if [ -f "$S/merged" ]; then state=MERGED; mc="{\"oid\":\"$MERGED\"}"; else state=OPEN; mc=null; fi
+    if [ -f "$S/merged" ]; then state=MERGED; mc="{\"oid\":\"$MERGED\"}"; else state="${PR_STATE:-OPEN}"; mc=null; fi
     [ "${MERGE_LIES:-0}" != 1 ] || { state=OPEN; mc=null; }
-    printf '{"state":"%s","isDraft":false,"baseRefName":"custom","headRefName":"sync/v1.4.260","headRefOid":"%s","isCrossRepository":false,"mergeStateStatus":"%s","mergeCommit":%s}\n' \
-      "$state" "${PR_HEAD:-$HEAD}" "${MERGE_STATE:-CLEAN}" "$mc" ;;
+    # PR_STATE PR_DRAFT PR_BASE PR_HEADREF PR_HEAD PR_CROSS vary the fields the script must check before it merges.
+    printf '{"state":"%s","isDraft":%s,"baseRefName":"%s","headRefName":"%s","headRefOid":"%s","isCrossRepository":%s,"mergeStateStatus":"%s","mergeCommit":%s}\n' \
+      "$state" "${PR_DRAFT:-false}" "${PR_BASE:-custom}" "${PR_HEADREF:-sync/v1.4.260}" "${PR_HEAD:-$HEAD}" "${PR_CROSS:-false}" "${MERGE_STATE:-CLEAN}" "$mc" ;;
   "pr merge")
     if [ "${MERGE_FAILS:-0}" = 1 ]; then echo "Pull request is not mergeable: required status check is expected" >&2; exit 1; fi
     : > "$S/merged" ;;
@@ -70,7 +73,7 @@ run() {
     IS_TEST=false TAG_IS_RELEASE=true INPUT_REF= DRAFT=false \
     GATES_RESULT="0=skipped 1=success 2=success 3=skipped" GATES_FAILED="0= 1=3 2=0 3=" \
     RUN_URL=https://example.invalid/run/1 TAG=v1.4.260 GITHUB_EVENT_NAME=schedule GITHUB_REF=refs/heads/custom \
-    GITHUB_STEP_SUMMARY="$d/summary.md" LAND_NAP=0 "$@" bash "$scripts/land-sync-pr.sh" 2>&1)" || l_rc=$?
+    GITHUB_STEP_SUMMARY="$d/summary.md" LAND_NAP=0 "$@" "$BASH" "$scripts/land-sync-pr.sh" 2>&1)" || l_rc=$?
   : "$name"
 }
 calls() { grep -c -- "$1" "$l_log" || true; }
@@ -88,6 +91,11 @@ if [ "$(calls 'workflow run')" = 1 ] && grep -q -x 'workflow run custom-release.
   ok "the release is requested exactly once, from custom, with sign, notarize and publish true"; else bad "dispatch: $(grep 'workflow run' "$l_log" || echo none)"; fi
 order="$(grep -n -E 'check-runs|pr merge|workflow run' "$l_log" | sed -E 's/^[0-9]+:(api repos\/o\/r\/)?//; s/ .*//' | tr '\n' ' ')"
 if [ "$order" = "check-runs pr workflow " ]; then ok "order: check-run, then merge, then dispatch"; else bad "order: [$order]"; fi
+tip_lines="$(grep -n 'git/ref/heads/custom' "$l_log" | cut -d: -f1 | tr '\n' ' ')"
+check_line="$(grep -n 'check-runs' "$l_log" | cut -d: -f1)"; merge_line="$(grep -n 'pr merge' "$l_log" | cut -d: -f1)"
+between=0; for t in $tip_lines; do if [ "$t" -gt "$check_line" ] && [ "$t" -lt "$merge_line" ]; then between=$((between + 1)); fi; done
+if [ "$(wc -w <<<"$tip_lines" | tr -d ' ')" = 2 ] && [ "${tip_lines%% *}" -lt "$check_line" ] && [ "$between" = 0 ]; then
+  ok "the tip of custom is read before the check-run (none between it and the merge), then once after the merge"; else bad "tip reads at lines [$tip_lines], check-run $check_line, merge $merge_line"; fi
 if grep -q 'merged' "$l_dir/summary.md" && grep -q 'Release requested' "$l_dir/summary.md"; then ok "the job summary says merged and release requested"; else bad "summary: $(cat "$l_dir/summary.md")"; fi
 
 # ---- a rehearsal can never land: zero gh calls ----------------------------------------------------------------------------
@@ -106,6 +114,7 @@ rehearsal "not a release tag" TAG_IS_RELEASE=false
 rehearsal "a sync-test branch" BRANCH=sync-test/test-main-abc1234-3
 rehearsal "branch that is not a sync branch" BRANCH=wip/x
 rehearsal "empty event" GITHUB_EVENT_NAME=
+rehearsal "a PR number that is not a number" PR_NUMBER="7 --admin"
 run "dispatch with an empty ref lands" GITHUB_EVENT_NAME=workflow_dispatch INPUT_REF=
 if [ "$l_rc" = 0 ] && [ "$(calls 'workflow run')" = 1 ]; then ok "a dispatch with an EMPTY ref is a real run and lands"; else bad "empty-ref dispatch: rc=$l_rc out=[$l_out]"; fi
 
@@ -139,6 +148,19 @@ failing() { # NAME VAR=value ...   expects non-zero and no dispatch
 }
 failing "PR head is not the checked sha" PR_HEAD="$OTHER"
 if [ "$(calls 'pr merge')" = 0 ] && [ "$(calls 'check-runs')" = 0 ]; then ok "  ...and nothing was merged or checked"; else bad "PR-head case wrote something: $(cat "$l_log")"; fi
+# one case per field the script reads from the PR: each must stop the run before the check-run and the merge
+unsafe_pr() { # NAME VAR=value ...
+  local name="$1"; shift
+  failing "$name" "$@"
+  if no_writes; then ok "  ...stopped before the check-run, the merge and the dispatch"; else bad "$name wrote something: $(cat "$l_log")"; fi
+}
+unsafe_pr "PR is closed" PR_STATE=CLOSED
+unsafe_pr "PR is a draft on GitHub" PR_DRAFT=true
+unsafe_pr "PR is not against custom" PR_BASE=main
+unsafe_pr "PR head branch is another branch" PR_HEADREF=sync/v9.9.9
+unsafe_pr "PR comes from a fork" PR_CROSS=true
+failing "PR is already merged (a re-run of the job)" PR_STATE=MERGED
+if grep -q 'This run merged nothing' <<<"$l_out" && ! grep -q 'Nothing was merged' <<<"$l_out"; then ok "  ...and the message does not claim that nothing was merged by anyone"; else bad "re-run message: [$l_out]"; fi
 failing "merge refused" MERGE_FAILS=1
 if [ "$(calls 'check-runs')" = 1 ] && ! [ -f "$l_dir/state/merged" ]; then ok "  ...after the check-run, but nothing merged"; else bad "merge-refused state wrong: $(cat "$l_log")"; fi
 failing "PR does not show as merged" MERGE_LIES=1
@@ -148,8 +170,11 @@ failing "merge state DIRTY" MERGE_STATE=DIRTY
 failing "merge state BEHIND" MERGE_STATE=BEHIND
 
 # ---- exactly once ----------------------------------------------------------------------------------------------------------
-run "a re-run after the release was requested" RUNS_BEFORE=1
-if [ "$l_rc" = 0 ] && [ "$(calls 'workflow run')" = 0 ]; then ok "a dispatched run for the merge commit already exists: no second dispatch"; else bad "re-run: rc=$l_rc calls=[$(cat "$l_log")]"; fi
+run "a run already exists for the merge commit" RUNS_BEFORE=1
+if [ "$l_rc" = 0 ] && [ "$(calls 'workflow run')" = 0 ]; then ok "a release run for the merge commit already exists (a re-run, or a person's push run): no second dispatch"; else bad "re-run: rc=$l_rc calls=[$(cat "$l_log")]"; fi
+runs_call="$(grep 'actions/workflows/custom-release.yml/runs' "$l_log" | head -n 1 || true)"
+if grep -q "head_sha=$MERGED" <<<"$runs_call" && grep -q 'branch=custom' <<<"$runs_call" && ! grep -q 'event=' <<<"$runs_call"; then
+  ok "the lookup asks for runs of the merge commit on custom and has no event filter (a push run counts as much as a dispatch)"; else bad "runs lookup: [$runs_call]"; fi
 run "first dispatch fails, run did start" DISPATCH_FAIL_FIRST=1 DISPATCH_FAILS_BUT_STARTS=1
 if [ "$l_rc" = 0 ] && [ "$(calls 'workflow run')" = 1 ]; then ok "an ambiguous dispatch failure that started a run is not repeated"; else bad "ambiguous: rc=$l_rc dispatches=$(calls 'workflow run')"; fi
 run "first dispatch fails, no run" DISPATCH_FAIL_FIRST=1
