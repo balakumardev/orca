@@ -24,6 +24,13 @@
       "updateRequired": "OpenCode cannot safely start with a chosen model on this version. Update OpenCode to a supported release, or omit the model choice."
     }
   },
+  "agentsSidebarIntro": {
+    "migrated": {
+      "description": "Your Agents view is now a dedicated sidebar tab. Your activity and filters are preserved.",
+      "dismiss": "Got it",
+      "title": "Agents are easier to find"
+    }
+  },
   "aiVault": {
     "scanIssues": {
       "invalidResultsSkipped_one": "Skipped {{count}} invalid Agent Session History result entry.",
@@ -113,6 +120,9 @@
         "shownCount_other": "{{count}} shown"
       },
       "WorktreeJumpPalette": {
+        "folderGone": "That folder is no longer there",
+        "folderNotOpened": "The folder was added, but its workspace could not be opened",
+        "folderWorktreeMissing": "The folder was added, but no workspace for it was found",
         "itemsAvailable_one": "{{count}} item available.",
         "itemsAvailable_other": "{{count}} items available.",
         "resultsFound_one": "{{count}} result found.",
