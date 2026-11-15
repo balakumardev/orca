@@ -43,6 +43,12 @@ export function isWorktreePaletteCreateActivationAllowed(args: {
 type WorktreePaletteSelectionCandidateEntry = {
   id: string
   type: string
+  result?: object
+}
+
+// An inert row is listed but cmdk skips it, so it can be neither the armed row nor the first row to guard.
+function isInertPaletteEntry(entry: WorktreePaletteSelectionCandidateEntry): boolean {
+  return entry.result !== undefined && 'inert' in entry.result && entry.result.inert === true
 }
 
 // Include every rendered item type or keyboard navigation’s includes guard snaps its highlight to top, leaving mouse-only rows.
@@ -78,7 +84,7 @@ export function getWorktreePaletteSelectionItemIds<
   // Prefer deduplicated renderKeys; bare IDs omit duplicate rows and snap keyboard highlight to top.
   return entries
     .map((entry, index) => ({ entry, id: renderKeys[index] ?? entry.id }))
-    .filter(({ entry }) => isSelectableWorktreePaletteEntry(entry))
+    .filter(({ entry }) => isSelectableWorktreePaletteEntry(entry) && !isInertPaletteEntry(entry))
     .map(({ id }) => id)
 }
 

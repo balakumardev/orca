@@ -3878,7 +3878,11 @@
         "folderWorktreeMissing": "The folder was added, but no workspace for it was found",
         "foldersHeader": "Folders",
         "foldersPartialHeader": "Folders (partial list)",
-        "createActionAvailable": "Create worktree action available."
+        "createActionAvailable": "Create worktree action available.",
+        "sessionFolderNotInOrca": "folder not in Orca",
+        "sessionCannotResume": "cannot be resumed here",
+        "sessionUntitled": "Untitled session",
+        "sessionsHeader": "Sessions"
       },
       "github": {
         "pr": {

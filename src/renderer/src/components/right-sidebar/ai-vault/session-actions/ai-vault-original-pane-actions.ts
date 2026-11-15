@@ -132,7 +132,7 @@ export function useAiVaultOriginalPaneActions(): {
   }
 }
 
-function revealSessionWorkspace(workspaceId: string): boolean {
+export function revealSessionWorkspace(workspaceId: string): boolean {
   if (activateAndRevealWorkspace(workspaceId) !== false) {
     return true
   }

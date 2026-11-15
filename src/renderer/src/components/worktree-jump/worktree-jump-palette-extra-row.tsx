@@ -22,6 +22,7 @@ export function WorktreeJumpPaletteExtraRow({
   return (
     <CommandItem
       value={renderKey}
+      disabled={result.inert}
       onSelect={() => controller.handleSelectItem(entry)}
       selection="palette"
       className="mx-0.5 cursor-pointer"

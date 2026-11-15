@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import type { PaletteExtraSource } from './palette-extra-results'
 import { usePaletteFolderSource } from './use-palette-folder-source'
+import { usePaletteSessionSource } from './use-palette-session-source'
 
 const NO_SOURCES: readonly PaletteExtraSource[] = []
 
@@ -10,5 +11,9 @@ export function usePaletteExtraSources(args: {
   visible: boolean
 }): readonly PaletteExtraSource[] {
   const folders = usePaletteFolderSource(args)
-  return useMemo(() => (folders ? [folders] : NO_SOURCES), [folders])
+  const sessions = usePaletteSessionSource(args)
+  return useMemo(() => {
+    const sources = [folders, sessions].filter((source) => source !== null)
+    return sources.length > 0 ? sources : NO_SOURCES
+  }, [folders, sessions])
 }
