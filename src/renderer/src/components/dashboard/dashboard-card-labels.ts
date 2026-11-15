@@ -1,4 +1,5 @@
 import { getAgentRowConversationName } from '../../../../shared/agent-status/presentation/agent-row-conversation-name'
+import { withNamedSessionTitleOnly } from '../../../../shared/agent-status/presentation/named-session-title-only'
 import { DASHBOARD_MAX_LABEL_LENGTH } from '../../../../shared/dashboard-snapshot'
 import { parsePaneKey } from '../../../../shared/workspace-layout/stable-pane-id'
 import { resolveAgentRowPaneLiveTitle } from './agent-row-pane-live-title'
@@ -59,7 +60,7 @@ export function rowConversationName(
   )
   return (
     getAgentRowConversationName(
-      row.tab,
+      withNamedSessionTitleOnly(row.tab),
       row.agentType,
       generatedTitlesEnabled,
       paneLiveTitle,

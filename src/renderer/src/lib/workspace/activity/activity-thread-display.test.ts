@@ -55,6 +55,43 @@ describe('getActivityThreadTaskTitle', () => {
     }
   })
 
+  it('shows a named session title but not a first-prompt stand-in', () => {
+    const entry = {
+      prompt: 'Archive the old folder and clone the fork',
+      stateHistory: [],
+      agentType: 'claude' as const,
+      providerSession: { key: 'session_id' as const, id: 'session-1' }
+    }
+    const sessionTitle = (kind: 'named' | 'fallback' | undefined) => ({
+      agent: 'claude' as const,
+      sessionId: 'session-1',
+      title: 'wait - check the keychain thing',
+      kind
+    })
+
+    expect(
+      getActivityThreadTaskTitle({
+        entry,
+        tab: { ...tab, title: 'Claude Code', aiVaultTitle: sessionTitle('fallback') },
+        generatedTitlesEnabled: false
+      })
+    ).toBe('Archive the old folder and clone the fork')
+    expect(
+      getActivityThreadTaskTitle({
+        entry,
+        tab: { ...tab, title: 'Claude Code', aiVaultTitle: sessionTitle(undefined) },
+        generatedTitlesEnabled: false
+      })
+    ).toBe('Archive the old folder and clone the fork')
+    expect(
+      getActivityThreadTaskTitle({
+        entry,
+        tab: { ...tab, title: 'Claude Code', aiVaultTitle: sessionTitle('named') },
+        generatedTitlesEnabled: false
+      })
+    ).toBe('wait - check the keychain thing')
+  })
+
   it("does not fall back to a sibling pane's tab title for an unresolved split pane", () => {
     const splitTab = { ...tab, title: 'Build docs site' }
     expect(
