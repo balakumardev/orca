@@ -34,6 +34,8 @@ export type ComposerModalData = {
   initialParentWorktreeId?: string
   initialWorkspaceStatus?: WorkspaceStatus
   enableIssueAutomation?: boolean
+  /** Press Create once the form is ready, in a hidden non-modal dialog (the Cmd+J name step). Never reopened with. */
+  autoSubmit?: boolean
   /** Creation-surface telemetry; each opener supplies it, otherwise use unknown. */
   telemetrySource?: WorkspaceCreateTelemetrySource
   contextualTourSource?: string

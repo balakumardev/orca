@@ -28,6 +28,12 @@ import AgentSettingsDialog, {
 import { useComposerHostedAddProject } from './new-workspace/use-composer-hosted-add-project'
 import { useComposerState } from '@/hooks/useComposerState'
 import {
+  composerAutoSubmitDialogProps,
+  composerBodyKey,
+  composerRecoverySnapshot
+} from './new-workspace/composer-auto-submit-open'
+import { useComposerAutoSubmit } from './new-workspace/use-composer-auto-submit'
+import {
   composerLaunchWorkspace,
   quickWorkspacePickerInputs,
   pickQuickWorkspaceAgent,
@@ -68,7 +74,8 @@ export default function NewWorkspaceComposerModal(): React.JSX.Element | null {
     )
   }
 
-  return <ComposerModalBody modalData={modalData ?? {}} onClose={closeModal} />
+  const key = composerBodyKey(modalData)
+  return <ComposerModalBody key={key} modalData={modalData ?? {}} onClose={closeModal} />
 }
 
 function ComposerModalBody({
@@ -85,11 +92,14 @@ function ComposerModalBody({
     onClose()
   }, [onClose])
   const isSubmissionCancelled = useCallback(() => submitCancelledRef.current, [])
+  // The Cmd+J name step has this dialog press its own Create out of sight (see the props).
+  const { dialog, content } = composerAutoSubmitDialogProps(modalData)
 
   return (
-    <Dialog open onOpenChange={(open) => !open && handleDismiss()}>
+    <Dialog open {...dialog} onOpenChange={(open) => !open && handleDismiss()}>
       <DialogContent
         ref={dialogRef}
+        {...content}
         className="flex max-h-[calc(100vh-2rem)] flex-col overflow-hidden sm:max-w-lg"
         onEscapeKeyDown={(event) => {
           if (dialogRef.current?.querySelector('[data-sparse-preset-editor]')) {
@@ -239,8 +249,7 @@ function QuickTabBody({
         if (isSubmissionCancelled()) {
           return
         }
-        const snapshot = {
-          ...modalData,
+        const snapshot = composerRecoverySnapshot(modalData, {
           prefilledName: cardProps.name,
           initialRepoId: cardProps.repoId,
           initialBaseBranch: cardProps.baseBranch,
@@ -254,7 +263,7 @@ function QuickTabBody({
               : modalData.initialWorkspaceTarget,
           linkedWorkItem: cardProps.linkedWorkItem,
           recovery: { ...quickAgentPick, agent: quickAgent, note: cardProps.note }
-        }
+        })
         toast.error(getWorkspaceCreateErrorToastMessage(formatWorkspaceCreateError(error)), {
           action: {
             label: translate('auto.lib.composerCreateHandoff.reopen', 'Reopen'),
@@ -283,6 +292,7 @@ function QuickTabBody({
     modalData,
     cardProps
   ])
+  useComposerAutoSubmit({ modalData, createDisabled, create: handleCreate, repo: cardProps.repoId })
   const {
     addProjectOpen,
     addProjectMounted,

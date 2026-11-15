@@ -1,0 +1,99 @@
+import type { Project, ProjectHostSetup } from '../../../../shared/project-types'
+import type { Repo } from '../../../../shared/repo-types'
+import { getNewWorkspaceDialogEligibleRepos } from '../../../../shared/new-workspace-dialog-repo'
+import { isGitRepoKind } from '../../../../shared/repo-kind'
+import { getProjectHeaderRevealTarget } from '../../../../shared/project-section-grouping'
+import { searchCmdJProjectResults } from './palette-project-results'
+import {
+  cmdJPaletteTokenScore,
+  normalizeCmdJPaletteQuery,
+  uniqueCmdJPaletteQueryTokens
+} from './palette-query-tokens'
+
+export type PaletteProjectCatalog = {
+  repos: readonly Repo[]
+  projects: readonly Project[]
+  projectHostSetups: readonly ProjectHostSetup[]
+}
+
+export function selectPaletteProjectCatalog(state: PaletteProjectCatalog): PaletteProjectCatalog {
+  return {
+    repos: state.repos,
+    projects: state.projects,
+    projectHostSetups: state.projectHostSetups
+  }
+}
+
+export type ProjectCreateTarget = {
+  repo: Repo
+  label: string
+  /** The query equals the project's own title, which the palette ranks as decisive intent. */
+  exact: boolean
+}
+
+/**
+ * Git projects the new-workspace composer can target, ordered as the palette orders project rows. The palette's
+ * own aliases ("project", "repo") match every project, so only a match on the name counts here.
+ */
+export function findProjectCreateTargets(
+  query: string,
+  catalog: PaletteProjectCatalog
+): ProjectCreateTarget[] {
+  const normalizedQuery = normalizeCmdJPaletteQuery(query)
+  const tokens = uniqueCmdJPaletteQueryTokens(normalizedQuery)
+  return searchCmdJProjectResults({ query, projectGroups: [], ...catalog }).flatMap((result) => {
+    if (result.kind !== 'project') {
+      return []
+    }
+    const { repo } = result
+    const matchesName =
+      normalizeCmdJPaletteQuery(result.title).startsWith(normalizedQuery) ||
+      cmdJPaletteTokenScore(tokens, [result.title, repo.displayName]) > 0
+    if (
+      !matchesName ||
+      !isGitRepoKind(repo) ||
+      getNewWorkspaceDialogEligibleRepos([repo]).length === 0
+    ) {
+      return []
+    }
+    return [{ repo, label: result.title, exact: result.qualityClass === 'exact-intent' }]
+  })
+}
+
+export type ProjectScopedCreate = { repoId: string; projectLabel: string; name: string }
+
+/**
+ * `<project>/<name>`: the part before the first slash is a project's own title, compared whole and ignoring case,
+ * and names exactly one git project. A prefix or a part of a name never scopes: branch-style names such as
+ * `fix/login` or `feat/login` stay plain worktree names. The rest of the text is the workspace name.
+ */
+export function resolveProjectScopedCreate(
+  query: string,
+  catalog: PaletteProjectCatalog
+): ProjectScopedCreate | null {
+  const text = query.trim()
+  const slash = text.indexOf('/')
+  // A URL is an issue or PR link, never a project path.
+  if (slash <= 0 || /^\w+:\/\//.test(text)) {
+    return null
+  }
+  const token = text.slice(0, slash).trim()
+  const name = text.slice(slash + 1).trim()
+  if (!token || !name) {
+    return null
+  }
+  const exact = findProjectCreateTargets(token, catalog).filter((match) => match.exact)
+  return exact.length === 1
+    ? { repoId: exact[0].repo.id, projectLabel: exact[0].label, name }
+    : null
+}
+
+/** The name the palette's project rows show for a repo (its project group name when it has one). */
+export function getProjectCreateLabel(repo: Repo, catalog: PaletteProjectCatalog): string {
+  const repoMap = new Map(catalog.repos.map((candidate) => [candidate.id, candidate]))
+  const target = getProjectHeaderRevealTarget(repo.id, repoMap, {
+    projects: catalog.projects,
+    projectHostSetups: catalog.projectHostSetups
+  })
+  return target.label || repo.displayName
+}

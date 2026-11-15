@@ -143,6 +143,7 @@ function CommandInput({
   variant,
   wrapperClassName,
   iconClassName,
+  icon,
   trailing,
   ref,
   ...props
@@ -150,6 +151,8 @@ function CommandInput({
   VariantProps<typeof commandInputVariants> & {
     wrapperClassName?: string
     iconClassName?: string
+    /** Replaces the search icon, for an input that is not a search (a name step). */
+    icon?: React.ReactNode
     /** Rendered after the field, inside the input frame (e.g. a filter control). */
     trailing?: React.ReactNode
   }) {
@@ -159,7 +162,7 @@ function CommandInput({
       className={cn(commandInputVariants({ variant }), wrapperClassName)}
       data-cmdk-input-wrapper=""
     >
-      <SearchIcon className={cn('mr-2 h-4 w-4 shrink-0 opacity-50', iconClassName)} />
+      {icon ?? <SearchIcon className={cn('mr-2 h-4 w-4 shrink-0 opacity-50', iconClassName)} />}
       <CommandPrimitive.Input
         ref={ref}
         data-slot="command-input"

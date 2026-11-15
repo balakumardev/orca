@@ -12,6 +12,7 @@ import { useWorktreeJumpPaletteListEntries } from './use-worktree-jump-palette-l
 import { useWorktreeJumpPaletteSelectionLifecycle } from './use-worktree-jump-palette-selection-lifecycle'
 import { useWorktreeJumpPaletteSelectionActions } from './use-worktree-jump-palette-selection-actions'
 import { useWorktreeJumpPaletteCreateAction } from './use-worktree-jump-palette-create-action'
+import { useWorktreeJumpPaletteNameStepSelection } from './use-worktree-jump-palette-name-step-selection'
 import { useWorktreeJumpPaletteTaskSearch } from './use-worktree-jump-palette-task-search'
 import { useWorktreeJumpPaletteTaskUrl } from './use-worktree-jump-palette-task-url'
 import { useWorkspaceEmojiShortcodeInput } from '@/components/workspace-emoji/useWorkspaceEmojiShortcodeInput'
@@ -146,6 +147,9 @@ export function useWorktreeJumpPaletteController({
     ...taskSearch,
     ...selectionLifecycle
   })
+  const handleSelectItem = useWorktreeJumpPaletteNameStepSelection(
+    selectionActions.handleSelectItem
+  )
   const emojiInput = useWorkspaceEmojiShortcodeInput({
     inputRef: localState.inputRef,
     onValueChange: selectionLifecycle.handleQueryChange,
@@ -179,6 +183,7 @@ export function useWorktreeJumpPaletteController({
     ...listEntries,
     ...selectionLifecycle,
     ...selectionActions,
+    handleSelectItem,
     paletteNowMs: worktrees.hasQuery ? paletteSearchContext.nowMs : storeState.paletteNowMs,
     emojiInput,
     ...createAction

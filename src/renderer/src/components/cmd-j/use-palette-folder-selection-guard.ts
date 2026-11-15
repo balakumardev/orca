@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, type RefObject } from 'react'
 import { keepFolderOffAutoSelection } from './palette-folder-selection'
+import { getProjectNameStep } from './palette-project-name-step-store'
 
 const MOVE_KEYS = new Set(['ArrowDown', 'ArrowUp', 'Home', 'End', 'PageDown', 'PageUp'])
 // cmdk also moves on Ctrl+N, Ctrl+P, Ctrl+J and Ctrl+K.
@@ -33,7 +34,8 @@ export function usePaletteFolderSelectionGuard({
     }
     movedSinceQueryChange.current = false
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (isMoveKey(event)) {
+      // The name step swallows these keys and hides the list, so they move nothing.
+      if (isMoveKey(event) && !getProjectNameStep()) {
         movedSinceQueryChange.current = true
       }
     }

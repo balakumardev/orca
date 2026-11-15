@@ -10,10 +10,13 @@ import {
   FOLDER_SOURCE_ID,
   getNextPaletteSelectionWithoutFolderDefault
 } from './palette-folder-selection'
+import { PROJECT_CREATE_SOURCE_ID } from './palette-project-create-source-id'
 import { usePaletteFolderSelectionGuard } from './use-palette-folder-selection-guard'
 
 const folder = (name: string): string =>
   encodePaletteIdentity(['extra', FOLDER_SOURCE_ID, `/code/${name}`])
+const projectCreate = (name: string): string =>
+  encodePaletteIdentity(['extra', PROJECT_CREATE_SOURCE_ID, `repo-${name}`])
 const WORKSPACE = 'worktree:alpha'
 
 /** The rows the palette lists for a query, in its real order: workspaces, folders, Create last. */
@@ -24,13 +27,21 @@ const ROWS: Record<string, string[]> = {
   'foo-': [folder('foo-unique'), CREATE_WORKTREE_ITEM_ID],
   'foo-unique': [folder('foo-unique'), CREATE_WORKTREE_ITEM_ID],
   // A folder first, then a workspace: the user can jump to either end.
-  mix: [folder('mix-a'), WORKSPACE, CREATE_WORKTREE_ITEM_ID]
+  mix: [folder('mix-a'), WORKSPACE, CREATE_WORKTREE_ITEM_ID],
+  // A project name: its workspaces, then its "New worktree in" row, then Create.
+  acme: [WORKSPACE, projectCreate('acme-web'), CREATE_WORKTREE_ITEM_ID],
+  'acme-': [projectCreate('acme-web'), CREATE_WORKTREE_ITEM_ID],
+  // A project with no workspace of its own: its row comes first.
+  zed: [projectCreate('zed'), WORKSPACE, CREATE_WORKTREE_ITEM_ID]
 }
 const opened: string[] = []
 
 function label(id: string): string {
   if (id === CREATE_WORKTREE_ITEM_ID) {
     return 'create'
+  }
+  if (id.startsWith(encodePaletteIdentity(['extra', PROJECT_CREATE_SOURCE_ID]))) {
+    return `project-create:${id.slice(id.lastIndexOf('repo-') + 'repo-'.length)}`
   }
   return id === WORKSPACE ? 'workspace' : `folder:${id.slice(id.lastIndexOf('/') + 1)}`
 }
@@ -246,5 +257,46 @@ describe('Enter with a folder among the rows, wired to the real cmdk', () => {
     expect(selectedRow()).toBe('folder:foo-unique')
     await press('Enter')
     expect(opened).toEqual(['folder:foo-unique'])
+  })
+})
+
+describe('Enter with a "New worktree in <Project>" row among the rows, wired to the real cmdk', () => {
+  it('opens the workspace the query names, not the new-worktree row under it', async () => {
+    render(<Palette />)
+    await settle()
+    await type('acme')
+    expect(selectedRow()).toBe('workspace')
+    await press('Enter')
+    expect(opened).toEqual(['workspace'])
+  })
+
+  it('does not arm a new-worktree row that is the first row', async () => {
+    render(<Palette />)
+    await settle()
+    await type('zed')
+    expect(selectedRow()).toBe('workspace')
+    await press('Enter')
+    expect(opened).toEqual(['workspace'])
+  })
+
+  it('opens the new-worktree row once the user arrowed to it for the current query', async () => {
+    render(<Palette />)
+    await settle()
+    await type('acme')
+    await press('ArrowDown')
+    expect(selectedRow()).toBe('project-create:acme-web')
+    await press('Enter')
+    expect(opened).toEqual(['project-create:acme-web'])
+  })
+
+  it('arms Create, not the new-worktree row, when an arrow key moved for an earlier query', async () => {
+    render(<Palette />)
+    await settle()
+    await type('acme')
+    await press('ArrowDown')
+    await type('acme-')
+    expect(selectedRow()).toBe('create')
+    await press('Enter')
+    expect(opened).toEqual(['create'])
   })
 })
