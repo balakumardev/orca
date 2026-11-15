@@ -28,6 +28,7 @@ import { ActivityThreadCollapseContext } from './activity-thread-collapse-contex
 import { useActivityThreadSelection } from './use-activity-thread-selection'
 import { useActivityAgentCycleShortcut } from './use-activity-agent-cycle-shortcut'
 import { useActivityListRemeasure } from './use-activity-list-remeasure'
+import { useActivityThreadReveal } from './use-activity-thread-reveal'
 import type {
   ActivityGroupBy,
   ThreadReadFilter
@@ -258,6 +259,7 @@ export function ActivityThreadListPane({
     virtualizer
   })
 
+  useActivityThreadReveal(virtualItems, virtualizer, cycleShortcutEnabled)
   useActivityListRemeasure(virtualizer, compactMode)
 
   // Wait for content to contain the saved offset; pre-hydration clamping would consume the one restore.
