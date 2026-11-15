@@ -37,6 +37,7 @@ import {
 } from './item-row'
 import { renderWorktreeSectionHeaderRow } from './SectionHeader'
 import type { SectionHeaderRowContext } from './section-header-row-context'
+import { ProjectTodosInlineSection } from '../../project-todos/ProjectTodosInlineSection'
 import type { WorktreeRowDragState } from '../drag/row-state'
 import type { Translate } from '@/i18n/use-translate'
 
@@ -207,6 +208,24 @@ export function renderWorktreeVirtualRow(
 
   if (row.type === 'lineage-group') {
     return renderLineageGroupVirtualRow(ctx, row, vItem)
+  }
+
+  if (row.type === 'project-todos') {
+    return (
+      <div
+        key={vItem.key}
+        role="presentation"
+        data-worktree-virtual-row
+        data-worktree-virtual-row-key={String(vItem.key)}
+        data-worktree-virtual-row-start={vItem.start}
+        data-index={vItem.index}
+        ref={ctx.measureVirtualRowElement}
+        className="absolute left-0 right-0 top-0"
+        style={{ transform: getVirtualRowTransform(vItem.start) }}
+      >
+        <ProjectTodosInlineSection headerRow={row.headerRow} sectionKey={row.key} />
+      </div>
+    )
   }
 
   if (row.type === 'imported-worktrees-card') {

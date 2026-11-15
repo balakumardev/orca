@@ -1,4 +1,5 @@
 import type { HostSectionRow } from '../../../../../../shared/sidebar-list/host-section-rows'
+import type { GroupHeaderRow } from '../../../../../../shared/sidebar-list/row-types'
 
 type WorktreeItemRow = Extract<HostSectionRow, { type: 'item' }>
 type FolderWorkspaceItemRow = Extract<HostSectionRow, { type: 'folder-workspace' }>
@@ -7,6 +8,7 @@ export type RenderRow =
   /** A parent card with its visible descendants. With `folder`, the folder is the parent and `rows`
    * are only its descendants; otherwise `rows[0]` is the parent. */
   | { type: 'lineage-group'; key: string; rows: WorktreeItemRow[]; folder?: FolderWorkspaceItemRow }
+  | { type: 'project-todos'; key: string; headerRow: GroupHeaderRow }
 
 export function getRenderRowKey(row: RenderRow): string {
   if (row.type === 'host-header') {
@@ -14,6 +16,9 @@ export function getRenderRowKey(row: RenderRow): string {
   }
   if (row.type === 'header') {
     return row.hostId ? `hdr:${row.hostId}:${row.key}` : `hdr:${row.key}`
+  }
+  if (row.type === 'project-todos') {
+    return `todos:${row.key}`
   }
   if (row.type === 'lineage-group') {
     return `lineage-group:${row.key}`

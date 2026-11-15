@@ -7,6 +7,7 @@ import { queueWorkspaceActivationTerminalFocus } from '@/lib/workspace/activatio
 import { seedAgentTabStateAfterWorktreeCreate } from '@/lib/workspace/creation/worktree-creation-agent-seeds'
 import type { ActivateAndRevealResult } from '@/lib/workspace/activation/worktree-activation-outcome'
 import type { WorktreeCreationRequest } from '@/lib/workspace/creation/pending-worktree-creation'
+import { completeTodoWorktreeCreation } from '@/components/sidebar/project-todos/project-todos-worktree-observer'
 
 export async function completeWorktreeCreation(args: {
   creationId: string
@@ -23,6 +24,7 @@ export async function completeWorktreeCreation(args: {
   focusOnCompletion: boolean
 }): Promise<void> {
   const { request } = args
+  completeTodoWorktreeCreation(useAppStore.getState(), args.creationId, args.worktreeId, request)
   // Why: clearing synchronously after activation lets React commit the panel-to-terminal swap in one frame.
   useAppStore.getState().removePendingWorktreeCreation(args.creationId, { cleanupVm: false })
   // Why: an agent the host planned but did not start has no tab to seed and is not the window's to start.

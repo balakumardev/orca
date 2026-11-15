@@ -33,6 +33,7 @@ import { buildWorktreeVirtualRowContext } from './virtual-row-context'
 import type { RepoHeaderProjectActions } from '../rows/repo-header-project-actions'
 import { getRepoOwnerWorktreeVisibilityDefaults } from '../../../../store/slices/worktrees/listing/worktree-visibility-defaults-by-host'
 import { renderWorktreeVirtualRow } from '../rows/virtual-row-dispatch'
+import { useExpandedProjectTodoSectionKeys } from '../../project-todos/project-todos-store'
 
 const EMPTY_HOST_OPTIONS: NonNullable<VirtualizedWorktreeViewportProps['hostOptions']> = []
 
@@ -113,8 +114,12 @@ export const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktr
   const reveal = useSidebarRevealHighlight()
   const scrollSuppression = useWorktreeSidebarScrollSuppression(scrollRef)
   const { markDirectScrollInput, markScrollMovement } = scrollSuppression
+  const expandedTodoSectionKeys = useExpandedProjectTodoSectionKeys()
 
-  const renderRows = useMemo(() => buildRenderableRows(rows), [rows])
+  const renderRows = useMemo(
+    () => buildRenderableRows(rows, groupBy === 'repo' ? expandedTodoSectionKeys : undefined),
+    [expandedTodoSectionKeys, groupBy, rows]
+  )
   const firstHeaderIndex = useMemo(
     () => renderRows.findIndex((row) => row.type === 'header' || row.type === 'host-header'),
     [renderRows]

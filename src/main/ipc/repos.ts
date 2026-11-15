@@ -7,6 +7,7 @@ import { registerRepoCreationHandlers } from './repos/repo-creation-handlers'
 import { registerProjectGroupHandlers } from './repos/project-group-handlers'
 import { registerFolderWorkspaceHandlers } from './repos/folder-workspace-handlers'
 import { registerFolderSearchHandlers } from './repos/folder-search-handlers'
+import { registerProjectTodosHandlers } from './repos/project-todos-handlers'
 import { registerNestedRepoImportHandler } from './repos/nested-repo-import-handler'
 import { registerRepoUpdateHandler } from './repos/repo-update-handler'
 import { registerSparsePresetHandlers } from './repos/sparse-preset-handlers'
@@ -52,6 +53,8 @@ export function registerRepoHandlers(
   ipcMain.removeHandler('folderWorkspaces:getPathStatus')
   ipcMain.removeHandler('folderSearch:list')
   ipcMain.removeHandler('folderSearch:resolve')
+  ipcMain.removeHandler('projectTodos:list')
+  ipcMain.removeHandler('projectTodos:save')
   ipcMain.removeHandler('repos:pickFolder')
   ipcMain.removeHandler('repos:pickFolders')
   ipcMain.removeHandler('repos:pickDirectory')
@@ -82,6 +85,7 @@ export function registerRepoHandlers(
   registerProjectGroupHandlers(mainWindow, store)
   registerFolderWorkspaceHandlers(mainWindow, store, runtime)
   registerFolderSearchHandlers(store)
+  registerProjectTodosHandlers()
   registerNestedRepoImportHandler(mainWindow, store, metadata.enqueueRepositoryMetadata)
   registerRepoUpdateHandler(mainWindow, store)
   registerSparsePresetHandlers(mainWindow, store)

@@ -1,4 +1,8 @@
 import {
+  getProjectTodoScopeKeyFromHeader,
+  getProjectTodoSectionOccurrenceKey
+} from '../../../../../../shared/project-todos-types'
+import {
   PINNED_GROUP_KEY,
   getWorktreeLineageGroupKey
 } from '../../../../../../shared/sidebar-list/group-keys'
@@ -17,10 +21,26 @@ export function isPinnedWorktreeRow(row: WorktreeItemRow): boolean {
 }
 
 // Collapse a parent and its visible lineage descendants into one virtual row so the card renders them inline.
-export function buildRenderableRows(rows: HostSectionRow[]): RenderRow[] {
+export function buildRenderableRows(
+  rows: HostSectionRow[],
+  expandedTodoSectionKeys?: ReadonlySet<string>
+): RenderRow[] {
   const renderRows: RenderRow[] = []
   for (let index = 0; index < rows.length; index++) {
     const row = rows[index]
+    if (row.type === 'header') {
+      renderRows.push(row)
+      if (expandedTodoSectionKeys && expandedTodoSectionKeys.size > 0) {
+        const todoSectionKey = getProjectTodoSectionOccurrenceKey(row)
+        if (
+          expandedTodoSectionKeys.has(todoSectionKey) &&
+          getProjectTodoScopeKeyFromHeader(row, 'repo') !== null
+        ) {
+          renderRows.push({ type: 'project-todos', key: todoSectionKey, headerRow: row })
+        }
+      }
+      continue
+    }
     if (row.type === 'folder-workspace') {
       const descendants = getDescendantItemRows(rows, index, row.depth)
       if (descendants.length > 0 && row.lineageGroupKey && !row.lineageCollapsed) {

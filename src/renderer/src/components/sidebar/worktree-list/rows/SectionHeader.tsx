@@ -48,6 +48,10 @@ import {
   toggleSectionHeaderCollapse
 } from './header-event-guards'
 import { getWorktreeOptionId } from './option-dom'
+import {
+  ProjectTodoHeaderActionButton,
+  ProjectTodoHeaderBadge
+} from '../../project-todos/ProjectTodoHeaderControls'
 import type { SectionHeaderRowContext } from './section-header-row-context'
 import type { Translate } from '@/i18n/use-translate'
 
@@ -330,6 +334,7 @@ export function renderWorktreeSectionHeaderRow(
             <div className="min-w-0 flex-1">
               <div className="flex min-w-0 items-center gap-1.5">
                 <div className="min-w-0 truncate text-[13px] font-semibold leading-4">{label}</div>
+                <ProjectTodoHeaderBadge row={row} groupBy={ctx.groupBy} />
                 {hostContext ? <ProjectHeaderHostLabel context={hostContext} /> : null}
                 <RepoForkIndicator upstream={row.repo?.upstream} />
                 <FolderPathStatusIndicator status={projectGroupPathStatus} />
@@ -356,6 +361,8 @@ export function renderWorktreeSectionHeaderRow(
                 />
               </div>
             ) : null}
+
+            <ProjectTodoHeaderActionButton row={row} groupBy={ctx.groupBy} />
 
             {isProjectGroupHeader && !row.repo && projectGroupIdForHeader ? (
               <ProjectGroupHeaderMenu

@@ -96,6 +96,9 @@ export function estimateRenderRowSize(
   if (row?.type === 'imported-worktrees-card' || row?.type === 'new-external-worktrees-inbox') {
     return IMPORTED_WORKTREES_LINE_ROW_HEIGHT
   }
+  if (row?.type === 'project-todos') {
+    return 88
+  }
   if (row?.type === 'pending-creation') {
     return PENDING_CREATION_ROW_HEIGHT
   }

@@ -14,6 +14,13 @@ It keeps upstream's bundle id (`com.stablyai.orca`) and the app name Orca, and n
 
 The current changes come first. Each name in `code` is the patch name from the commit trailer `Orca-Custom-Patch: <name>`, and it is the name used in the release notes. Keys use Cmd. Every key below is either a built-in default or a fixed key. None comes from a personal settings file.
 
+### Project TODOs in the sidebar (`project-todos`)
+
+- Each project in the left sidebar has an inline TODO list under its header for quick ideas. Hover a project header and click the TODO button to open it. When a project has open items, the header shows a count pill instead.
+- Press Enter in the input to add an item, or double-click an item to edit it. Checked items move under a **Done** toggle with a **Clear done** action.
+- You can link an open TODO to an existing worktree in that project, or start a new worktree from it with the name prefilled from the TODO text. Clicking a linked worktree pill switches to that worktree.
+- Deleting or cleaning up a linked worktree marks its TODO as done. Putting a worktree to sleep leaves the TODO open.
+
 ### Stacked sidebar (`sidebar-layout`)
 
 - The left sidebar shows the workspace list on top and the Activity list below it. A draggable splitter sits between them. Focus the splitter and press the Up or Down arrow key to resize it. The switch between the two views is gone.
