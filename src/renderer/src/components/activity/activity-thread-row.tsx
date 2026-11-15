@@ -14,6 +14,7 @@ import { EventTime, ThreadAgentStateIndicator } from './activity-thread-controls
 import { ActivityThreadHoverCard } from './activity-thread-hover-card'
 import { useActivityDescriptionVisible } from './activity-description-visibility'
 import { activityThreadRowCopy } from './activity-thread-presentation'
+import { ActivityThreadRowIdentity } from './activity-thread-row-identity'
 import type { AgentPaneThread } from './activity-thread-types'
 import type { ActivityThreadClickEvent } from './use-activity-thread-selection'
 
@@ -173,9 +174,7 @@ export const ActivityThreadRow = React.memo(function ActivityThreadRow({
               <span className="inline-flex shrink-0" title={agentLabel}>
                 <AgentTypeIcon agentType={thread.agentType} size={13} />
               </span>
-              <span className="min-w-0 flex-1 truncate" title={workspaceLabel}>
-                {workspaceLabel}
-              </span>
+              <ActivityThreadRowIdentity repo={thread.repo} workspaceLabel={workspaceLabel} />
               <TooltipProvider delayDuration={800} skipDelayDuration={0}>
                 {canJump && showJumpAction ? (
                   <ActivityThreadRowAction

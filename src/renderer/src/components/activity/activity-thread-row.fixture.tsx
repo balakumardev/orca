@@ -1,8 +1,13 @@
 import { defineFixture } from '../../component-fixtures/component-fixture'
 import { ActivityThreadRow } from './activity-thread-row'
+import type { Repo } from '../../../../shared/repo-types'
 import type { AgentPaneThread } from './activity-thread-types'
 
-function thread(minutesAgo: number, unread: boolean): AgentPaneThread {
+function repo(displayName: string, badgeColor: string): Repo {
+  return { id: displayName, path: `/projects/${displayName}`, displayName, badgeColor, addedAt: 0 }
+}
+
+function thread(minutesAgo: number, unread: boolean, project: Repo | null): AgentPaneThread {
   return {
     paneKey: `activity-fixture-${minutesAgo}`,
     paneTitle: 'Make the agent activity timestamp easier to scan',
@@ -25,7 +30,7 @@ function thread(minutesAgo: number, unread: boolean): AgentPaneThread {
       sortOrder: 0,
       lastActivityAt: 0
     },
-    repo: null,
+    repo: project,
     tab: {
       id: 'fixture-tab',
       ptyId: null,
@@ -50,7 +55,11 @@ function thread(minutesAgo: number, unread: boolean): AgentPaneThread {
 function ActivityCards({ compactMode = false }: { compactMode?: boolean }) {
   return (
     <div className="space-y-2 bg-background p-2 text-foreground">
-      {[thread(2, true), thread(125, false), thread(3000, false)].map((entry, index) => (
+      {[
+        thread(2, true, repo('orca', '#0ea5e9')),
+        thread(125, false, repo('factors-platform-web', '#f97316')),
+        thread(3000, false, null)
+      ].map((entry, index) => (
         <ActivityThreadRow
           key={entry.paneKey}
           thread={entry}
