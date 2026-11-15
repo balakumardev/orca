@@ -3,6 +3,7 @@
 # post the gates commit status, then retire superseded sync PRs. Never force-pushes, never pushes tags, never
 # touches the base branch. Runs git and gh only; no repository code is executed here.
 #
+# Outputs: pr_url, pr_number, merge_sha, draft (custom-sync's land job reads them).
 # Env: GH_TOKEN, REPO (owner/name), FACTS (sync-facts.json of the chosen round), PR_OUT (output of make-pr-body.sh),
 #      SUPERSEDE (JSON array of PR numbers), ORPHAN_BRANCH (true/false), RUN_URL
 # shellcheck source=lib.sh
@@ -35,6 +36,8 @@ pr_number="${pr_url##*/}"
 log "opened $pr_url (draft=$draft)"
 gh_out pr_url "$pr_url"
 gh_out pr_number "$pr_number"
+gh_out merge_sha "$merge_sha" # for the land job: the head the gates ran on
+gh_out draft "$draft"
 
 # PRs opened with the workflow token do not trigger pull_request workflows, so required checks would sit at
 # "expected" forever. A commit status under the check's name carries the result of the gates we ran ourselves.

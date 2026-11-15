@@ -1,7 +1,8 @@
 name: custom-sync
 # Upstream sync for this fork. Raises ONE pull request per upstream release; merging that PR (with a MERGE COMMIT)
-# is what the next release is built from (custom-release.yml: started by hand until it gets a `push:` trigger; the PR body
-# says which). Nothing here pushes to `custom`, merges anything or force-pushes.
+# is what the next release is built from. Nothing here pushes to `custom` or force-pushes. Only the `land` job merges, and only
+# a real run (see it below): when every gate of the chosen candidate is green and `custom` has not moved since the sync
+# started, it merges the PR itself and dispatches custom-release.yml once. In every other case the PR waits for a human.
 #
 #   detect   newest stable upstream release vs custom/BASE; quiet exit when there is nothing new
 #   merge    merge the release into sync/<tag> by script (clean, or scripted conflict rules), no model
@@ -12,14 +13,16 @@ name: custom-sync
 #            scope as round 2); only when no earlier round left a resolved merge does it start again from scratch
 #   gates*   custom-gates.yml: install, typecheck, lint, format, unit tests, localization, e2e ratchet, e2e specs
 #   open-pr  push sync/<tag> (the only branch this workflow may push), open the PR from FACTS, retire older sync PRs
+#   land     real runs only, all gates green, custom unchanged: check-run `gates / result`, merge commit, dispatch the release
+#            (custom/scripts/land-sync-pr.sh). A merge by the workflow token starts no `push:` workflow, hence the dispatch.
 #
 # Why the merge is not `git merge <tag>`: upstream release tags are not ancestors of one another, so a plain merge
 # conflicts in dozens of files nobody touched. sync-merge.sh merges with the previous BASE tag as the merge base
 # (see its header), which replays exactly our changes on the new release.
 #
 # Manual rehearsal: Actions > custom-sync > Run workflow with `ref` (any upstream branch, tag or sha) and a throwaway
-# `base_branch`. A rehearsal opens a DRAFT "[test]" PR and never changes custom/BASE. The model jobs only run from
-# `custom`, so a rehearsal dispatched from another branch exercises everything except them (set skip_agent).
+# `base_branch`. A rehearsal opens a DRAFT "[test]" PR and never changes custom/BASE, and it can never reach `land`. The model
+# jobs only run from `custom`, so a rehearsal dispatched from another branch exercises everything except them (set skip_agent).
 on:
   schedule:
     - cron: '23 */3 * * *'
@@ -304,11 +307,17 @@ jobs:
     if: ${{ !cancelled() && needs.detect.outputs.proceed == 'true' && needs.merge.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # The only job that can write. It runs our scripts, git, gh and node (no repository code from the candidate).
+    # Writes the sync branch, the PR and the statuses; it never merges. It runs our scripts, git, gh and node (no repository
+    # code from the candidate).
     permissions:
       contents: write
       pull-requests: write
       statuses: write
+    outputs:
+      pr_number: ${{ steps.open.outputs.pr_number }}
+      merge_sha: ${{ steps.open.outputs.merge_sha }}
+      draft: ${{ steps.open.outputs.draft }}
+      round: ${{ steps.pick.outputs.round }}
     steps:
       - name: Checkout the sync scripts
         uses: actions/checkout@v6
@@ -377,6 +386,7 @@ jobs:
             ${{ runner.temp }}/pr/pr-meta.json
           retention-days: 30
       - name: Push the branch and open the pull request
+        id: open
         working-directory: repo
         env:
           GH_TOKEN: ${{ github.token }}
@@ -387,3 +397,52 @@ jobs:
           ORPHAN_BRANCH: ${{ needs.detect.outputs.orphan_branch }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: bash "$GITHUB_WORKSPACE/tools/custom/scripts/open-pr.sh"
+
+  # The only job that can merge a PR or request a release, and it exists only for a real run: a scheduled run, or a dispatch with an
+  # empty `ref`, from refs/heads/custom, against an upstream release tag, with base_branch custom. A rehearsal (any `ref`, a throwaway
+  # base_branch, a [test] PR, another branch) fails this `if` and the job is skipped, so its token is never even issued; the script
+  # checks the same conditions again. `!cancelled()` is needed because most of the gates jobs it lists are skipped in any run.
+  land:
+    name: land
+    needs: [detect, gates0, gates1, gates2, gates3, open-pr]
+    if: >-
+      ${{ !cancelled() && needs.open-pr.result == 'success' && needs.open-pr.outputs.pr_number != ''
+      && github.ref == 'refs/heads/custom'
+      && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref == ''))
+      && needs.detect.outputs.base_branch == 'custom' && needs.detect.outputs.is_test == 'false'
+      && needs.detect.outputs.tag_is_release == 'true' && startsWith(needs.detect.outputs.branch, 'sync/v') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # The only job with these two extra scopes: `checks` for the required check-run, `actions` to dispatch the release.
+    permissions:
+      contents: write
+      pull-requests: write
+      checks: write
+      actions: write
+    steps:
+      - name: Checkout the sync scripts
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          sparse-checkout: custom/scripts
+          persist-credentials: false
+      - name: Merge the PR and request the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ needs.open-pr.outputs.pr_number }}
+          MERGE_SHA: ${{ needs.open-pr.outputs.merge_sha }}
+          DRAFT: ${{ needs.open-pr.outputs.draft }}
+          ROUND: ${{ needs.open-pr.outputs.round }}
+          BASE_SHA: ${{ needs.detect.outputs.base_sha }}
+          BASE_BRANCH: ${{ needs.detect.outputs.base_branch }}
+          BRANCH: ${{ needs.detect.outputs.branch }}
+          IS_TEST: ${{ needs.detect.outputs.is_test }}
+          TAG_IS_RELEASE: ${{ needs.detect.outputs.tag_is_release }}
+          TAG: ${{ needs.detect.outputs.tag }}
+          INPUT_REF: ${{ github.event.inputs.ref }}
+          # What the chosen round's gates really did: the job result and the `failed` output (a crashed gate job counts as a failure there).
+          GATES_RESULT: ${{ format('0={0} 1={1} 2={2} 3={3}', needs.gates0.result, needs.gates1.result, needs.gates2.result, needs.gates3.result) }}
+          GATES_FAILED: ${{ format('0={0} 1={1} 2={2} 3={3}', needs.gates0.outputs.failed, needs.gates1.outputs.failed, needs.gates2.outputs.failed, needs.gates3.outputs.failed) }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash custom/scripts/land-sync-pr.sh
