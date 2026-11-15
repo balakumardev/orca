@@ -129,8 +129,8 @@ jobs:
         env:
           MODE: ${{ inputs.mode }}
           CHANGED_BASE: ${{ github.event.pull_request.base.sha }}
-          # Why: a PR clone has no upstream release tags and no built worker entry (see config/fork-pr-gate-test-excludes.mjs).
-          ORCA_FORK_PR_GATE: ${{ inputs.mode == 'pr' && '1' || '' }}
+          # Why: a PR clone has no upstream release tags (see config/fork-pr-gate-test-excludes.mjs). No ORCA_ prefix: run-gates.sh unsets those.
+          FORK_PR_GATE: ${{ inputs.mode == 'pr' && '1' || '' }}
           GATES_OUT: ${{ runner.temp }}/gates-out/gates-${{ inputs.mode == 'pr' && 'pr' || inputs.round }}-static
         run: |
           extra=()
