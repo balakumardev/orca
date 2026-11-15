@@ -25,7 +25,8 @@ import {
 } from '../transcripts/session-transcript-record-budget'
 
 // Bump for row-layout or cached-semantic changes; mismatched databases are discarded.
-export const SESSION_PARSE_CACHE_SCHEMA_VERSION = 9
+// Fork: upstream's 9 plus one for the Claude tool-result title fix; a conflict here means upstream bumped, so raise it again.
+export const SESSION_PARSE_CACHE_SCHEMA_VERSION = 9 + 1
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);

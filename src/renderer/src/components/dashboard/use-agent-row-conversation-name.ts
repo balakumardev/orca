@@ -1,5 +1,6 @@
 import { useAppStateValue } from '@/store/retained-views/app-state-view'
 import { getAgentRowConversationName } from '../../../../shared/agent-status/presentation/agent-row-conversation-name'
+import { withNamedSessionTitleOnly } from '../../../../shared/agent-status/presentation/named-session-title-only'
 import { parsePaneKey } from '../../../../shared/workspace-layout/stable-pane-id'
 import { structuredChatDisplayName } from '../../../../shared/structured-chat-row-name'
 import { resolveAgentRowPaneLiveTitle } from './agent-row-pane-live-title'
@@ -72,7 +73,7 @@ export function useAgentRowConversationName(agent: DashboardAgentRow): string | 
   }
   // Why: retained row snapshots need a fallback after their live tab disappears.
   return getAgentRowConversationName(
-    liveTab ?? agent.tab,
+    withNamedSessionTitleOnly(liveTab ?? agent.tab),
     agent.agentType,
     generatedTitlesEnabled,
     paneLiveTitle,

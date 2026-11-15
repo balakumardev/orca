@@ -86,4 +86,48 @@ describe('scanAiVaultSessions Claude title selection', () => {
       ['User set title', 'named']
     ])
   })
+
+  it('never takes a tool result for the stand-in title, but keeps text typed beside one', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'orca-ai-vault-tool-result-title-'))
+    tempRoots.push(root)
+    const roots = isolatedScanRoots(root)
+    const projectDir = join(roots.claudeProjectsDir, 'project')
+    const toolResult = (text: string): object => ({
+      type: 'tool_result',
+      tool_use_id: 'toolu_1',
+      content: text
+    })
+    const userRecord = (sessionId: string, minute: number, content: unknown): object => ({
+      type: 'user',
+      sessionId,
+      timestamp: `2026-05-01T10:0${minute}:00.000Z`,
+      cwd: '/tmp/claude',
+      message: { role: 'user', content }
+    })
+
+    await writeJsonlFile(join(projectDir, 'slash-command.jsonl'), [
+      userRecord(
+        'slash-command',
+        0,
+        '<command-name>/goal</command-name><command-args>ship it</command-args>'
+      ),
+      userRecord('slash-command', 1, [toolResult('Shell output that is not a prompt')]),
+      userRecord('slash-command', 2, 'Real follow-up prompt')
+    ])
+    await writeJsonlFile(join(projectDir, 'mixed.jsonl'), [
+      userRecord('mixed', 0, [toolResult('Tool output'), { type: 'text', text: 'Typed beside it' }])
+    ])
+
+    const result = await scanAiVaultSessions({ ...roots, platform: 'darwin' })
+
+    expect(result.issues).toEqual([])
+    expect(
+      result.sessions
+        .map((session) => [session.title, session.titleKind])
+        .sort(([a], [b]) => String(a).localeCompare(String(b)))
+    ).toEqual([
+      ['Real follow-up prompt', 'fallback'],
+      ['Typed beside it', 'fallback']
+    ])
+  })
 })

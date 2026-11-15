@@ -24,6 +24,7 @@ import {
 } from '../../session-scanner-accumulator'
 import { addSessionContent } from '../../session-scanner-messages'
 import { countSubagentTranscripts } from './session-scanner-subagent-transcripts'
+import { claudeMessageWithoutToolResults } from './claude-message-without-tool-results'
 import { asRecord } from '../../session-scanner-record-value'
 import { claudeUsageTotal } from '../../session-scanner-token-values'
 import { extractMessageText, normalizeTitleText } from '../../session-scanner-text-normalization'
@@ -130,7 +131,7 @@ export function consumeClaudeSessionRecord(
 
   if (record.type === 'user') {
     accumulator.messageCount++
-    const title = extractMessageText(record.message)
+    const title = extractMessageText(claudeMessageWithoutToolResults(record.message))
     // Known injected tags may lack isMeta; custom tags must remain real prompts rather than fallback titles.
     const isMetaUserTurn =
       record.isMeta === true || (title != null && isKnownHarnessInjectedUserTurnText(title))

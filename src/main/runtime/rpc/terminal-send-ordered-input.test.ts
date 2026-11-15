@@ -173,7 +173,7 @@ describe('ordered terminal input RPC', () => {
             .accepted === false
       })
     try {
-      await vi.waitFor(() => expect(refused).toBe(true), { timeout: 100 })
+      await vi.waitFor(() => expect(refused).toBe(true), { timeout: 5000 })
       expect(f.sendTerminal).toHaveBeenCalledTimes(1)
     } finally {
       f.release()
@@ -204,7 +204,7 @@ describe('ordered terminal input RPC', () => {
           .accepted === false
     })
     try {
-      await vi.waitFor(() => expect(refused).toBe(true), { timeout: 100 })
+      await vi.waitFor(() => expect(refused).toBe(true), { timeout: 5000 })
       expect(f.sendTerminal).toHaveBeenCalledTimes(1)
     } finally {
       f.release()

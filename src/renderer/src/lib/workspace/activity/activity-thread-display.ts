@@ -7,6 +7,7 @@ import {
   getAgentRowConversationName,
   type ConversationNameTab
 } from '../../../../../shared/agent-status/presentation/agent-row-conversation-name'
+import { withNamedSessionTitleOnly } from '../../../../../shared/agent-status/presentation/named-session-title-only'
 import type { Worktree } from '../../../../../shared/worktree/types'
 import {
   getAgentRowPrimaryText,
@@ -107,7 +108,7 @@ export function getActivityThreadTaskTitle(args: {
 
   // Why: the agent's session name outranks the last prompt like the sidebar, and keeps the tabAutoGenerateTitle gate.
   const conversationName = getAgentRowConversationName(
-    args.tab,
+    withNamedSessionTitleOnly(args.tab),
     args.entry.agentType,
     args.generatedTitlesEnabled,
     args.paneLiveTitle,

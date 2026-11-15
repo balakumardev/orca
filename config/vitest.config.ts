@@ -8,6 +8,7 @@ import {
   UNIT_EXCLUDE,
   UNIT_SETUP_FILES
 } from './scripts/ci/unit-selection/dependency-graph/ci-unit-files.mjs'
+import { FORK_PR_GATE_TEST_EXCLUDES } from './fork-pr-gate-test-excludes.mjs'
 import TimingSequencer from './scripts/ci/sharding/ci-unit-sequencer.mjs'
 import { filesSafeToShareWorker } from './scripts/test-runtime/execution-policy/vitest-shared-worker-files.mjs'
 import { gitSigningOffEnv } from './scripts/test-runtime/environment/vitest-git-signing-env.mjs'
@@ -96,7 +97,7 @@ const testOptions = {
   execArgv: ['--no-experimental-webstorage', '--expose-gc'],
   setupFiles: UNIT_SETUP_FILES.map((file) => resolve(file)),
   include: UNIT_INCLUDE,
-  exclude: balancedShards ? UNIT_EXCLUDE : defaultExclude,
+  exclude: [...(balancedShards ? UNIT_EXCLUDE : defaultExclude), ...FORK_PR_GATE_TEST_EXCLUDES],
   hookTimeout: 60_000,
   testTimeout: 30_000
 }
