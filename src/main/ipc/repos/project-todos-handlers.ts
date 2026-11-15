@@ -24,9 +24,8 @@ function getSharedProjectTodosService(): ProjectTodosService {
 }
 
 export function registerProjectTodosHandlers(): void {
-  const service = getSharedProjectTodosService()
-  ipcMain.handle('projectTodos:list', () => service.list())
+  ipcMain.handle('projectTodos:list', () => getSharedProjectTodosService().list())
   ipcMain.handle('projectTodos:save', (event, projects: unknown) =>
-    service.save(projects, event.sender.id)
+    getSharedProjectTodosService().save(projects, event.sender.id)
   )
 }
