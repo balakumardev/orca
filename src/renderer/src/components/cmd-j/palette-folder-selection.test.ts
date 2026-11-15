@@ -7,7 +7,7 @@ import { encodePaletteIdentity } from '../../../../shared/palette-match/palette-
 import {
   FOLDER_SOURCE_ID,
   getNextPaletteSelectionWithoutFolderDefault,
-  isFolderPaletteItemId,
+  isUnarmedByDefaultPaletteItemId,
   keepFolderOffAutoSelection
 } from './palette-folder-selection'
 
@@ -21,11 +21,11 @@ const base = {
   showCreateAction: true
 }
 
-describe('isFolderPaletteItemId', () => {
+describe('isUnarmedByDefaultPaletteItemId', () => {
   it('recognises a folder row and nothing else', () => {
-    expect(isFolderPaletteItemId(folder)).toBe(true)
-    expect(isFolderPaletteItemId(otherExtra)).toBe(false)
-    expect(isFolderPaletteItemId(action)).toBe(false)
+    expect(isUnarmedByDefaultPaletteItemId(folder)).toBe(true)
+    expect(isUnarmedByDefaultPaletteItemId(otherExtra)).toBe(false)
+    expect(isUnarmedByDefaultPaletteItemId(action)).toBe(false)
   })
 })
 

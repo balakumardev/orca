@@ -1,12 +1,16 @@
 import { encodePaletteIdentity } from '../../../../shared/palette-match/palette-ranking'
 import { getNextWorktreePaletteSelection } from '@/lib/workspace/search/worktrees/worktree-palette-create-action'
+import { SESSION_SOURCE_ID } from './palette-session-source-id'
 
 export const FOLDER_SOURCE_ID = 'folders'
 
-const FOLDER_ROW_ID_PREFIX = encodePaletteIdentity(['extra', FOLDER_SOURCE_ID])
+// Rows that act on projects, the disk or a past conversation: reached by moving to them, never by a typed Enter.
+const UNARMED_ROW_ID_PREFIXES = [FOLDER_SOURCE_ID, SESSION_SOURCE_ID].map((sourceId) =>
+  encodePaletteIdentity(['extra', sourceId])
+)
 
-export function isFolderPaletteItemId(itemId: string): boolean {
-  return itemId.startsWith(FOLDER_ROW_ID_PREFIX)
+export function isUnarmedByDefaultPaletteItemId(itemId: string): boolean {
+  return UNARMED_ROW_ID_PREFIXES.some((prefix) => itemId.startsWith(prefix))
 }
 
 /**
@@ -22,7 +26,8 @@ export function getNextPaletteSelectionWithoutFolderDefault(
     ...args,
     selectableItemIds: args.selectableItemIds.filter(
       (id) =>
-        !isFolderPaletteItemId(id) || (keepsCurrentFolder && id === args.currentSelectedItemId)
+        !isUnarmedByDefaultPaletteItemId(id) ||
+        (keepsCurrentFolder && id === args.currentSelectedItemId)
     )
   })
 }
@@ -41,10 +46,10 @@ export function keepFolderOffAutoSelection(args: {
   const { nextItemId, selectableItemIds } = args
   if (
     args.movedSinceQueryChange ||
-    !isFolderPaletteItemId(nextItemId) ||
+    !isUnarmedByDefaultPaletteItemId(nextItemId) ||
     nextItemId !== selectableItemIds[0]
   ) {
     return nextItemId
   }
-  return selectableItemIds.find((id) => !isFolderPaletteItemId(id)) ?? ''
+  return selectableItemIds.find((id) => !isUnarmedByDefaultPaletteItemId(id)) ?? ''
 }

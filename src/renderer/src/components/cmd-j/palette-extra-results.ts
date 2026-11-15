@@ -22,6 +22,8 @@ export type PaletteExtraResult = {
   /** Source-defined order: empty-query order, and the typed tie-break after rank and activity. */
   order: number
   dimmed?: boolean
+  /** The row is listed but Enter, a click and the arrow keys skip it. */
+  inert?: boolean
   leading?: React.ReactNode
   line?: React.ReactNode
   trailing?: React.ReactNode
