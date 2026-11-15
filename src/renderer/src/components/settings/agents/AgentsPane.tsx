@@ -6,6 +6,7 @@ import {
 import type { GlobalSettings } from '../../../../../shared/global-settings-types'
 import { translateLocalExecutionHostLabel } from '../../sidebar/execution-host-label'
 import { AgentAwakeSetting } from './behavior/AgentAwakeSetting'
+import { LidClosedAwakeSetting } from '../../lid-awake/LidClosedAwakeSetting'
 import { AgentCacheTimerSection } from './behavior/AgentCacheTimerSection'
 import { AgentRuntimeSetting } from './runtime/AgentRuntimeSetting'
 import { CodexTerminalServerIsolationSetting } from './runtime/CodexTerminalServerIsolationSetting'
@@ -106,6 +107,7 @@ export function AgentsPane({
         {!isPairedWebClientWindow() ? (
           <AgentAwakeSetting settings={settings} updateSettings={updateSettings} />
         ) : null}
+        {!isPairedWebClientWindow() ? <LidClosedAwakeSetting /> : null}
       </SettingsGroup>
       <AgentCacheTimerSection settings={settings} updateSettings={updateSettings} />
     </div>

@@ -83,6 +83,16 @@ Enter on a session row reopens its chat, jumps to the pane that still holds it, 
 
 Cmd+J no longer lists tasks from GitHub, Linear, Jira or GitLab, and it starts no search for them. The Tasks page is still there. One constant, `CMD_J_TASK_SEARCH_ENABLED` in `cmd-j-task-search-switch.ts`, brings the upstream behavior back.
 
+### Stay awake with the lid closed (`lid-closed-awake`, opt-in, macOS)
+
+Upstream's **Keep computer awake** in Agent mode stops idle sleep, but closing the lid still puts a Mac to sleep. This option, in Settings > Agents, keeps the Mac awake with the lid closed while an agent is working in Agent mode. It is off until you turn it on.
+
+It needs a one-time admin step. Orca installs a small root helper and a sudoers rule that allows only two fixed commands (`hold` and `reset`) for your account. Orca then holds sleep off through that helper. The helper lets go by itself if Orca quits, crashes or hangs. **Remove** in the same setting deletes the helper and the rule.
+
+A Mac kept awake in a bag runs warm and loses battery, so the hold has limits and tells you about them. It stops at a battery level you choose (default 30%, on battery power only), when macOS reports a serious thermal state, and after a time limit you choose (default 12 hours). It waits 60 seconds after the agents go idle before it lets go. A status bar item shows when it is holding, with the battery and the time left, and has a **Release now** button. Orca also sends a notification when it starts holding, when the battery gets near the limit, when it stops and why, and when you open the lid ("held awake for 2 h 10 min, battery 80% to 45%"). If an earlier run left the Mac set to never sleep, Orca puts it back at the next start.
+
+It does not hold in On mode, in `orca serve` mode, or for agents on SSH or paired hosts.
+
 ### Updates from this fork (`self-updater`, `disable-updater`)
 
 Upstream's built-in updater is off in this build. It would offer upstream's own newer build, which is signed by a different Apple team and would fail the signature check. Instead, the app looks at this fork's releases about 90 seconds after it starts and then every 4 hours. You can also check from the menu or from Settings. It downloads the newest `+custom` release, checks the sha256, the signing team, Apple notarization and the stapled ticket, and stages the update. The restart button on the update card installs it. Nothing quits by itself.
@@ -138,6 +148,7 @@ You should see `TeamIdentifier=KHD36T7C97` and `source=Notarized Developer ID`. 
 - Session search is opt-in, it stores conversation text without encryption, and it works for the local computer only. It also waits for the first full index pass, which can take a while on a large history.
 - The Activity keys do not fire while an embedded browser or a text input has focus. The Activity highlight does not follow the floating terminal or the full-page Activity view. It does not highlight an agent that a filter hides.
 - The name step in Cmd+J shows no branch or base preview.
+- Stay awake with the lid closed was checked with unit tests and an offline run of its installer, not yet with a real closed lid. macOS itself decides whether `pmset disablesleep` holds a closed lid on a given Mac, and sources disagree. Try it with the Mac plugged in first, and watch the first runs.
 - The first-run tour step about sidebar navigation may point at buttons that moved into the Quick links popover. This was a known gap at the last review.
 - In-app updating is new and has had little real use. If an update does not install, download the zip from the releases page and replace the app by hand.
 - This fork is unofficial. The Orca team does not support it. Please do not report its problems to them.

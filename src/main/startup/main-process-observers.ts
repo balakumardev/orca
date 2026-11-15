@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { AgentAwakeService } from '../power/agent-awake-service'
 import { normalizeComputerAwakeMode } from '../../shared/computer-awake-mode'
 import { registerSystemResumeBroadcast } from '../power/system-resume-broadcast'
+import { startLidClosedAwake } from '../power/lid-closed-awake/lid-awake-startup'
 import { readDesktopAwayState } from '../notifications/desktop-away-state'
 import {
   listCapableSharedControlSockets,
@@ -60,6 +61,7 @@ export function initializeMainProcessObservers(): void {
   )
   // Hydrated rows preserve UI only; only this runtime's live hook events may keep the machine awake.
   state.agentAwakeService.setStatuses([])
+  startLidClosedAwake(state.agentAwakeService, { isServeMode: state.isServeMode })
   state.uninstallRepoMaintenanceIdleGate = installRepoMaintenanceIdleGate({
     isQuitting: () => state.isQuitting,
     getWorkingAgentCount: () => state.agentAwakeService?.getWorkingAgentCount() ?? 0
