@@ -12,6 +12,7 @@ import {
   noticeRemovedUnsavedFiles,
   type ConfirmedUnsavedDiscards
 } from './removed-workspace-unsaved-files'
+import { completeProjectTodosForRemovedWorktrees } from '@/components/sidebar/project-todos/project-todos-store'
 
 /** Clears worktree-owned renderer state after successful removal so a reused identity cannot inherit stale preferences. */
 export function applyRemoveWorktreeSuccessState(
@@ -24,6 +25,7 @@ export function applyRemoveWorktreeSuccessState(
   // Clear module caches outside store state; reused IDs must re-arm ambiguity warnings.
   forgetAmbiguousOwnerWarnings([worktreeId])
   forgetCombinedDiffViewsForWorktrees([worktreeId])
+  completeProjectTodosForRemovedWorktrees([{ id: worktreeId, hostId: executionHostId }])
   set((s) => {
     const worktreeIds = [worktreeId]
     const omitByWorktree = <T>(m: Record<string, T> | undefined) => omitRecordKeys(m, worktreeIds)

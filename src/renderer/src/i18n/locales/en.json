@@ -8044,6 +8044,26 @@
         },
         "SidebarStackedBody": {
           "resize": "Resize Activity pane"
+        },
+        "projectTodos": {
+          "openCountBadge": "{{value0}} open TODOs",
+          "hideTodos": "Hide project TODOs",
+          "addProjectTodo": "Project TODOs",
+          "markTodo": "Toggle {{value0}}",
+          "doubleClickEdit": "Double-click to edit",
+          "creatingBadge": "Creating…",
+          "switchToWorktree": "Switch to {{value0}}",
+          "deleteTodo": "Delete TODO",
+          "startNewWorkspace": "Start new workspace…",
+          "startNewWorktree": "Start new worktree…",
+          "changeWorktree": "Change linked worktree",
+          "assignOrStartWorktree": "Assign or start worktree",
+          "linkExisting": "Link existing",
+          "unlinkWorktree": "Unlink worktree",
+          "quickAddPlaceholder": "Jot a quick idea or task…",
+          "closePanel": "Close project TODOs",
+          "doneCount": "Done ({{value0}})",
+          "clearDone": "Clear done"
         }
       },
       "shared": {

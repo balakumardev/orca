@@ -10,6 +10,7 @@ import type { TuiAgent } from '../../../../shared/agent-launch/catalog/tui-agent
 import type { WorkspaceSource as WorkspaceCreateTelemetrySource } from '../../../../shared/workspace-source'
 import type { WorkspaceStatus } from '../../../../shared/worktree/types'
 import type { TaskSourceContext } from '../../../../shared/work-items/task-source-context'
+import type { ProjectTodoComposerLink } from '../../../../shared/project-todos-types'
 import type { WorkspaceCreationTargetHint } from '@/lib/workspace/creation/project-host-workspace-target'
 
 export type ComposerModalData = {
@@ -36,6 +37,8 @@ export type ComposerModalData = {
   enableIssueAutomation?: boolean
   /** Press Create once the form is ready, in a hidden non-modal dialog (the Cmd+J name step). Never reopened with. */
   autoSubmit?: boolean
+  /** Links the created workspace back to a sidebar project TODO item. */
+  todoLink?: ProjectTodoComposerLink
   /** Creation-surface telemetry; each opener supplies it, otherwise use unknown. */
   telemetrySource?: WorkspaceCreateTelemetrySource
   contextualTourSource?: string

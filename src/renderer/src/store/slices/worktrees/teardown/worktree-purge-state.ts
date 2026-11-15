@@ -24,6 +24,7 @@ import { collectHostTwinPurgeScopes } from './host-twin-purge-scopes'
 import { composeWorktreeHostIdentity } from '../../../../../../shared/worktree/host-qualified-identity'
 import type { AppState } from '../../../types'
 import type { WorktreePurgeTarget, WorktreePurgeTargets } from './worktree-purge-target'
+import { completeProjectTodosForRemovedWorktrees } from '@/components/sidebar/project-todos/project-todos-store'
 
 /**
  * Builds a bulk cleanup patch and clears auxiliary warning records without requiring individual
@@ -38,6 +39,7 @@ export function buildWorktreePurgeState(
   const targets: WorktreePurgeTarget[] = worktreeTargets.map((target) =>
     typeof target === 'string' ? { id: target } : target
   )
+  completeProjectTodosForRemovedWorktrees(targets)
   for (const target of targets) {
     retireRemovedWorktreeCommitDrafts(target.id, target.hostId)
   }
