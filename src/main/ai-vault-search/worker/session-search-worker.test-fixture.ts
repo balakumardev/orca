@@ -1,3 +1,4 @@
+// @orca-isolated-worker: in a shared worker these tests intermittently got no search worker ("unavailable"); isolated they pass.
 import type * as WorkerClient from './session-search-worker-client'
 import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
