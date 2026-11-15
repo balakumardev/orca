@@ -10,6 +10,7 @@ import { hasActivityThreadWorkspace } from '@/components/activity/activity-threa
 import { useActivityThreadActionBindings } from '@/components/activity/use-activity-thread-action-bindings'
 import { ActivityThreadListPane } from '@/components/activity/activity-thread-list-pane'
 import { useAgentPaneThreads } from '@/components/activity/use-agent-pane-threads'
+import { useActivityFollowFocusedAgent } from '@/components/activity/use-activity-follow-focused-agent'
 import { ActivityThreadOptionsMenu } from '@/components/activity/activity-thread-controls'
 import type {
   ActivityGroupBy,
@@ -58,6 +59,14 @@ export default function SidebarAgentsList({
     // Reset selection when leaving Activity or when its pane vanishes.
     setSelectedPaneKey(null)
   }
+  useActivityFollowFocusedAgent({
+    active,
+    groupBy: listProps.groupBy,
+    visibleThreads,
+    visibleThreadGroups: threads.visibleThreadGroups,
+    selectedPaneKey,
+    setSelectedPaneKey
+  })
 
   const counts = { attention: 0, working: 0 }
   for (const thread of visibleThreads) {
