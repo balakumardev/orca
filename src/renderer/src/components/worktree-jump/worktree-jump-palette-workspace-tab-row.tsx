@@ -14,6 +14,7 @@ import {
   PaletteOpenTabPrimaryLine,
   PaletteRowShortcutBadge
 } from './worktree-jump-palette-primitives'
+import { WorktreeJumpPaletteProjectChip } from './worktree-jump-palette-project-create-chip'
 import { formatPaletteSessionAge } from '@/components/cmd-j/palette-session-age'
 import { resolvePaletteRepoForWorktree } from '@/lib/workspace/search/palette-repo-resolution'
 import { isEditorTabContentType } from '@/store/slices/editor/tabs/editor-tab-content-type'
@@ -107,6 +108,11 @@ export function WorktreeJumpPaletteWorkspaceTabRow({
             ) : null}
           </div>
           <div className="flex min-w-0 max-w-[40%] items-center justify-end gap-1.5">
+            <WorktreeJumpPaletteProjectChip
+              entry={entry}
+              renderKey={renderKey}
+              controller={controller}
+            />
             <PaletteHostBadgeChip badge={workspaceTabHostBadge} />
             <PaletteLocationChip
               repoName={workspaceTabRepoName}

@@ -12,6 +12,7 @@ import type {
 } from './worktree-jump-palette-model'
 import type { WorktreeJumpPaletteController } from './use-worktree-jump-palette-controller'
 import { PaletteHostBadgeChip } from './worktree-jump-palette-primitives'
+import { WorktreeJumpPaletteProjectChip } from './worktree-jump-palette-project-create-chip'
 import { getRepoExecutionHostId } from '../../../../shared/execution-host'
 import { BROWSER_NAVIGATION_ACTION_ID } from '../cmd-j/browser-navigation-action'
 
@@ -60,6 +61,11 @@ export function WorktreeJumpPaletteProjectRow({
               <span className="shrink-0 rounded-[6px] border border-border/60 bg-background/45 px-1.5 py-px text-[9px] font-medium leading-normal text-muted-foreground/88">
                 {badgeLabel}
               </span>
+              <WorktreeJumpPaletteProjectChip
+                entry={entry}
+                renderKey={renderKey}
+                controller={controller}
+              />
             </div>
           </div>
           {isProject ? (

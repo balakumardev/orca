@@ -28,6 +28,8 @@ export type PaletteExtraResult = {
   line?: React.ReactNode
   trailing?: React.ReactNode
   onSelect: () => void
+  /** Cmd/Ctrl+Enter on the row, for a row that can start a new worktree (a folder adds its project first). */
+  onModEnter?: () => void
 }
 
 /** One section a source contributes, with its rows for the current query. */
@@ -35,8 +37,8 @@ export type PaletteExtraSource = {
   id: string
   sectionLabel: (t: Translate) => string
   emptyQueryCap: number
-  /** Typed queries: where the section sits when it does not lead the list. */
-  typedPlacement: 'before-workspaces' | 'after-workspaces'
+  /** Typed queries: where the section sits when it does not lead the list; 'before-create' ends the list, above Create. */
+  typedPlacement: 'before-workspaces' | 'after-workspaces' | 'before-create'
   /** Lead the list when its best match equals the best workspace or tab match, not only when it beats it. */
   leadsOnTie: boolean
   /** Typed: matching rows only. Empty query: every row, unranked. */

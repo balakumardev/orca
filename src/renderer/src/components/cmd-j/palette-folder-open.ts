@@ -21,6 +21,35 @@ export type FolderOpenDeps = {
   notify: (problem: FolderOpenProblem) => void
 }
 
+/** The add Enter and Cmd/Ctrl+Enter share: the git project, its worktrees read, the onboarding step marked. */
+async function addGitFolderProject(path: string, deps: FolderOpenDeps): Promise<Repo | null> {
+  const repo = await deps.addGitProject(path)
+  if (!repo) {
+    // The add already explained the failure, or opened its own confirmation.
+    return null
+  }
+  await deps.refreshWorktrees(repo.id)
+  deps.markGitProjectAdded()
+  return repo
+}
+
+/**
+ * Cmd/Ctrl+Enter on an untracked git root: the same add Enter does, without opening the default checkout, so the
+ * caller can start a new worktree in the project. Only a git root that main still offers is added.
+ */
+export async function addFolderEntryProject(
+  picked: FolderSearchEntry,
+  deps: FolderOpenDeps
+): Promise<{ status: 'added'; repo: Repo } | { status: 'gone' | 'add-failed' }> {
+  const entry = await deps.resolve(picked.path)
+  if (entry?.kind !== 'git-root') {
+    deps.notify('gone')
+    return { status: 'gone' }
+  }
+  const repo = await addGitFolderProject(entry.path, deps)
+  return repo ? { status: 'added', repo } : { status: 'add-failed' }
+}
+
 /**
  * Opens a folder with the flows Add Project already has: a folder project, or a git project handed to the
  * default checkout. Only a linked worktree is opened here, because Add Project would open the main
@@ -39,13 +68,10 @@ export async function openFolderEntry(
     // The folder project flow opens the folder itself.
     return (await deps.addFolderProject(entry.path)) ? 'opened' : 'add-failed'
   }
-  const repo = await deps.addGitProject(entry.path)
+  const repo = await addGitFolderProject(entry.path, deps)
   if (!repo) {
-    // The add already explained the failure, or opened its own confirmation.
     return 'add-failed'
   }
-  await deps.refreshWorktrees(repo.id)
-  deps.markGitProjectAdded()
   if (entry.kind === 'git-root') {
     await deps.openDefaultCheckout(repo.id)
     return 'opened'

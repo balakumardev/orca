@@ -134,18 +134,18 @@ describe('Cmd+J name step with the Folders and Sessions sections', () => {
     useAppStore.setState(initialAppState, true)
   })
 
-  it('lists the new-worktree rows before the Folders section and that before the Sessions section', async () => {
+  it('lists the Folders section, then the Sessions section, then the Create group last', async () => {
     const palette = await openAt('acme-web')
     const ids = palette.current.controller.listEntries.map((entry) => entry.id)
-    const [create, folders, sessions] = [
-      ids.indexOf('__header_extra_project-create__'),
+    const [folders, sessions, create] = [
       ids.indexOf('__header_extra_folders__'),
-      ids.indexOf(SESSION_HEADER)
+      ids.indexOf(SESSION_HEADER),
+      ids.indexOf('__header_extra_project-create__')
     ]
 
-    expect(create).toBeGreaterThan(0)
-    expect(folders).toBeGreaterThan(create)
+    expect(folders).toBeGreaterThan(0)
     expect(sessions).toBeGreaterThan(folders)
+    expect(create).toBeGreaterThan(sessions)
   })
 
   it('puts the search back with the sessions listed and arms the row it armed without the step', async () => {

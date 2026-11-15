@@ -3,7 +3,7 @@ import type { FolderSearchEntry } from '../../../../shared/folder-search-types'
 import type { Repo } from '../../../../shared/repo-types'
 import type { Worktree } from '../../../../shared/worktree/types'
 import { makeRepo, makeWorktree } from '../worktree-jump/worktree-jump-palette-test-fixtures'
-import { openFolderEntry, type FolderOpenDeps } from './palette-folder-open'
+import { addFolderEntryProject, openFolderEntry, type FolderOpenDeps } from './palette-folder-open'
 
 function setup(
   options: {
@@ -148,5 +148,41 @@ describe('openFolderEntry', () => {
     )
     expect(deps.focusTerminal).toHaveBeenCalledOnce()
     expect(deps.notify).not.toHaveBeenCalled()
+  })
+})
+
+describe('addFolderEntryProject', () => {
+  it('adds an untracked git root the way Enter does, without opening its default checkout', async () => {
+    const { deps, calls } = setup({ fresh: { path: '/code/app', kind: 'git-root' } })
+    expect(await addFolderEntryProject({ path: '/code/app', kind: 'git-root' }, deps)).toEqual({
+      status: 'added',
+      repo: makeRepo()
+    })
+    expect(calls).toEqual([
+      'resolve:/code/app',
+      'add-git:/code/app',
+      'refresh:repo-1',
+      'mark-added'
+    ])
+  })
+
+  it('adds nothing when main no longer offers a git root there, and says so', async () => {
+    const { deps, calls } = setup({ fresh: { path: '/code/app', kind: 'folder' } })
+    expect(await addFolderEntryProject({ path: '/code/app', kind: 'git-root' }, deps)).toEqual({
+      status: 'gone'
+    })
+    expect(calls).toEqual(['resolve:/code/app', 'notify:gone'])
+
+    const missing = setup({ fresh: null })
+    await addFolderEntryProject({ path: '/code/app', kind: 'git-root' }, missing.deps)
+    expect(missing.calls).toEqual(['resolve:/code/app', 'notify:gone'])
+  })
+
+  it('stays quiet when the add itself failed, because the add already reported it', async () => {
+    const { deps, calls } = setup({ repo: null, fresh: { path: '/code/app', kind: 'git-root' } })
+    expect(await addFolderEntryProject({ path: '/code/app', kind: 'git-root' }, deps)).toEqual({
+      status: 'add-failed'
+    })
+    expect(calls).toEqual(['resolve:/code/app', 'add-git:/code/app'])
   })
 })

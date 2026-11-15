@@ -45,22 +45,29 @@ describe('Cmd+J "New worktree in <Project>" rows', () => {
     useAppStore.setState(initialAppState, true)
   })
 
-  it('sit right after the workspaces and before Create, and Enter does not arm them', async () => {
+  it('end the list above the plain Create row, and Enter does not arm them', async () => {
     const { result } = await openPaletteAt('acme-web')
     const ids = entryIds(result)
     const header = ids.indexOf('__header_extra_project-create__')
 
     expect(projectCreateRowIds(result)).toEqual(['repo-acme-web'])
-    expect(ids.slice(0, header).filter((id) => id.includes('wt-web'))).toHaveLength(3)
-    expect(ids.slice(header + 2)).toEqual([
+    expect(ids.slice(0, header)).toEqual([
+      '__header_worktrees__',
+      expect.stringContaining('wt-web-auth'),
+      expect.stringContaining('wt-web-docs'),
+      expect.stringContaining('wt-web-main'),
       '__header_projects_groups__',
-      'project:repo:repo-acme-web',
+      'project:repo:repo-acme-web'
+    ])
+    expect(ids.slice(header)).toEqual([
+      '__header_extra_project-create__',
+      expect.stringContaining('project-create'),
       CREATE_WORKTREE_ITEM_ID
     ])
     expect(result.current.controller.commandSelectedItemId).toContain('wt-web')
   })
 
-  it('come before the Folders section', async () => {
+  it('come after the Folders section', async () => {
     Object.defineProperty(window, 'api', {
       configurable: true,
       value: {
@@ -76,10 +83,32 @@ describe('Cmd+J "New worktree in <Project>" rows', () => {
     const { result } = await openPaletteAt('acme-web')
     const ids = entryIds(result)
 
-    expect(ids.indexOf('__header_extra_project-create__')).toBeGreaterThan(0)
-    expect(ids.indexOf('__header_extra_folders__')).toBe(
-      ids.indexOf('__header_extra_project-create__') + 2
-    )
+    expect(ids).toEqual([
+      '__header_worktrees__',
+      expect.stringContaining('wt-web-auth'),
+      expect.stringContaining('wt-web-docs'),
+      expect.stringContaining('wt-web-main'),
+      '__header_extra_folders__',
+      expect.stringContaining('/code/acme-web-old'),
+      '__header_projects_groups__',
+      'project:repo:repo-acme-web',
+      '__header_extra_project-create__',
+      expect.stringContaining('project-create'),
+      CREATE_WORKTREE_ITEM_ID
+    ])
+  })
+
+  it('leave a project with no workspace armed on its project row, not on a Create row', async () => {
+    const { result } = await openPaletteAt('notes')
+
+    expect(entryIds(result)).toEqual([
+      '__header_projects_groups__',
+      'project:repo:repo-notes',
+      '__header_extra_project-create__',
+      expect.stringContaining('project-create'),
+      CREATE_WORKTREE_ITEM_ID
+    ])
+    expect(result.current.controller.commandSelectedItemId).toBe('project:repo:repo-notes')
   })
 
   it('show the two best projects of a broader query, never an empty query', async () => {
@@ -234,10 +263,13 @@ describe('Cmd/Ctrl+Enter on a row that belongs to a project', () => {
     await highlight(palette.result, (id) => id.includes('wt-web-auth'))
     expect(palette.result.current.shortcut.rowHintLabel).toBe('acme-web')
     expect(palette.result.current.shortcut.currentHintLabel).toBeNull()
+  })
 
+  it('names the project of the highlighted row with an empty search too', async () => {
+    useAppStore.setState({ activeWorktreeId: 'wt-web-main' })
     const empty = await openPaletteAt('')
-    expect(empty.result.current.shortcut.rowHintLabel).toBeNull()
-    expect(empty.result.current.shortcut.currentHintLabel).toBe('acme-web')
+    expect(empty.result.current.shortcut.rowHintLabel).toBe('acme-web')
+    expect(empty.result.current.shortcut.currentHintLabel).toBeNull()
   })
 
   it('leaves a pasted issue or PR link to its own Create row, for both chords', async () => {
