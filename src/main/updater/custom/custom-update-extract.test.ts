@@ -280,6 +280,10 @@ describe('watching the free space during an extraction', () => {
     }
   }
 
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   const base = {
     zipPath: '/x.zip',
     destination: '/y',
@@ -422,13 +426,31 @@ describe('watching the free space during an extraction', () => {
   )
 
   it('a ditto that fails with the disk nearly full is a disk problem even without a message', async () => {
-    await expect(
-      extractArchive({
-        ...base,
-        run: dittoRunning(10, { code: 1 }),
-        getFreeBytes: freeSpace(10_000, 10_000, 10_000, 500)
+    vi.useFakeTimers()
+    let failDitto = (): void => undefined
+    const run: CommandRunner = async (file) => {
+      if (file === '/usr/bin/zipinfo') {
+        return { code: 0, stdout: ZIPINFO, stderr: '' }
+      }
+      await new Promise<void>((resolve) => {
+        failDitto = resolve
       })
-    ).rejects.toMatchObject({ kind: 'disk-space' })
+      return { code: 1, stdout: '', stderr: '' }
+    }
+    // Room for the start and for three polls; every read after that finds the disk nearly full.
+    let reads = 0
+    const getFreeBytes = async (): Promise<number> => (++reads <= 4 ? 10_000 : 500)
+
+    const outcome = expect(extractArchive({ ...base, run, getFreeBytes })).rejects.toMatchObject({
+      kind: 'disk-space',
+      freeBytes: 500
+    })
+    for (let poll = 0; poll < 3; poll += 1) {
+      await vi.advanceTimersByTimeAsync(base.freePollIntervalMs)
+    }
+    failDitto()
+
+    await outcome
   })
 
   it('a ditto that fails with the disk fine is not a verdict on the archive: it is retried, and only repeated failures count', async () => {
