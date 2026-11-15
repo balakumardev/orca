@@ -2,7 +2,9 @@ name: custom-release
 
 # Build, sign, notarize and (optionally) publish the custom Orca build of this fork.
 # Run it by hand:  gh workflow run custom-release.yml --repo balakumardev/orca --ref custom [-f sign=false -f notarize=false -f publish=true]
-# The `push:` trigger that releases on merges into `custom` is added by the owner at the very end; not here.
+# It also runs by itself after EVERY push to `custom` (a merged PR; the upstream sync dispatches it itself): sign, notarize and
+# publish are all true then. The `plan` job resolves the three values once (the dispatch inputs are empty on a push) and `build`
+# and `publish` read only that result. Any other branch resolves them all false: a rehearsal branch can never sign or publish.
 #
 # JOB STRUCTURE (one build job, signing inside electron-builder)
 #   plan     ubuntu, no secrets: next version (custom/scripts/next-version.sh) + the upstream base tag's commit.
@@ -41,6 +43,10 @@ name: custom-release
 #       so they can only be dispatched from ref `custom`.
 
 on:
+  # Every commit that lands on custom is released: no paths-ignore. Never a bare `push:` (other branches and the release's own
+  # tag must not start a run).
+  push:
+    branches: [custom]
   workflow_dispatch:
     inputs:
       sign:
@@ -60,7 +66,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: custom-release
+  # One group per ref: a run from another branch must not replace the pending release that `land` dispatched (a pending run is
+  # replaced by a newer one, and a merge made with the workflow token starts no push run, so that dispatch is the only request).
+  group: custom-release-${{ github.ref == 'refs/heads/custom' && 'custom' || github.ref }}
   cancel-in-progress: false
 
 env:
@@ -84,17 +92,43 @@ jobs:
       base: ${{ steps.version.outputs.base }}
       n: ${{ steps.version.outputs.n }}
       upstream_commit: ${{ steps.upstream.outputs.upstream_commit }}
+      sign: ${{ steps.mode.outputs.sign }}
+      notarize: ${{ steps.mode.outputs.notarize }}
+      publish: ${{ steps.mode.outputs.publish }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
         with:
           persist-credentials: false
 
+      # The only place that reads the dispatch inputs: on a push they are empty, so every guard keyed on them would go false.
+      - name: Resolve sign, notarize and publish
+        id: mode
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          IN_SIGN: ${{ inputs.sign }}
+          IN_NOTARIZE: ${{ inputs.notarize }}
+          IN_PUBLISH: ${{ inputs.publish }}
+        run: |
+          set -euo pipefail
+          sign=false notarize=false publish=false
+          if [ "$EVENT" = workflow_dispatch ]; then
+            sign="$IN_SIGN" notarize="$IN_NOTARIZE" publish="$IN_PUBLISH"
+          elif [ "$EVENT" = push ] && [ "$REF" = refs/heads/custom ]; then
+            sign=true notarize=true publish=true
+          fi
+          for v in sign notarize publish; do
+            [ "${!v}" = true ] || printf -v "$v" false
+            echo "$v=${!v}" >>"$GITHUB_OUTPUT"
+          done
+          echo "$EVENT on $REF: sign=$sign notarize=$notarize publish=$publish"
+
       - name: Refuse to publish a build that is not signed and notarized
         env:
-          SIGN: ${{ inputs.sign }}
-          NOTARIZE: ${{ inputs.notarize }}
-          PUBLISH: ${{ inputs.publish }}
+          SIGN: ${{ steps.mode.outputs.sign }}
+          NOTARIZE: ${{ steps.mode.outputs.notarize }}
+          PUBLISH: ${{ steps.mode.outputs.publish }}
         run: |
           set -euo pipefail
           if [ "$PUBLISH" = "true" ] && { [ "$SIGN" != "true" ] || [ "$NOTARIZE" != "true" ]; }; then
@@ -133,9 +167,9 @@ jobs:
           TAG: ${{ steps.version.outputs.tag }}
           BASE: ${{ steps.version.outputs.base }}
           UPSTREAM_COMMIT: ${{ steps.upstream.outputs.upstream_commit }}
-          SIGN: ${{ inputs.sign }}
-          NOTARIZE: ${{ inputs.notarize }}
-          PUBLISH: ${{ inputs.publish }}
+          SIGN: ${{ steps.mode.outputs.sign }}
+          NOTARIZE: ${{ steps.mode.outputs.notarize }}
+          PUBLISH: ${{ steps.mode.outputs.publish }}
         run: |
           {
             echo "### custom-release plan"
@@ -154,7 +188,7 @@ jobs:
     timeout-minutes: 150
     # Only a signing run touches environment `release` (and so can only run from ref custom). An unsigned run has no
     # environment, which is what lets a feature branch test everything but the signature.
-    environment: ${{ inputs.sign && 'release' || '' }}
+    environment: ${{ needs.plan.outputs.sign == 'true' && 'release' || '' }}
     permissions:
       contents: read
     outputs:
@@ -163,7 +197,7 @@ jobs:
       VERSION: ${{ needs.plan.outputs.version }}
       TAG: ${{ needs.plan.outputs.tag }}
       BASE: ${{ needs.plan.outputs.base }}
-      SIGN: ${{ inputs.sign }}
+      SIGN: ${{ needs.plan.outputs.sign }}
       # Upstream's own mac build workflows set these two: no window focus stealing during the packaged-app boot
       # checks, and a Node heap that survives the web build on a 7 GB runner.
       ORCA_BACKGROUND_LAUNCH: '1'
@@ -213,7 +247,7 @@ jobs:
 
       # The only steps that see the certificate. Everything above ran without it.
       - name: Import the signing certificate into a temporary keychain
-        if: inputs.sign
+        if: needs.plan.outputs.sign == 'true'
         env:
           P12_BASE64: ${{ secrets.COOLSOLVE_CERT_P12 }}
           P12_PASSWORD: ${{ secrets.COOLSOLVE_CERT_PASSWORD }}
@@ -223,12 +257,12 @@ jobs:
       # custom batch signer. That is what notarization requires, and it is why the helper signing happens here.
       - name: Build the Swift helper (Orca Computer Use)
         env:
-          ORCA_MAC_RELEASE: ${{ inputs.sign && '1' || '' }}
+          ORCA_MAC_RELEASE: ${{ needs.plan.outputs.sign == 'true' && '1' || '' }}
         run: pnpm run build:computer-macos
 
       - name: Build the small native helpers
         env:
-          ORCA_MAC_RELEASE: ${{ inputs.sign && '1' || '' }}
+          ORCA_MAC_RELEASE: ${{ needs.plan.outputs.sign == 'true' && '1' || '' }}
         run: |
           set -euo pipefail
           pnpm run build:keyboard-layout-macos
@@ -243,9 +277,9 @@ jobs:
       # custom/scripts/notarize-app.sh does, after the keychain is gone and with the notary key only in that step.
       - name: Package and sign the app (electron-builder --dir)
         env:
-          ORCA_MAC_RELEASE: ${{ inputs.sign && '1' || '' }}
+          ORCA_MAC_RELEASE: ${{ needs.plan.outputs.sign == 'true' && '1' || '' }}
           ORCA_MAC_TEAM_ID: ${{ env.EXPECTED_TEAM_ID }}
-          CSC_IDENTITY_AUTO_DISCOVERY: ${{ inputs.sign && 'true' || 'false' }}
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ needs.plan.outputs.sign == 'true' && 'true' || 'false' }}
         run: |
           set -euo pipefail
           args=(--config config/electron-builder.config.cjs --mac --arm64 --dir --publish never
@@ -274,7 +308,7 @@ jobs:
       # bounded: past NOTARY_TIMEOUT notarize-app.sh exits 3 with the submission id and this step fails.
       - name: Notarize and staple
         id: notarize
-        if: inputs.sign && inputs.notarize
+        if: needs.plan.outputs.sign == 'true' && needs.plan.outputs.notarize == 'true'
         timeout-minutes: 100
         env:
           NOTARY_TIMEOUT: 90m
@@ -356,7 +390,7 @@ jobs:
 
   publish:
     needs: [plan, build]
-    if: inputs.publish
+    if: needs.plan.outputs.publish == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:

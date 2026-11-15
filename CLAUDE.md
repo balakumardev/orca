@@ -29,8 +29,8 @@ Before a task, load the matching skill from `.claude/skills/`:
 ## How a release happens
 
 1. `custom-sync` runs every 3 hours (or by hand), finds a newer upstream release tag and merges it into a `sync/<tag>` branch. Scripts resolve what they can, a cloud model resolves the files our customizations own, scripts run every gate, and the workflow opens a PR into `custom` whose body lists the facts and the caveats to review.
-2. A person reviews the PR and merges it with a merge commit.
-3. `custom-release` builds the macOS arm64 app, signs it, notarizes it and publishes the release `v<base>+custom.<N>`. Today it is started by hand (`gh workflow run custom-release.yml --repo balakumardev/orca --ref custom`); check the `on:` block of `custom-release.yml` to see whether a merge into `custom` also starts it.
+2. The `land` job of `custom-sync` merges that PR by itself, with a merge commit and no human review, when the run is real (scheduled, or dispatched with an empty `ref`, from `custom`), every gate of the chosen candidate is green and `custom` has not moved since the sync started. It posts the required check-run `gates / result` first and then dispatches `custom-release`. Anything else (a gate red, an unresolved merge, `custom` moved, a rehearsal) leaves the PR for a person to review and merge with a merge commit.
+3. `custom-release` runs after every push to `custom` (a merged PR) and when dispatched: it builds the macOS arm64 app, signs it, notarizes it and publishes the release `v<base>+custom.<N>`. A merge made with the workflow token starts no `push:` workflow, which is why `land` dispatches it. By hand: `gh workflow run custom-release.yml --repo balakumardev/orca --ref custom`. A run from any other branch resolves sign, notarize and publish to false.
 
 ## Versions and updates
 

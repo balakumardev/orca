@@ -10,4 +10,4 @@
 - [ ] Tests cover the change, or I said why they cannot
 - [ ] If this edits an upstream file, the change is as small as possible so the next upstream sync merges cleanly
 
-Merge with a merge commit (squash is disabled). Whether a merge into `custom` starts a release depends on the `on:` block of `custom-release.yml`.
+Merge with a merge commit (squash is disabled). A merge into `custom` starts a release by itself (`custom-release.yml` runs on every push to `custom`).
