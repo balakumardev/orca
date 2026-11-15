@@ -52,3 +52,26 @@ export function getPaletteEntryProjectRepoId(
 ): string | null {
   return getUsableGitProjectRepoId(getEntryRepoId(entry, context.workspaces), context.repos)
 }
+
+/**
+ * The project Cmd/Ctrl+Enter starts a worktree in for this row. A pasted issue or PR link owns the palette, and a
+ * row beside it must not swallow the link, so there is none then.
+ */
+export function getPaletteEntryNewWorktreeRepoId(
+  entry: PaletteListEntry | undefined,
+  context: {
+    workspaces: readonly Worktree[]
+    repos: readonly Repo[]
+    taskSourceUrl: object | null
+  }
+): string | null {
+  return context.taskSourceUrl ? null : getPaletteEntryProjectRepoId(entry, context)
+}
+
+/** What Cmd/Ctrl+Enter does on a Folders row that adds its project first; none while a pasted link owns the palette. */
+export function getPaletteEntryFolderNewWorktree(
+  entry: PaletteListEntry | undefined,
+  taskSourceUrl: object | null
+): (() => void) | null {
+  return !taskSourceUrl && entry?.type === 'extra' ? (entry.result.onModEnter ?? null) : null
+}

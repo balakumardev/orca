@@ -24,6 +24,7 @@ import type { WorktreePaletteItem } from './worktree-jump-palette-model'
 import type { WorktreeJumpPaletteController } from './use-worktree-jump-palette-controller'
 import { getWorkspaceLastActiveAt } from '../../../../shared/workspace-last-active'
 import { getWorktreeVisitTimestamp } from '@/lib/workspace/activation/worktree-visit-recency'
+import { WorktreeJumpPaletteProjectChip } from './worktree-jump-palette-project-create-chip'
 import {
   getPaletteSupportingTextLabel,
   HighlightedText,
@@ -146,6 +147,11 @@ export function WorktreeJumpPaletteWorktreeRow({
                   </span>
                 </>
               ) : null}
+              <WorktreeJumpPaletteProjectChip
+                entry={entry}
+                renderKey={renderKey}
+                controller={controller}
+              />
             </div>
             {entry.match.supportingText && (
               <div className="mt-1.5 flex min-w-0 items-center gap-2 text-[12px] leading-5 text-muted-foreground/88">

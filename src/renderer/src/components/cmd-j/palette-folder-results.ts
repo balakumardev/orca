@@ -28,6 +28,8 @@ export function buildFolderPaletteResults(
   query: string,
   actions: {
     onOpen: (entry: FolderSearchEntry) => void
+    /** Cmd/Ctrl+Enter; offered only on an untracked git root, the one folder a project can be added from at once. */
+    onNewWorktree?: (entry: FolderSearchEntry) => void
     /** Row ornaments (icon, parent path) stay with the React code. */
     decorate: (entry: FolderSearchEntry) => Pick<PaletteExtraResult, 'leading' | 'line'>
   },
@@ -72,6 +74,9 @@ export function buildFolderPaletteResults(
     lastActiveAt: null,
     order,
     ...actions.decorate(entry),
-    onSelect: () => actions.onOpen(entry)
+    onSelect: () => actions.onOpen(entry),
+    ...(entry.kind === 'git-root' && actions.onNewWorktree
+      ? { onModEnter: () => actions.onNewWorktree?.(entry) }
+      : {})
   }))
 }

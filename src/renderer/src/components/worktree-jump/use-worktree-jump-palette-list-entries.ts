@@ -212,6 +212,7 @@ export function useWorktreeJumpPaletteListEntries({
       pushExtras('after-workspaces')
       pushProjectAndMiddleSections()
       pushTasks()
+      pushExtras('before-create')
       if (showCreateAction) {
         entries.push({ id: CREATE_WORKTREE_ITEM_ID, type: 'create-worktree' })
       }
@@ -234,6 +235,7 @@ export function useWorktreeJumpPaletteListEntries({
       pushOpenTabSection()
     }
     pushTasks()
+    pushExtras('before-create')
     if (showCreateAction) {
       entries.push({ id: CREATE_WORKTREE_ITEM_ID, type: 'create-worktree' })
     }

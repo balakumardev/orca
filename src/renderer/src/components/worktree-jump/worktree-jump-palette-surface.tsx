@@ -183,6 +183,7 @@ export function WorktreeJumpPaletteSurface({
               modKey={modKey}
               rowProjectLabel={projectCreate.rowHintLabel}
               currentProjectLabel={projectCreate.currentHintLabel}
+              folderAddsProject={projectCreate.folderAddsProject}
             />
           )}
           <FooterKey>{t('auto.components.WorktreeJumpPalette.f65d992a11', 'Enter')}</FooterKey>

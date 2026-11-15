@@ -46,7 +46,7 @@ export function usePaletteProjectCreateSource({
       id: PROJECT_CREATE_SOURCE_ID,
       sectionLabel: (translate) => translate('worktreeJumpPalette.projectCreate.header', 'Create'),
       emptyQueryCap: 0,
-      typedPlacement: 'after-workspaces',
+      typedPlacement: 'before-create',
       leadsOnTie: false,
       results
     } satisfies PaletteExtraSource

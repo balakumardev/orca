@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'nod
 import os from 'node:os'
 import path from 'node:path'
 import { expect, test } from './helpers/orca-app'
+import { readComposerExposure, recordComposerExposure } from './helpers/composer-exposure'
 import { waitForSessionReady } from './helpers/store'
 
 test.use({ seedTestRepo: false })
@@ -58,68 +59,6 @@ function composerProject(dialog: Locator): Locator {
 // The search footer's hints, which name the project each chord would act on.
 const footerHints = (palette: Locator): Locator =>
   palette.locator('div.justify-end.border-t').filter({ hasText: 'Close' })
-declare global {
-  // oxlint-disable-next-line typescript-eslint/consistent-type-definitions -- declaration merging requires interface
-  interface Window {
-    // Written by recordComposerExposure; stops the sampler and returns what it counted.
-    __composerExposure?: () => Record<string, number>
-  }
-}
-// While the New worktree dialog creates out of sight it must cast nothing: this samples, on every DOM change and
-// animation frame, whether a composer dialog is visible, an overlay exists, the app blurs or the body is locked.
-async function recordComposerExposure(page: Page): Promise<void> {
-  await page.evaluate(() => {
-    const seen = {
-      sampled: 0,
-      visible: 0,
-      overlay: 0,
-      blurAttribute: 0,
-      pointerLock: 0,
-      blurred: 0
-    }
-    const sample = (): void => {
-      const composers = Array.from(document.querySelectorAll('[data-slot="dialog-content"]'))
-      if (document.querySelector('[cmdk-input]') || composers.length === 0) {
-        return
-      }
-      seen.sampled += 1
-      if (composers.some((dialog) => getComputedStyle(dialog).visibility !== 'hidden')) {
-        seen.visible += 1
-      }
-      if (document.querySelector('[data-slot="dialog-overlay"]')) {
-        seen.overlay += 1
-      }
-      if (document.body.hasAttribute('data-modal-overlay-open')) {
-        seen.blurAttribute += 1
-      }
-      if (document.body.style.pointerEvents === 'none') {
-        seen.pointerLock += 1
-      }
-      const scene = document.querySelector('.app-layout > :not(.window-controls)')
-      if (scene && getComputedStyle(scene).filter !== 'none') {
-        seen.blurred += 1
-      }
-    }
-    const observer = new MutationObserver(sample)
-    observer.observe(document.body, { subtree: true, childList: true, attributes: true })
-    let stopped = false
-    const frame = (): void => {
-      sample()
-      if (!stopped) {
-        requestAnimationFrame(frame)
-      }
-    }
-    frame()
-    window.__composerExposure = () => {
-      stopped = true
-      observer.disconnect()
-      return seen
-    }
-  })
-}
-async function readComposerExposure(page: Page): Promise<Record<string, number>> {
-  return page.evaluate(() => window.__composerExposure?.() ?? {})
-}
 const nameStepPrompt = (project: string): string => `New worktree in ${project} - type a name`
 // The palette's name step: the project is chosen and the input now takes the worktree name.
 async function expectNameStep(palette: Locator, input: Locator, project: string): Promise<void> {
@@ -307,7 +246,7 @@ test('Cmd+J starts a worktree in a project from the keyboard, with a name typed 
     await expect(palette).toHaveCount(0)
   })
 
-  await test.step('the New worktree rows come after the workspaces and before the Folders section', async () => {
+  await test.step('the New worktree rows end the list: after the workspaces and the Folders section, just above the plain Create row', async () => {
     const { palette, input } = await openPalette(orcaPage)
     await input.fill('acme')
     await expect(newWorktreeRow(palette, 'acme-web')).toHaveCount(1)
@@ -325,9 +264,11 @@ test('Cmd+J starts a worktree in a project from the keyboard, with a name typed 
     const folderIndexes = rows.flatMap((row, index) => (row.folder ? [index] : []))
     expect(projectIndexes).toHaveLength(2)
     expect(folderIndexes).toHaveLength(1)
-    expect(Math.max(...projectIndexes)).toBeLessThan(folderIndexes[0])
     const lastWorkspace = rows.map((row) => row.value.startsWith('8:worktree')).lastIndexOf(true)
-    expect(lastWorkspace).toBeLessThan(Math.min(...projectIndexes))
+    expect(lastWorkspace).toBeLessThan(folderIndexes[0])
+    expect(folderIndexes[0]).toBeLessThan(Math.min(...projectIndexes))
+    expect(projectIndexes).toEqual([rows.length - 3, rows.length - 2])
+    expect(rows.at(-1)?.value).toBe('__create_worktree__')
     await orcaPage.keyboard.press('Escape')
     await expect(palette).toHaveCount(0)
   })

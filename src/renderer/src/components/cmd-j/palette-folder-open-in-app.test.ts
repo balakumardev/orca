@@ -8,9 +8,10 @@ import { queueWorkspaceActivationTerminalFocus } from '@/lib/workspace/activatio
 import { useAppStore } from '@/store/index'
 import type { FolderSearchEntry } from '../../../../shared/folder-search-types'
 import { makeRepo, makeWorktree } from '../worktree-jump/worktree-jump-palette-test-fixtures'
-import { openFolderEntryInApp } from './palette-folder-open-in-app'
+import { addFolderAndBeginNameStepInApp, openFolderEntryInApp } from './palette-folder-open-in-app'
+import { endProjectNameStep, getProjectNameStep } from './palette-project-name-step-store'
 
-vi.mock('sonner', () => ({ toast: { error: vi.fn() } }))
+vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() } }))
 vi.mock('@/i18n/i18n', () => ({
   translate: (_key: string, fallback: string) => fallback
 }))
@@ -107,5 +108,124 @@ describe('openFolderEntryInApp', () => {
     expect(addNonGitFolder).not.toHaveBeenCalled()
     expect(addRepoPath).not.toHaveBeenCalled()
     expect(toast.error).toHaveBeenCalledExactlyOnceWith('That folder is no longer there')
+  })
+})
+
+describe('addFolderAndBeginNameStepInApp', () => {
+  const gitRoot: FolderSearchEntry = { path: '/code/app', kind: 'git-root' }
+  const added = { ...makeRepo(), id: 'repo-app', path: '/code/app', displayName: 'app' }
+
+  beforeEach(() => {
+    useAppStore.setState({ activeModal: 'worktree-palette' })
+    resolvesTo(gitRoot)
+  })
+  afterEach(() => {
+    endProjectNameStep()
+    vi.useRealTimers()
+  })
+
+  it('adds the git root locally and starts the name step on the new project once the store has it', async () => {
+    addRepoPath.mockImplementation(async () => {
+      useAppStore.setState({ repos: [added] })
+      return added
+    })
+    await expect(addFolderAndBeginNameStepInApp(gitRoot)).resolves.toBe(true)
+
+    expect(addRepoPath).toHaveBeenCalledExactlyOnceWith('/code/app', 'git', {
+      runtimeEnvironmentId: null
+    })
+    expect(fetchWorktrees).toHaveBeenCalledExactlyOnceWith('repo-app', {
+      requireAuthoritative: true,
+      executionHostId: 'local'
+    })
+    expect(openProjectDefaultCheckout).not.toHaveBeenCalled()
+    expect(getProjectNameStep()).toEqual({
+      repoId: 'repo-app',
+      projectLabel: 'app',
+      projectPath: '/code/app',
+      name: ''
+    })
+  })
+
+  it('waits for a project the store does not hold yet instead of starting the step too early', async () => {
+    addRepoPath.mockResolvedValue(added)
+    const pending = addFolderAndBeginNameStepInApp(gitRoot)
+    await vi.waitFor(() => expect(fetchWorktrees).toHaveBeenCalled())
+    expect(getProjectNameStep()).toBeNull()
+
+    useAppStore.setState({ repos: [added] })
+    await pending
+    expect(getProjectNameStep()).toMatchObject({ repoId: 'repo-app' })
+  })
+
+  it('tells the user and starts no step when the project never reaches the store', async () => {
+    vi.useFakeTimers()
+    addRepoPath.mockResolvedValue(added)
+    const pending = addFolderAndBeginNameStepInApp(gitRoot)
+    await vi.advanceTimersByTimeAsync(3100)
+
+    // The project is added whatever happens to the step, so the caller drops the folder row.
+    await expect(pending).resolves.toBe(true)
+    expect(getProjectNameStep()).toBeNull()
+    expect(toast.error).toHaveBeenCalledExactlyOnceWith(
+      'The project was added, but a new worktree could not be started in it'
+    )
+  })
+
+  it('tells the user, and keeps the project, when the palette closed while it was added', async () => {
+    addRepoPath.mockImplementation(async () => {
+      useAppStore.setState({ repos: [added], activeModal: 'none' })
+      return added
+    })
+    await expect(addFolderAndBeginNameStepInApp(gitRoot)).resolves.toBe(true)
+
+    expect(getProjectNameStep()).toBeNull()
+    expect(toast.error).toHaveBeenCalledExactlyOnceWith(
+      'The project was added, but a new worktree could not be started in it'
+    )
+  })
+
+  it('reports the project as added when reading its worktrees fails after the add', async () => {
+    addRepoPath.mockResolvedValue(added)
+    fetchWorktrees.mockRejectedValue(new Error('boom'))
+    await expect(addFolderAndBeginNameStepInApp(gitRoot)).resolves.toBe(true)
+
+    expect(getProjectNameStep()).toBeNull()
+    expect(toast.error).toHaveBeenCalledExactlyOnceWith(
+      'The project was added, but a new worktree could not be started in it'
+    )
+  })
+
+  it('leaves the palette as it was when the add fails, and does not add twice on a second press', async () => {
+    addRepoPath.mockResolvedValue(null)
+    await expect(
+      Promise.all([
+        addFolderAndBeginNameStepInApp(gitRoot),
+        addFolderAndBeginNameStepInApp(gitRoot)
+      ])
+    ).resolves.toEqual([false, false])
+
+    expect(addRepoPath).toHaveBeenCalledTimes(1)
+    expect(getProjectNameStep()).toBeNull()
+    expect(toast.error).not.toHaveBeenCalled()
+  })
+
+  it('adds nothing for a folder that is no longer a git root', async () => {
+    resolvesTo({ path: '/code/app', kind: 'folder' })
+    await addFolderAndBeginNameStepInApp(gitRoot)
+
+    expect(addRepoPath).not.toHaveBeenCalled()
+    expect(getProjectNameStep()).toBeNull()
+    expect(toast.error).toHaveBeenCalledExactlyOnceWith('That folder is no longer there')
+  })
+
+  it('reports a failure that escapes the add and starts no step', async () => {
+    addRepoPath.mockRejectedValue(new Error('boom'))
+    await addFolderAndBeginNameStepInApp(gitRoot)
+
+    expect(getProjectNameStep()).toBeNull()
+    expect(toast.error).toHaveBeenCalledExactlyOnceWith(
+      'Could not add the folder and start a new worktree'
+    )
   })
 })

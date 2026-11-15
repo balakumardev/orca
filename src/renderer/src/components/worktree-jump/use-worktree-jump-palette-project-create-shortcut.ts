@@ -6,7 +6,8 @@ import { usePaletteProjectCatalog } from '@/components/cmd-j/use-palette-project
 import { isPaletteCurrentWorktree } from '@/lib/workspace/search/palette-repo-resolution'
 import type { WorktreeJumpPaletteController } from './use-worktree-jump-palette-controller'
 import {
-  getPaletteEntryProjectRepoId,
+  getPaletteEntryFolderNewWorktree,
+  getPaletteEntryNewWorktreeRepoId,
   getUsableGitProjectRepoId
 } from './worktree-jump-palette-entry-project'
 
@@ -15,7 +16,6 @@ type ProjectCreateShortcutInput = Pick<
   | 'activeWorktreeId'
   | 'activeWorkspaceExecutionHostId'
   | 'commandSelectedItemId'
-  | 'hasQuery'
   | 'listEntries'
   | 'listEntryRenderKeys'
   | 'liveQueryRef'
@@ -27,13 +27,13 @@ type ProjectCreateShortcutInput = Pick<
 
 /**
  * Cmd/Ctrl+Enter on a highlighted row that belongs to a git project, and Cmd/Ctrl+Shift+Enter anywhere in a
- * git project's workspace, start the palette's name step for that project. Neither creates anything.
+ * git project's workspace, start the palette's name step for that project. Neither creates anything. On a Folders
+ * row that is an untracked git root, Cmd/Ctrl+Enter adds the project first and then starts the step.
  */
 export function useWorktreeJumpPaletteProjectCreateShortcut({
   activeWorktreeId,
   activeWorkspaceExecutionHostId,
   commandSelectedItemId,
-  hasQuery,
   listEntries,
   listEntryRenderKeys,
   liveQueryRef,
@@ -52,20 +52,20 @@ export function useWorktreeJumpPaletteProjectCreateShortcut({
   /** What the footer names for the chord on the highlighted row, and for the chord on the workspace you are in. */
   rowHintLabel: string | null
   currentHintLabel: string | null
+  /** Set while the highlighted row is a Folders row whose project Cmd/Ctrl+Enter adds first. */
+  folderAddsProject: boolean
   /** True when the key was one of the shortcuts and was handled. */
   handleKeyDown: (event: React.KeyboardEvent) => boolean
 } {
   const catalog = usePaletteProjectCatalog()
-  // A pasted issue or PR link has its own Create row; a row beside it must not swallow the link.
+  const highlighted = listEntries[listEntryRenderKeys.indexOf(commandSelectedItemId)]
   const projectRepoId = useMemo(
-    () =>
-      taskSourceUrl
-        ? null
-        : getPaletteEntryProjectRepoId(
-            listEntries[listEntryRenderKeys.indexOf(commandSelectedItemId)],
-            { workspaces, repos }
-          ),
-    [commandSelectedItemId, listEntries, listEntryRenderKeys, repos, taskSourceUrl, workspaces]
+    () => getPaletteEntryNewWorktreeRepoId(highlighted, { workspaces, repos, taskSourceUrl }),
+    [highlighted, repos, taskSourceUrl, workspaces]
+  )
+  const folderNewWorktree = useMemo(
+    () => getPaletteEntryFolderNewWorktree(highlighted, taskSourceUrl),
+    [highlighted, taskSourceUrl]
   )
   const currentProjectRepoId = useMemo(() => {
     const current = workspaces.find((workspace) =>
@@ -89,8 +89,9 @@ export function useWorktreeJumpPaletteProjectCreateShortcut({
     (event: React.KeyboardEvent): boolean => {
       const modifierHeld = navigator.userAgent.includes('Mac') ? event.metaKey : event.ctrlKey
       const repoId = event.shiftKey ? currentProjectRepoId : projectRepoId
+      const addFolder = event.shiftKey || repoId ? null : folderNewWorktree
       if (
-        !repoId ||
+        (!repoId && !addFolder) ||
         event.key !== 'Enter' ||
         !modifierHeld ||
         event.nativeEvent.isComposing ||
@@ -105,6 +106,11 @@ export function useWorktreeJumpPaletteProjectCreateShortcut({
       if (event.repeat || staleRow) {
         return true
       }
+      if (!repoId) {
+        // A Folders row: the project is added, then the name step starts for it.
+        addFolder?.()
+        return true
+      }
       beginProjectNameStep({
         repoId,
         projectLabel: (event.shiftKey ? currentProjectLabel : projectLabel) ?? ''
@@ -114,16 +120,16 @@ export function useWorktreeJumpPaletteProjectCreateShortcut({
     [
       currentProjectLabel,
       currentProjectRepoId,
+      folderNewWorktree,
       liveQueryRef,
       paletteSearchQuery,
       projectLabel,
       projectRepoId
     ]
   )
-  // With an empty search no row is the target; the current project is not named twice for the same project.
-  const rowHintLabel = hasQuery ? projectLabel : null
-  const currentHintLabel =
-    currentProjectRepoId !== projectRepoId || !hasQuery ? currentProjectLabel : null
+  // The highlighted row is the target with or without a query; the current project is not named twice for the same project.
+  const rowHintLabel = projectLabel
+  const currentHintLabel = currentProjectRepoId !== projectRepoId ? currentProjectLabel : null
   return {
     projectRepoId,
     currentProjectRepoId,
@@ -131,6 +137,7 @@ export function useWorktreeJumpPaletteProjectCreateShortcut({
     currentProjectLabel,
     rowHintLabel,
     currentHintLabel,
+    folderAddsProject: folderNewWorktree !== null,
     handleKeyDown
   }
 }

@@ -6,6 +6,7 @@ import { cn } from '@/lib/class-names'
 import type { ExtraPaletteItem } from './worktree-jump-palette-model'
 import type { WorktreeJumpPaletteController } from './use-worktree-jump-palette-controller'
 import { PaletteOpenTabPrimaryLine } from './worktree-jump-palette-primitives'
+import { WorktreeJumpPaletteFolderAddChip } from './worktree-jump-palette-project-create-chip'
 
 export function WorktreeJumpPaletteExtraRow({
   entry,
@@ -45,6 +46,13 @@ export function WorktreeJumpPaletteExtraRow({
             secondaryText=""
             secondaryRanges={[]}
             sessionAge={sessionAge}
+            leadingBadges={
+              <WorktreeJumpPaletteFolderAddChip
+                entry={entry}
+                renderKey={renderKey}
+                controller={controller}
+              />
+            }
           />
           {result.line ? (
             <div className="mt-0.5 min-w-0 truncate text-[12px] text-muted-foreground">

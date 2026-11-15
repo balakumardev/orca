@@ -57,24 +57,29 @@ Cmd+J opens the worktree palette. Its action name in Settings is "Switch worktre
 
 Making a worktree in a project now takes two steps in the palette. First pick the project. Then type a name.
 
-| Keys                                         | What it does                                                                                                                 |
-| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| Cmd+Enter on a highlighted row               | Starts the name step for the git project that row belongs to                                                                 |
-| Cmd+Shift+Enter                              | Starts the name step for the project of the workspace you are in, even with an empty search                                  |
-| Enter on a "New worktree in `<Project>`" row | Starts the name step. A typed Enter never lands on this row. Move to it first                                                |
-| Type `project/name`                          | The last Create row reads `Create "name" in <Project>`. This works only when `project` is the whole title of one git project |
+| Keys                                                      | What it does                                                                                                                     |
+| --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Cmd+Enter on a highlighted row                            | Starts the name step for the git project that row belongs to. The highlighted row shows a `Cmd+Enter  New worktree` hint         |
+| Cmd+Enter on a folder row that is an untracked git folder | Adds the folder as a project, then starts the name step. The row shows `Cmd+Enter  Add + new worktree`. Enter still only adds it |
+| Cmd+Shift+Enter                                           | Starts the name step for the project of the workspace you are in, even with an empty search                                      |
+| Enter on a "New worktree in `<Project>`" row              | Starts the name step. A typed Enter never lands on this row. Move to it first                                                    |
+| Type `project/name`                                       | The last Create row reads `Create "name" in <Project>`. This works only when `project` is the whole title of one git project     |
+
+The footer shows these keys with an empty search too, and each one only when it applies: `Cmd+Enter` with the project of the highlighted row, or `Add + new worktree` on an untracked git folder, and `Cmd+Shift+Enter` with the project of the workspace you are in when that is another project. Task rows, which this fork turns off, would replace them with a `Create workspace` hint. The `Cmd+Enter` hint on a row appears only on the highlighted row, and only where the key does something. It is hidden in a narrow window.
+
+The Create group at the end of the list reads: a "New worktree in `<Project>`" row for each project that matches your text, then the plain Create row. That plain row says which project it opens the New worktree dialog on, for example `Create "notes" in acme-web`. Only the label and the order changed. Enter still opens the workspace you highlighted, never one of these rows.
 
 In the name step, Enter creates the worktree. An empty name does nothing. Esc, or Backspace on an empty name, goes back to your search. These keys are fixed in the palette. They are not in the shortcut settings.
 
 Enter does not create the worktree itself. It hands the name to Orca's New worktree dialog, which stays hidden and presses its own Create button. So your default agent, setup script and branch naming work as they do in that dialog. If the dialog needs input (a setup prompt, an error), it opens in front of you.
 
-![The Cmd+J palette after typing "acme": workspaces of the acme-web project, a "New worktree in acme-web" row, and footer hints for Cmd+Enter](readme/palette-project-row.png)
+![The Cmd+J palette after typing "notes" while in the acme-web project: the highlighted workspace shows a Cmd+Enter "New worktree" hint, the Create group ends the list with "New worktree in notes" and `Create "notes" in acme-web`, and the footer names both projects](readme/palette-project-row.png)
 
 ![The name step of the palette with "search-filters" typed, and the footer hints Enter for Create worktree and Esc for Back](readme/palette-name-step.png)
 
 ### Cmd+J: folders (`folder-jump`)
 
-While you type, Cmd+J also lists folders on your computer that Orca does not track yet. It looks in the folders that hold your existing projects, not on the whole disk. Enter adds the folder as a project: a git folder as a git project, any other folder as a plain folder. A folder row is never the highlighted row until you move to it, so a typed Enter cannot add a folder by accident. This works in the desktop app for local projects only.
+While you type, Cmd+J also lists folders on your computer that Orca does not track yet. It looks in the folders that hold your existing projects, not on the whole disk. Enter adds the folder as a project: a git folder as a git project, any other folder as a plain folder. A folder row is never the highlighted row until you move to it, so a typed Enter cannot add a folder by accident. On a git folder, Cmd+Enter adds it and then asks for a worktree name in it (see the table above). This works in the desktop app for local projects only.
 
 ### Cmd+J: sessions (`session-search`, opt-in)
 

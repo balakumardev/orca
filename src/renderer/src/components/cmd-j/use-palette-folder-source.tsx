@@ -3,7 +3,7 @@ import type { FolderSearchEntry } from '../../../../shared/folder-search-types'
 import { isWebClientLocation } from '@/app-shell/platform/web-client-location'
 import { buildFolderPaletteResults } from './palette-folder-results'
 import { PaletteFolderLeading, PaletteFolderParentLine } from './palette-folder-row-parts'
-import { openFolderEntryInApp } from './palette-folder-open-in-app'
+import { addFolderAndBeginNameStepInApp, openFolderEntryInApp } from './palette-folder-open-in-app'
 import { FOLDER_SOURCE_ID } from './palette-folder-selection'
 import type { PaletteExtraSource } from './palette-extra-results'
 
@@ -78,6 +78,16 @@ export function usePaletteFolderSource({
     }
     const results = buildFolderPaletteResults(list.entries, query, {
       onOpen: (entry) => void openFolderEntryInApp(entry),
+      onNewWorktree: (entry) =>
+        void addFolderAndBeginNameStepInApp(entry).then((added) => {
+          // Main stops offering a folder once it is a project, so the row must not stay to be pressed again.
+          if (added) {
+            setList((current) => ({
+              ...current,
+              entries: current.entries.filter((candidate) => candidate.path !== entry.path)
+            }))
+          }
+        }),
       decorate: (entry) => ({
         leading: <PaletteFolderLeading kind={entry.kind} />,
         line: <PaletteFolderParentLine path={entry.path} />

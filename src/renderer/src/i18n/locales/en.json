@@ -1509,7 +1509,9 @@
       "nameNote": "Same as Create in the New worktree dialog.",
       "nameCreate": "Create worktree",
       "nameBack": "Back",
-      "projectGone": "That project is no longer there"
+      "projectGone": "That project is no longer there",
+      "chipLabel": "New worktree",
+      "addAndCreate": "Add + new worktree"
     }
   },
   "auto": {
@@ -3894,7 +3896,9 @@
         "sessionFolderNotInOrca": "folder not in Orca",
         "sessionCannotResume": "cannot be resumed here",
         "sessionUntitled": "Untitled session",
-        "sessionsHeader": "Sessions"
+        "sessionsHeader": "Sessions",
+        "folderNewWorktreeNotReady": "The project was added, but a new worktree could not be started in it",
+        "folderNewWorktreeFailed": "Could not add the folder and start a new worktree"
       },
       "github": {
         "pr": {

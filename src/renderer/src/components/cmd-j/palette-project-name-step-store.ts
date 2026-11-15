@@ -23,15 +23,18 @@ export function getProjectNameStep(): ProjectNameStep | null {
   return current
 }
 
-/** Enters the step; ignored unless the palette is the open modal, so a stray call cannot leave a step behind. */
+/**
+ * Enters the step; ignored unless the palette is the open modal, so a stray call cannot leave a step behind.
+ * Returns whether it published a step, for a caller that must tell the user when it did not.
+ */
 export function beginProjectNameStep(args: {
   repoId: string
   projectLabel: string
   name?: string
-}): void {
+}): boolean {
   const state = useAppStore.getState()
   if (state.activeModal !== 'worktree-palette') {
-    return
+    return false
   }
   publish({
     repoId: args.repoId,
@@ -39,6 +42,7 @@ export function beginProjectNameStep(args: {
     projectPath: state.repos.find((repo) => repo.id === args.repoId)?.path ?? '',
     name: args.name ?? ''
   })
+  return true
 }
 
 export function setProjectNameStepName(name: string): void {
