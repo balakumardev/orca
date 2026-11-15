@@ -1498,7 +1498,19 @@
     "taskCreate": "Create workspace",
     "taskSearchLoading": "Searching tasks…",
     "taskSearchFailed": "Some task sources could not be searched",
-    "taskSearchRetry": "Retry"
+    "taskSearchRetry": "Retry",
+    "projectCreate": {
+      "createInProject": "Create \"{{value0}}\" in {{value1}}",
+      "rowTitle": "New worktree in {{value0}}",
+      "header": "Create",
+      "footerHint": "New worktree in {{value0}}",
+      "currentHint": "New worktree in {{value0}}",
+      "namePlaceholder": "New worktree in {{value0}} - type a name",
+      "nameNote": "Same as Create in the New worktree dialog.",
+      "nameCreate": "Create worktree",
+      "nameBack": "Back",
+      "projectGone": "That project is no longer there"
+    }
   },
   "auto": {
     "App": {

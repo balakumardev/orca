@@ -2,10 +2,12 @@
 
 import { act, renderHook } from '@testing-library/react'
 import { createRef } from 'react'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { CREATE_WORKTREE_ITEM_ID } from '@/lib/workspace/search/worktrees/worktree-palette-create-action'
 import { encodePaletteIdentity } from '../../../../shared/palette-match/palette-ranking'
+import { useAppStore } from '@/store/index'
 import { FOLDER_SOURCE_ID } from './palette-folder-selection'
+import { beginProjectNameStep, endProjectNameStep } from './palette-project-name-step-store'
 import { usePaletteFolderSelectionGuard } from './use-palette-folder-selection-guard'
 
 const folder = encodePaletteIdentity(['extra', FOLDER_SOURCE_ID, '/code/a'])
@@ -27,6 +29,11 @@ function press(key: string, init: KeyboardEventInit = {}): void {
 }
 
 describe('usePaletteFolderSelectionGuard', () => {
+  afterEach(() => {
+    endProjectNameStep()
+    useAppStore.setState(useAppStore.getInitialState(), true)
+  })
+
   it('keeps a first-row folder off cmdk pick until a move key is pressed', () => {
     const { result } = setup()
     expect(result.current.guardCommandSelection(folder, rows)).toBe(CREATE_WORKTREE_ITEM_ID)
@@ -68,5 +75,22 @@ describe('usePaletteFolderSelectionGuard', () => {
     rerender({ visible: false })
     press('ArrowDown')
     expect(result.current.guardCommandSelection(folder, rows)).toBe(CREATE_WORKTREE_ITEM_ID)
+  })
+
+  it('does not count the move keys the name step swallows', () => {
+    useAppStore.setState({
+      activeModal: 'worktree-palette',
+      repos: [{ id: 'r-a', path: '/code/a', displayName: 'a', badgeColor: '#000', addedAt: 0 }]
+    })
+    const { result } = setup()
+    beginProjectNameStep({ repoId: 'r-a', projectLabel: 'a' })
+    for (const key of ['ArrowDown', 'ArrowUp', 'PageDown', 'Home', 'End']) {
+      press(key)
+    }
+    expect(result.current.guardCommandSelection(folder, rows)).toBe(CREATE_WORKTREE_ITEM_ID)
+
+    endProjectNameStep()
+    press('ArrowDown')
+    expect(result.current.guardCommandSelection(folder, rows)).toBe(folder)
   })
 })

@@ -20,6 +20,8 @@ import { isGitRepoKind } from '../../../../shared/repo-kind'
 import { buildTaskSourceContextFromRepo } from '../../../../shared/work-items/task-source-context'
 import { buildLinearIssueComposerData } from '@/lib/work-items/linear/linear-linked-work-item'
 import { isWorktreePaletteCreateActivationAllowed } from '@/lib/workspace/search/worktrees/worktree-palette-create-action'
+import { readProjectScopedCreate } from '@/components/cmd-j/palette-project-create-composer'
+import { beginProjectNameStep } from '@/components/cmd-j/palette-project-name-step-store'
 
 export function createWorktreeJumpPaletteWorktreeHandler({
   workspaces,
@@ -269,6 +271,12 @@ export function createWorktreeJumpPaletteWorktreeHandler({
             )
           }
         })
+      return
+    }
+    const projectScope = readProjectScopedCreate(trimmed)
+    if (projectScope) {
+      // `<project>/<name>`: the name step opens with the name filled in; a second Enter confirms it.
+      beginProjectNameStep(projectScope)
       return
     }
     openComposer(trimmed ? { prefilledName: trimmed } : {})

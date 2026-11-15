@@ -7,6 +7,7 @@ import { CREATE_WORKTREE_ITEM_ID } from '@/lib/workspace/search/worktrees/worktr
 import type { CmdJTaskUrlCreatePreview } from '@/lib/workspace/search/worktrees/worktree-palette-task-url-match'
 import type { LinearIssue } from '../../../../shared/linear/issue-types'
 import { useTranslate } from '@/i18n/use-translate'
+import { usePaletteProjectScopedCreate } from './use-palette-project-scoped-create'
 
 function TaskUrlProviderIcon({
   provider
@@ -42,6 +43,7 @@ export function PaletteCreateWorktreeRow({
   onSelect: () => void
 }): React.JSX.Element {
   const t = useTranslate()
+  const projectScope = usePaletteProjectScopedCreate(createWorktreeName)
   const showLinearPreview = linearPending || linearIssue !== null
   const linearPreviewLabel = linearIssue
     ? t(
@@ -155,9 +157,22 @@ export function PaletteCreateWorktreeRow({
           </div>
           <div className="min-w-0 flex-1">
             <div className="text-[14px] font-semibold tracking-[-0.01em] text-foreground">
-              {t('auto.components.WorktreeJumpPalette.95be6587d3', 'Create worktree "{{value0}}"', {
-                value0: createWorktreeName
-              })}
+              {projectScope
+                ? t(
+                    'worktreeJumpPalette.projectCreate.createInProject',
+                    'Create "{{value0}}" in {{value1}}',
+                    {
+                      value0: projectScope.name,
+                      value1: projectScope.projectLabel
+                    }
+                  )
+                : t(
+                    'auto.components.WorktreeJumpPalette.95be6587d3',
+                    'Create worktree "{{value0}}"',
+                    {
+                      value0: createWorktreeName
+                    }
+                  )}
             </div>
           </div>
         </>

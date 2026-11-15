@@ -12,6 +12,10 @@ import { WorkspaceEmojiSuggestionPopover } from '@/components/workspace-emoji/Wo
 import type { WorktreeJumpPaletteController } from './use-worktree-jump-palette-controller'
 import { WorktreeJumpPaletteEntry } from './worktree-jump-palette-entry'
 import { FooterKey, PaletteState } from './worktree-jump-palette-primitives'
+import { WorktreeJumpPaletteProjectCreateHint } from './worktree-jump-palette-project-create-hint'
+import { useWorktreeJumpPaletteProjectCreateShortcut } from './use-worktree-jump-palette-project-create-shortcut'
+import { useWorktreeJumpPaletteNameStep } from './use-worktree-jump-palette-name-step'
+import { WorktreeJumpPaletteNameStepPanel } from './worktree-jump-palette-name-step-panel'
 import {
   getWorktreeJumpPaletteEmptyState,
   getWorktreeJumpPaletteResultCount
@@ -26,13 +30,15 @@ export function WorktreeJumpPaletteSurface({
   const selectedTask = controller.taskItems.find(
     (item) => item.id === controller.commandSelectedItemId
   )
+  const projectCreate = useWorktreeJumpPaletteProjectCreateShortcut(controller)
+  const nameStep = useWorktreeJumpPaletteNameStep(controller)
   const modKey = navigator.userAgent.includes('Mac') ? '⌘' : 'Ctrl'
   const emptyState = getWorktreeJumpPaletteEmptyState(controller, t)
   const resultCount = getWorktreeJumpPaletteResultCount(controller)
   const paletteDialog = (
     <CommandDialog
       open={controller.visible}
-      onOpenChange={controller.handleOpenChange}
+      onOpenChange={nameStep.handleOpenChange}
       shouldFilter={false}
       onOpenAutoFocus={controller.handleOpenAutoFocus}
       onCloseAutoFocus={controller.handleCloseAutoFocus}
@@ -49,6 +55,9 @@ export function WorktreeJumpPaletteSurface({
         onValueChange: controller.handleCommandSelectionChange,
         className: 'jump-palette-command bg-transparent',
         onKeyDownCapture: (event: React.KeyboardEvent) => {
+          if (nameStep.handleKeyDown(event)) {
+            return
+          }
           if (
             selectedTask &&
             event.key === 'Enter' &&
@@ -57,6 +66,9 @@ export function WorktreeJumpPaletteSurface({
             event.preventDefault()
             event.stopPropagation()
             controller.handleSelectTask(selectedTask.result, true)
+            return
+          }
+          if (projectCreate.handleKeyDown(event)) {
             return
           }
           if (
@@ -93,6 +105,7 @@ export function WorktreeJumpPaletteSurface({
             />
           </div>
         }
+        {...nameStep.inputProps}
       />
       <WorkspaceEmojiSuggestionPopover
         anchorRef={controller.inputRef}
@@ -107,12 +120,16 @@ export function WorktreeJumpPaletteSurface({
         side="bottom"
         contentClassName="w-80"
       />
-      <PaletteFilterChips
-        model={controller.filterModel}
-        filter={controller.filter}
-        onFilterChange={controller.setFilter}
-      />
+      {nameStep.step ? null : (
+        <PaletteFilterChips
+          model={controller.filterModel}
+          filter={controller.filter}
+          onFilterChange={controller.setFilter}
+        />
+      )}
+      {nameStep.step ? <WorktreeJumpPaletteNameStepPanel step={nameStep.step} /> : null}
       <CommandList
+        {...nameStep.hiddenProps}
         ref={controller.listRef}
         onPointerDownCapture={() => {
           controller.selectionMovedByUserRef.current = true
@@ -151,14 +168,23 @@ export function WorktreeJumpPaletteSurface({
           onRetry={controller.retryTaskSearch}
         />
       </CommandList>
-      <div className="flex items-center justify-end border-t border-border/60 px-3.5 py-2.5 text-[11px] text-muted-foreground/82">
-        <div className="flex items-center gap-2">
+      <div
+        {...nameStep.hiddenProps}
+        className="flex items-center justify-end border-t border-border/60 px-3.5 py-2.5 text-[11px] text-muted-foreground/82"
+      >
+        <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
           {selectedTask ? (
             <>
               <ShortcutKeyCombo keys={[modKey, 'Enter']} />
               <span>{t('worktreeJumpPalette.taskCreate', 'Create workspace')}</span>
             </>
-          ) : null}
+          ) : (
+            <WorktreeJumpPaletteProjectCreateHint
+              modKey={modKey}
+              rowProjectLabel={projectCreate.rowHintLabel}
+              currentProjectLabel={projectCreate.currentHintLabel}
+            />
+          )}
           <FooterKey>{t('auto.components.WorktreeJumpPalette.f65d992a11', 'Enter')}</FooterKey>
           <span>{t('auto.components.WorktreeJumpPalette.45def60329', 'Open')}</span>
           <FooterKey>{t('auto.components.WorktreeJumpPalette.66b5a67bee', 'Esc')}</FooterKey>
