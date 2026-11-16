@@ -65,7 +65,7 @@ async function readActiveWorkspace(
   })
 }
 
-test('Cmd+J lists unregistered folders next to a registered project and opens them with Enter', async ({
+test('Cmd+J lists unregistered folders in a configured location and opens them with Enter', async ({
   orcaPage,
   registerPostElectronShutdownCleanup
 }, testInfo) => {
@@ -92,13 +92,19 @@ test('Cmd+J lists unregistered folders next to a registered project and opens th
   writeFileSync(path.join(plain, 'notes.txt'), 'plain folder\n')
 
   await waitForSessionReady(orcaPage)
-  // The product derives its search roots from registered projects, so register one inside the temp parent.
-  await orcaPage.evaluate(async (registeredPath) => {
-    const repo = await window.__store!.getState().addRepoPath(registeredPath)
-    if (!repo) {
-      throw new Error('Could not register the fixture project')
-    }
-  }, registered)
+  // Locations define coverage; registering a sibling exercises the existing tracked-project filter.
+  await orcaPage.evaluate(
+    async ({ registeredPath, searchRoot }) => {
+      await window
+        .__store!.getState()
+        .updateSettingsOrThrow({ folderSearchLocations: [searchRoot] })
+      const repo = await window.__store!.getState().addRepoPath(registeredPath)
+      if (!repo) {
+        throw new Error('Could not register the fixture project')
+      }
+    },
+    { registeredPath: registered, searchRoot: parent }
+  )
 
   await test.step('shows a Folders section for unregistered siblings only while a query is typed', async () => {
     const { palette, input } = await openPalette(orcaPage)

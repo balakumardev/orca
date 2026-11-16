@@ -61,7 +61,7 @@ describe('folder search dedupe', () => {
           repoAt(join(tree.root, 'registered-folder'), { kind: 'folder' })
         ]
       })
-    ).toEqual(['unknown'])
+    ).toEqual(['', 'unknown'])
   })
 
   it('compares real paths, so a project registered through a symlinked parent still matches', async () => {
@@ -72,7 +72,7 @@ describe('folder search dedupe', () => {
         repos: [repoAt(join(tree.root, 'alias', 'project'))],
         scanPath: { path: join(tree.root, 'alias'), realPath: join(tree.root, 'real') }
       })
-    ).toEqual([])
+    ).toEqual(['alias'])
   })
 
   it.each([['real'], ['alias']])(
@@ -90,7 +90,7 @@ describe('folder search dedupe', () => {
             spellings: [join(tree.root, 'alias'), join(tree.root, 'real')]
           }
         })
-      ).toEqual([`${kept}/other`])
+      ).toEqual([kept, `${kept}/other`])
     }
   )
 
@@ -103,7 +103,7 @@ describe('folder search dedupe', () => {
         folderWorkspaces: [{ folderPath: join(tree.root, 'tracked-workspace') }],
         localWorktreeIds: [`repo-1::${join(tree.root, 'tracked-worktree')}`]
       })
-    ).toEqual(['other'])
+    ).toEqual(['', 'other'])
   })
 
   it('does not let a remote project hide a local folder at the same path', async () => {
@@ -113,7 +113,7 @@ describe('folder search dedupe', () => {
         repos: [repoAt(join(tree.root, 'same-path'), { connectionId: 'conn-1' })],
         folderWorkspaces: [{ folderPath: join(tree.root, 'same-path'), connectionId: 'conn-1' }]
       })
-    ).toEqual(['same-path'])
+    ).toEqual(['', 'same-path'])
   })
 
   it('hides a linked worktree whose main checkout is registered', async () => {
@@ -123,7 +123,7 @@ describe('folder search dedupe', () => {
       mainCheckout: join(tree.root, 'main'),
       name: 'feature'
     })
-    expect(await visibleAfterDedupe({ repos: [repoAt(join(tree.root, 'main'))] })).toEqual([])
+    expect(await visibleAfterDedupe({ repos: [repoAt(join(tree.root, 'main'))] })).toEqual([''])
   })
 
   it('lists a linked worktree whose main checkout is not registered', async () => {
@@ -133,7 +133,7 @@ describe('folder search dedupe', () => {
       mainCheckout: join(tree.root, 'main'),
       name: 'feature'
     })
-    expect(await visibleAfterDedupe({ repos: [] })).toEqual(['feature', 'main'])
+    expect(await visibleAfterDedupe({ repos: [] })).toEqual(['', 'feature', 'main'])
   })
 
   it('hides the main checkout of a project that was registered at a linked worktree', async () => {
@@ -143,7 +143,7 @@ describe('folder search dedupe', () => {
       mainCheckout: join(tree.root, 'main'),
       name: 'feature'
     })
-    expect(await visibleAfterDedupe({ repos: [repoAt(join(tree.root, 'feature'))] })).toEqual([])
+    expect(await visibleAfterDedupe({ repos: [repoAt(join(tree.root, 'feature'))] })).toEqual([''])
   })
 
   it('drops a folder that is, or sits inside, a directory Orca creates workspaces in', async () => {
@@ -154,6 +154,6 @@ describe('folder search dedupe', () => {
       await visibleAfterDedupe({
         managedDirs: [join(tree.root, 'orca-workspaces'), join(tree.root, 'repo-worktrees')]
       })
-    ).toEqual(['other'])
+    ).toEqual(['', 'other'])
   })
 })

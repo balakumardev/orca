@@ -1,5 +1,5 @@
 import type { Dirent } from 'node:fs'
-import { readdir } from 'node:fs/promises'
+import { lstat, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { isIgnoredNestedRepoDirectory } from '../project-groups/nested-repo-scan-rules'
 import { readGitMarker } from './git-marker'
@@ -13,7 +13,7 @@ type PendingDirectory = { path: string; realPath: string; depth: number }
 const PROBE_CONCURRENCY = 4
 
 export type WalkLimits = {
-  /** Git roots are listed down to this depth below a search root; plain folders only at depth 1. */
+  /** All directories are listed down to this depth below a search root. */
   maxDepth: number
   callTimeoutMs: number
 }
@@ -35,7 +35,7 @@ async function listChildDirectories(
     .filter(
       (entry) =>
         entry.isDirectory() &&
-        !entry.name.startsWith('.') &&
+        // Include dotfolders like the reference picker, but retain metadata/dependency exclusions.
         !isIgnoredNestedRepoDirectory(entry.name, [entry.name], [])
     )
     .map((entry) => entry.name)
@@ -57,6 +57,28 @@ export async function* walkSearchRoot(
   limits: WalkLimits,
   onSlowRead: () => void
 ): AsyncGenerator<ScannedFolder[]> {
+  // Roots are selectable too, but a missing path or a file must never become a folder result.
+  const stat = await withinMs(lstat(root.realPath), limits.callTimeoutMs).catch(() => null)
+  if (stat === TIMED_OUT) {
+    onSlowRead()
+    return
+  }
+  if (!stat?.isDirectory()) {
+    return
+  }
+  const rootMarker = await withinMs(readGitMarker(root.realPath), limits.callTimeoutMs)
+  if (rootMarker === TIMED_OUT) {
+    onSlowRead()
+    return
+  }
+  yield [
+    {
+      path: root.path,
+      realPath: root.realPath,
+      kind: rootMarker?.kind ?? 'folder',
+      mainCheckoutPath: rootMarker?.kind === 'linked-worktree' ? rootMarker.mainCheckoutPath : null
+    }
+  ]
   let level: PendingDirectory[] = [{ path: root.path, realPath: root.realPath, depth: 0 }]
   while (level.length > 0) {
     const next: PendingDirectory[] = []
@@ -79,16 +101,14 @@ export async function* walkSearchRoot(
         const listed: ScannedFolder[] = []
         for (const [index, child] of chunk.entries()) {
           const marker = markers[index]
-          if (marker !== null || child.depth === 1) {
-            listed.push({
-              path: child.path,
-              kind: marker?.kind ?? 'folder',
-              realPath: child.realPath,
-              mainCheckoutPath: marker?.kind === 'linked-worktree' ? marker.mainCheckoutPath : null
-            })
-          }
-          // Do not descend into a repository: its own folders are not siblings to pick.
-          if (marker === null && child.depth < limits.maxDepth) {
+          // A folder picker includes ordinary nested directories, including those inside Git projects.
+          listed.push({
+            path: child.path,
+            kind: marker?.kind ?? 'folder',
+            realPath: child.realPath,
+            mainCheckoutPath: marker?.kind === 'linked-worktree' ? marker.mainCheckoutPath : null
+          })
+          if (child.depth < limits.maxDepth) {
             next.push(child)
           }
         }

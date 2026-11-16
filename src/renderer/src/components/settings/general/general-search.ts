@@ -9,8 +9,32 @@ import { createLocalizedCatalog } from '@/i18n/localized-catalog'
 import { getGeneralProjectRuntimeSearchEntries } from './project-runtime/general-project-runtime-search'
 import { getGeneralSupportSearchEntries } from './general-support-search'
 import { getUpdateDelayDescription, getUpdateDelayTitle } from '../updates/update-delay-copy'
+import { isWebClientLocation } from '@/app-shell/platform/web-client-location'
 
 export const getGeneralWorkspaceSearchDescriptors = createLocalizedCatalog(() => [
+  // The local folder picker is available only in the desktop client.
+  ...(!isWebClientLocation()
+    ? [
+        generalSetting(GENERAL_SETTING_ANCHORS.folderSearch, {
+          title: translate('settings.folderSearch.title', 'Folder search locations'),
+          description: translate(
+            'settings.folderSearch.description',
+            'Search these local folders and up to three levels of subfolders in the jump palette.'
+          ),
+          keywords: [
+            ...translateSearchKeyword(
+              'auto.components.settings.general.search.7887a2c262',
+              'folder'
+            ),
+            ...translateSearchKeyword('settings.folderSearch.keywordSearch', 'search'),
+            ...translateSearchKeyword('settings.general.search.keywords.location', 'location'),
+            ...translateSearchKeyword('settings.folderSearch.keywordHome', 'home'),
+            ...translateSearchKeyword('settings.folderSearch.keywordPalette', 'palette'),
+            ...translateSearchKeyword('settings.general.search.keywords.root', 'root')
+          ]
+        })
+      ]
+    : []),
   generalSetting(GENERAL_SETTING_ANCHORS.folder, {
     title: translate('auto.components.settings.general.search.0e030ce4e3', 'Workspace directory'),
     description: translate(

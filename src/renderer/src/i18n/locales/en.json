@@ -1388,6 +1388,21 @@
       "settings": "Settings",
       "label": "Settings breadcrumb",
       "close": "Close settings"
+    },
+    "folderSearch": {
+      "title": "Folder search locations",
+      "description": "Search these local folders and up to three levels of subfolders in the jump palette.",
+      "home": "Home (~)",
+      "removeLocation": "Remove {{location}}",
+      "remove": "Remove",
+      "empty": "Add a folder to enable folder discovery.",
+      "add": "Add folders",
+      "reset": "Use home directory",
+      "limit": "Up to {{count}} locations on this computer.",
+      "saveError": "Could not update folder search locations. Try again.",
+      "keywordSearch": "search",
+      "keywordHome": "home",
+      "keywordPalette": "palette"
     }
   },
   "menu": {

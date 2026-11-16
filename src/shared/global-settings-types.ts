@@ -51,6 +51,8 @@ export type MiniMaxEndpoint = 'overseas' | 'cn'
 
 export type GlobalSettings = GlobalSettingsBase & {
   workspaceDir: string
+  /** Local folder-picker roots; absent means Home, and an empty list disables discovery. */
+  folderSearchLocations?: string[]
   /** Host-owned defaults used when a repository has no explicit visibility override. */
   worktreeVisibilityDefaults?: WorktreeVisibilityDefaults
   /** Per-host value is host override ?? client default, keyed by ExecutionHostId. */

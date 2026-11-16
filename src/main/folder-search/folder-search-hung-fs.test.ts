@@ -42,7 +42,7 @@ describe('a scan that meets a hung file system', () => {
     const result = scanFolderRoots({ roots: [root('/stuck'), root('/fine')] })
     await vi.advanceTimersByTimeAsync(LONG_WAIT_MS)
     const { folders, truncated } = await result
-    expect(folders.map((folder) => folder.path)).toEqual(['/fine/listed'])
+    expect(folders.map((folder) => folder.path)).toEqual(['/fine', '/fine/listed'])
     expect(truncated).toBe(true)
   })
 
@@ -72,7 +72,10 @@ function fakeStore(repoPaths: string[]): FolderSearchStore {
       })),
     getFolderWorkspaces: () => [],
     getAllWorktreeMetaForHost: () => ({}),
-    getSettings: () => getDefaultSettings('/home/me')
+    getSettings: () => ({
+      ...getDefaultSettings('/home/me'),
+      folderSearchLocations: ['/work/code']
+    })
   }
 }
 
@@ -91,13 +94,16 @@ describe('a list call that meets a hung file system', () => {
 
     const first = service.list()
     await vi.advanceTimersByTimeAsync(LONG_WAIT_MS)
-    expect(await first).toEqual({ entries: [], truncated: true })
+    expect(await first).toEqual({
+      entries: [{ path: '/work/code', realPath: '/work/code', kind: 'folder' }],
+      truncated: true
+    })
 
     fakeFs.hung = new Set()
     const second = service.list()
     await vi.advanceTimersByTimeAsync(LONG_WAIT_MS)
     const { entries, truncated } = await second
-    expect(entries.map((entry) => entry.path)).toEqual(['/work/code/notes'])
+    expect(entries.map((entry) => entry.path)).toEqual(['/work/code', '/work/code/notes'])
     expect(truncated).toBe(false)
   })
 

@@ -64,7 +64,7 @@ export const fakeFsModule = {
     if (fakeFs.isHung('lstat', path)) {
       return neverSettles()
     }
-    if (path.endsWith('/.git') && fakeFs.gitDirs.has(dirname(path))) {
+    if (fakeFs.dirs.has(path) || (path.endsWith('/.git') && fakeFs.gitDirs.has(dirname(path)))) {
       return { isDirectory: () => true, isFile: () => false }
     }
     throw missing(path)

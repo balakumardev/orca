@@ -34,7 +34,7 @@ function readFolderList(result: unknown): FolderList {
 }
 
 /**
- * Folders next to registered local projects, shown only while a query is typed. Desktop only: the scan and
+ * Folders in the saved search locations, shown only while a query is typed. Desktop only: the scan and
  * the add both name the local host explicitly, so the focused server does not change what this section means.
  */
 export function usePaletteFolderSource({
