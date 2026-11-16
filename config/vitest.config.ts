@@ -9,6 +9,7 @@ import {
   UNIT_SETUP_FILES
 } from './scripts/ci/unit-selection/dependency-graph/ci-unit-files.mjs'
 import { FORK_PR_GATE_TEST_EXCLUDES } from './fork-pr-gate-test-excludes.mjs'
+import { forkPrGateForceRerunTriggers } from './fork-pr-gate-force-rerun-triggers.mjs'
 import TimingSequencer from './scripts/ci/sharding/ci-unit-sequencer.mjs'
 import { filesSafeToShareWorker } from './scripts/test-runtime/execution-policy/vitest-shared-worker-files.mjs'
 import { gitSigningOffEnv } from './scripts/test-runtime/environment/vitest-git-signing-env.mjs'
@@ -177,14 +178,14 @@ export default defineConfig({
   ...transforms,
   test: {
     ...testOptions,
-    forceRerunTriggers: [
+    forceRerunTriggers: forkPrGateForceRerunTriggers([
       ...configDefaults.forceRerunTriggers,
       '**/pnpm-lock.yaml',
       '**/pnpm-workspace.yaml',
       '**/config/**',
       '**/patches/**',
       '**/src/packages/**'
-    ],
+    ]),
     sequence: { sequencer: balancedShards ? TimingSequencer : RuntimeSequencer },
     ...(balancedShards
       ? {
