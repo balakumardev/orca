@@ -11,14 +11,51 @@ import { Button } from '../../ui/button'
 import { SearchableSetting } from '../section-layout/SearchableSetting'
 import { GENERAL_SETTING_ANCHORS } from './general-setting-anchors'
 
+type FolderSearchLocationsSettingProps = {
+  settings: GlobalSettings
+  updateSettings: (updates: Partial<GlobalSettings>) => void | Promise<void>
+}
+
+/** Keep async cleanup outside the component so React Compiler can optimize its render. */
+async function changeFolderSearchLocations({
+  next,
+  locations,
+  updateSettings,
+  setBusy,
+  setError
+}: {
+  next?: string[]
+  locations: string[]
+  updateSettings: FolderSearchLocationsSettingProps['updateSettings']
+  setBusy: (busy: boolean) => void
+  setError: (error: boolean) => void
+}): Promise<void> {
+  setBusy(true)
+  setError(false)
+  try {
+    // An omitted list adds native-picker selections; Cancel leaves the saved roots alone.
+    if (!next) {
+      const picked = await window.api.repos.pickFolders()
+      if (picked.length === 0) {
+        return
+      }
+      next = [...locations, ...picked]
+    }
+    await updateSettings({
+      folderSearchLocations: getFolderSearchLocations({ folderSearchLocations: next })
+    })
+  } catch {
+    setError(true)
+  } finally {
+    setBusy(false)
+  }
+}
+
 /** Local settings and the native picker keep folder discovery independent of the focused server. */
 export function FolderSearchLocationsSetting({
   settings,
   updateSettings
-}: {
-  settings: GlobalSettings
-  updateSettings: (updates: Partial<GlobalSettings>) => void | Promise<void>
-}) {
+}: FolderSearchLocationsSettingProps) {
   const t = useTranslate()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(false)
@@ -29,26 +66,8 @@ export function FolderSearchLocationsSetting({
     'Search these local folders and up to three levels of subfolders in the jump palette.'
   )
 
-  async function changeLocations(next?: string[]): Promise<void> {
-    setBusy(true)
-    setError(false)
-    try {
-      // An omitted list adds native-picker selections; Cancel leaves the saved roots alone.
-      if (!next) {
-        const picked = await window.api.repos.pickFolders()
-        if (picked.length === 0) {
-          return
-        }
-        next = [...locations, ...picked]
-      }
-      await updateSettings({
-        folderSearchLocations: getFolderSearchLocations({ folderSearchLocations: next })
-      })
-    } catch {
-      setError(true)
-    } finally {
-      setBusy(false)
-    }
+  function changeLocations(next?: string[]): Promise<void> {
+    return changeFolderSearchLocations({ next, locations, updateSettings, setBusy, setError })
   }
 
   if (isWebClientLocation()) {
