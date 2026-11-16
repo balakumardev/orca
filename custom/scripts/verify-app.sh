@@ -62,6 +62,13 @@ echo "$exe_name: $arch"
 echo "== codesign --verify --deep --strict"
 codesign --verify --deep --strict --verbose=1 "$app" || fail "codesign verification failed"
 
+# Signed releases must retain native helper profiles after the outer packaging pass.
+if [ "$mode" != "unsigned" ]; then
+  echo "== macOS native helper entitlements"
+  node "$(dirname "$0")/../../config/scripts/desktop-distribution/macos/verify-macos-helper-entitlements.mjs" "$app" \
+    || fail "macOS native helpers do not have their intended entitlements"
+fi
+
 # What every installed copy of this app checks an update against before it stages it
 # (src/main/updater/custom/custom-update-verifier.ts, signingRequirement()). A signed build that fails it would be
 # rejected by every installed app, so the release has to prove it here, on the real signed bundle. The string must
