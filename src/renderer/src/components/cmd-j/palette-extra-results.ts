@@ -24,8 +24,11 @@ export type PaletteExtraResult = {
   dimmed?: boolean
   /** The row is listed but Enter, a click and the arrow keys skip it. */
   inert?: boolean
+  /** Drawn in the row's 16px lead slot. */
   leading?: React.ReactNode
+  /** Inline after the title and age, truncated. */
   line?: React.ReactNode
+  /** Right side, where workspace rows show their host and repo chips. */
   trailing?: React.ReactNode
   onSelect: () => void
   /** Cmd/Ctrl+Enter on the row, for a row that can start a new worktree (a folder adds its project first). */
@@ -37,6 +40,8 @@ export type PaletteExtraSource = {
   id: string
   sectionLabel: (t: Translate) => string
   emptyQueryCap: number
+  /** Empty query: above Recent Chats & Terminals, or after Recent Workspaces (default). The default selection stays on the first row below a 'first' section. */
+  emptyQueryPlacement?: 'first' | 'last'
   /** Typed queries: where the section sits when it does not lead the list; 'before-create' ends the list, above Create. */
   typedPlacement: 'before-workspaces' | 'after-workspaces' | 'before-create'
   /** Lead the list when its best match equals the best workspace or tab match, not only when it beats it. */

@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 import { useWorktreeJumpPaletteStoreState } from './use-worktree-jump-palette-store-state'
 import { useWorktreeJumpPaletteLocalState } from './use-worktree-jump-palette-local-state'
 import { useWorktreeJumpPaletteFilter } from './use-worktree-jump-palette-filter'
@@ -15,6 +16,41 @@ import { useWorktreeJumpPaletteCreateAction } from './use-worktree-jump-palette-
 import { useWorktreeJumpPaletteNameStepSelection } from './use-worktree-jump-palette-name-step-selection'
 import { useWorktreeJumpPaletteTaskSearch } from './use-worktree-jump-palette-task-search'
 import { useWorktreeJumpPaletteTaskUrl } from './use-worktree-jump-palette-task-url'
+||||||| c91a7a6ee3
+import { useWorktreeJumpPaletteStoreState } from './use-worktree-jump-palette-store-state'
+import { useWorktreeJumpPaletteLocalState } from './use-worktree-jump-palette-local-state'
+import { useWorktreeJumpPaletteFilter } from './use-worktree-jump-palette-filter'
+import { useWorktreeJumpPaletteWorktrees } from './use-worktree-jump-palette-worktrees'
+import { useWorktreeJumpPaletteOpenTabs } from './use-worktree-jump-palette-open-tabs'
+import { useWorktreeJumpPaletteRecentTabs } from './use-worktree-jump-palette-recent-tabs'
+import { useWorktreeJumpPaletteProjectTargets } from './use-worktree-jump-palette-project-targets'
+import { useWorktreeJumpPaletteQuickActions } from './use-worktree-jump-palette-quick-actions'
+import { useWorktreeJumpPaletteExtraResults } from './use-worktree-jump-palette-extra-results'
+import { useWorktreeJumpPaletteSections } from './use-worktree-jump-palette-sections'
+import { useWorktreeJumpPaletteListEntries } from './use-worktree-jump-palette-list-entries'
+import { useWorktreeJumpPaletteSelectionLifecycle } from './use-worktree-jump-palette-selection-lifecycle'
+import { useWorktreeJumpPaletteSelectionActions } from './use-worktree-jump-palette-selection-actions'
+import { useWorktreeJumpPaletteCreateAction } from './use-worktree-jump-palette-create-action'
+import { useWorktreeJumpPaletteTaskSearch } from './use-worktree-jump-palette-task-search'
+import { useWorktreeJumpPaletteTaskUrl } from './use-worktree-jump-palette-task-url'
+=======
+import { useWorktreeJumpPaletteStoreState } from './state/use-worktree-jump-palette-store-state'
+import { useWorktreeJumpPaletteLocalState } from './state/use-worktree-jump-palette-local-state'
+import { useWorktreeJumpPaletteFilter } from './results/use-worktree-jump-palette-filter'
+import { useWorktreeJumpPaletteWorktrees } from './workspaces/use-worktree-jump-palette-worktrees'
+import { useWorktreeJumpPaletteOpenTabs } from './tabs/use-worktree-jump-palette-open-tabs'
+import { useWorktreeJumpPaletteRecentTabs } from './tabs/use-worktree-jump-palette-recent-tabs'
+import { useWorktreeJumpPaletteProjectTargets } from './workspaces/use-worktree-jump-palette-project-targets'
+import { useWorktreeJumpPaletteQuickActions } from './workspaces/use-worktree-jump-palette-quick-actions'
+import { useWorktreeJumpPaletteExtraResults } from './results/use-worktree-jump-palette-extra-results'
+import { useWorktreeJumpPaletteSections } from './results/use-worktree-jump-palette-sections'
+import { useWorktreeJumpPaletteListEntries } from './results/use-worktree-jump-palette-list-entries'
+import { useWorktreeJumpPaletteSelectionLifecycle } from './selection/use-worktree-jump-palette-selection-lifecycle'
+import { useWorktreeJumpPaletteSelectionActions } from './selection/use-worktree-jump-palette-selection-actions'
+import { useWorktreeJumpPaletteCreateAction } from './workspaces/use-worktree-jump-palette-create-action'
+import { useWorktreeJumpPaletteTaskSearch } from './tasks/use-worktree-jump-palette-task-search'
+import { useWorktreeJumpPaletteTaskUrl } from './tasks/use-worktree-jump-palette-task-url'
+>>>>>>> ea564105e3776ee51803bb69f0fc93494d5d7eba
 import { useWorkspaceEmojiShortcodeInput } from '@/components/workspace-emoji/useWorkspaceEmojiShortcodeInput'
 import { usePaletteSearchEvaluationContext } from '@/hooks/use-palette-search-evaluation-context'
 import type { WorktreePaletteRequestGuard } from '@/lib/workspace/search/worktrees/worktree-palette-create-action'
@@ -39,7 +75,6 @@ export function useWorktreeJumpPaletteController({
       browserPages: storeState.browserPagesByWorkspace,
       browserWorkspaces: storeState.browserTabsByWorktree,
       openFiles: storeState.openFiles,
-      retainedAgents: storeState.retainedAgentsByPaneKey,
       sleepingAgents: storeState.sleepingAgentSessionsByPaneKey,
       unifiedTabs: storeState.unifiedTabsByWorktree,
       visible
@@ -51,7 +86,6 @@ export function useWorktreeJumpPaletteController({
       storeState.browserPagesByWorkspace,
       storeState.browserTabsByWorktree,
       storeState.openFiles,
-      storeState.retainedAgentsByPaneKey,
       storeState.sleepingAgentSessionsByPaneKey,
       storeState.unifiedTabsByWorktree,
       visible

@@ -1,0 +1,17 @@
+This branch contains UNRESOLVED merge conflicts.
+Do not merge it. Resolve the files below, delete this file, commit and push.
+
+src/main/runtime/rpc/terminal-send-ordered-input.test.ts
+src/renderer/src/components/sidebar/worktree-list/listing/renderable-rows.ts
+src/renderer/src/components/sidebar/worktree-list/rows/virtual-row-dispatch.tsx
+src/renderer/src/components/sidebar/worktree-list/viewport/VirtualizedWorktreeViewport.tsx
+src/renderer/src/components/status-bar/StatusBarSurface.tsx
+src/renderer/src/components/worktree-jump/use-worktree-jump-palette-controller.ts
+src/renderer/src/components/worktree-jump/use-worktree-jump-palette-task-search.test.tsx
+src/renderer/src/components/worktree-jump/worktree-jump-palette-extra-row.tsx
+src/renderer/src/components/worktree-jump/worktree-jump-palette-surface.tsx
+src/renderer/src/i18n/locales/en.json
+src/renderer/src/lib/workspace/activity/activity-thread-display.ts
+src/renderer/src/store/slices/worktrees/teardown/remove-worktree-store-cleanup.ts
+src/renderer/src/store/slices/worktrees/teardown/worktree-purge-state.ts
+src/renderer/src/store/store-observer-installers.ts
