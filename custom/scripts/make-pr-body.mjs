@@ -177,6 +177,9 @@ const exitReason = (r) => {
   if (Number(r.key_leaks) > 0) {
     return 'the output contained the API key; edits discarded'
   }
+  if (r.skipped === true) {
+    return 'skipped; no file was left that a model may resolve'
+  }
   if (r.stop === 'error_max_turns') {
     return 'ran out of turns; edits kept; gates decide'
   }
@@ -399,7 +402,7 @@ if (agentRounds.length > 0) {
   modelBlock +=
     '| Round | Mode | Model | Turns | Tokens in / out | Est. cost | Wall | Exit |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n'
   for (const r of agentRounds) {
-    modelBlock += `| ${r.round} | ${r.mode} | \`${r.model}\` | ${r.turns}/${r.max_turns} | ${r.input_tokens} / ${r.output_tokens} | $${Number(r.estimated_cost_usd).toFixed(3)} | ${r.wall_s}s | ${esc(exitCell(r))} |\n`
+    modelBlock += `| ${r.round} | ${r.mode} | \`${r.model}\` | ${r.turns}${r.max_turns ? `/${r.max_turns}` : ''} | ${r.input_tokens} / ${r.output_tokens} | $${Number(r.estimated_cost_usd).toFixed(3)} | ${r.wall_s}s | ${esc(exitCell(r))} |\n`
   }
   modelBlock += `\nEstimated total: $${total.toFixed(3)}, an upper bound (every input token, cached or not, priced at the full list rate: Flash $0.20 in / $0.60 out per million, Pro $1.30 in / $2.60 out).\n\n`
   const last = agentRounds.at(-1)
@@ -429,7 +432,8 @@ const failTails = failedGates
   .join('\n\n')
 
 const conflictRows = otherConflicts.map(
-  (c) => `| \`${c.path}\` | ${c.kind} | ${c.hunks} | ${esc(c.resolution)} |`
+  (c) =>
+    `| \`${c.path}\` | ${c.kind} | ${c.hunks} | ${esc(c.resolution)}${c.decision ? ` (${esc(c.decision)} the file)` : ''} |`
 )
 if (ciConflicts.length > 0) {
   conflictRows.push(

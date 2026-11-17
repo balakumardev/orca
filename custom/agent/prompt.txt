@@ -11,12 +11,19 @@ SITUATION
 - "theirs" (the bottom side, after `>>>>>>>`) = upstream {{TAG}}.
 - Conflict style is zdiff3: between `<<<<<<<` and `=======` you may also see a `|||||||` section showing the common ancestor, which is the file as it was in upstream {{OLD_TAG}}, before both our change and theirs. Remove ALL marker lines (`<<<<<<<`, `|||||||`, `=======`, `>>>>>>>`).
 - Index stages let you read each version of a file: `git show :1:<path>` (ancestor), `git show :2:<path>` (ours), `git show :3:<path>` (theirs).
+- A file of kind deleted-by-them or deleted-by-us is a modify/delete conflict and has no markers: one side deleted or moved it and the other changed it. The file in the tree is the version of the side that kept it (deleted-by-them: OURS, `:3` does not exist; deleted-by-us: UPSTREAM'S, `:2` does not exist). You decide whether the file must exist, see HOW TO WORK.
 #@ repair
 SITUATION
 - The merge of upstream release {{TAG}} into our branch `{{BASE_BRANCH}}` was already resolved, but automated checks run on the result FAILED (their output is in the "CHECK OUTPUT" section). The current directory holds that resolution as plain files; there are no conflict markers to find, you repair the resolution.
 - Read each version of a file with `git show <rev>:<path>`: ours = `{{BASE_SHA}}`, theirs (upstream {{TAG}}) = `{{UPSTREAM_SHA}}`, ancestor (upstream {{OLD_TAG}}) = `{{OLD_COMMIT}}`. The current resolution is the file in the working tree.
 - Find the cause of each failure in the files listed below and fix it there. If a failure cannot be fixed inside those files, say so in your report instead of touching other files: name the file, what is wrong and what the fix would be.
 - Upstream's behaviour and UI win when our customization is only a test or a selector that no longer matches upstream's new UI; the intent of our customization must still hold.
+#@ resume
+SITUATION
+- The merge of upstream release {{TAG}} into our branch `{{BASE_BRANCH}}` was started by an earlier attempt that stopped before it finished: some conflicted files are resolved, and the files listed below still hold conflict markers. The current directory holds that state as plain files. Finish those files; do not redo the resolved ones.
+- "ours" (the top side of each conflict) = `{{BASE_BRANCH}}` = upstream {{OLD_TAG}} plus our customization commits (listed below). "theirs" (the bottom side, after `>>>>>>>`) = upstream {{TAG}}.
+- Conflict style is zdiff3: between `<<<<<<<` and `=======` you may also see a `|||||||` section showing the common ancestor, which is the file as it was in upstream {{OLD_TAG}}. Remove ALL marker lines (`<<<<<<<`, `|||||||`, `=======`, `>>>>>>>`). The markers already carry the three versions, so you rarely need more.
+- To read a whole version use `git show <rev>:<path>`: ours = `{{BASE_SHA}}`, theirs (upstream {{TAG}}) = `{{UPSTREAM_SHA}}`, ancestor (upstream {{OLD_TAG}}) = `{{OLD_COMMIT}}`. Upstream moved many files in this release: when `<rev>:<path>` does not exist for ours, the file was moved and ours has it under its old path (find it with `git grep -l "<a distinctive line>" {{BASE_SHA}}`).
 #@ all
 
 OUR CUSTOMIZATIONS (what must survive). These are the commits on our branch that carry an `Orca-Custom-Patch:` trailer. Read the real change with `git show <sha> -- <path>`:
@@ -24,8 +31,9 @@ OUR CUSTOMIZATIONS (what must survive). These are the commits on our branch that
 If upstream already implements the same behaviour, take upstream's version of that logic and say so in your report. Our fork also keeps some files that no customization commit touched: those are not yours to edit.
 
 HOW TO WORK
-- Edit ONLY the files listed under FILES YOU MAY EDIT. Do not create, delete or rename any file. Do not touch any other file, even to "fix" something you notice. Any other change is reverted by a script and reported to the reviewer.
+- Edit ONLY the files listed under FILES YOU MAY EDIT. Do not create or rename any file. You cannot delete a file either, with one exception below. Do not touch any other file, even to "fix" something you notice. Any other change is reverted by a script and reported to the reviewer.
 - Find the hunks with Grep (pattern `^(<<<<<<<|\|\|\|\|\|\|\||=======|>>>>>>>)`, output with line numbers) and read only around each hunk using offset and limit. Never read a whole large file (the locale JSON in particular is huge).
+- Modify/delete files (kind deleted-by-them or deleted-by-us) are yours to decide, nobody will do it for you. First find out what upstream did: `git grep -l "<a distinctive line of the file>" {{UPSTREAM_SHA}}` shows where moved code went, `git log -3 --format=%H%n%B -- <path>` shows what our commit changed it for. Then choose per file. DELETE it when it is code or a test that upstream removed, replaced or moved and our change is obsolete or already present upstream: replace its WHOLE content with the single line DELETE-THIS-FILE (a script then removes the file; this works only for these two kinds). KEEP it when it carries behaviour of our customization that no upstream file provides: leave it, and edit it so it still builds and runs against upstream's new code (imports and paths in particular). A file you leave untouched is kept exactly as it is. Say in your report which you chose and why.
 - Decide each hunk on its merits: keep upstream's new code, and re-apply our customization on top of it when it is still needed. When both sides changed the same lines, merge the intent of both rather than picking a side. If a customization is redundant because upstream implemented the same thing, keep upstream's version.
 - Never resolve a hunk by silently dropping our side or upstream's side wholesale. If you take one side only, the report must say why.
 - For each file, after editing, search again to confirm no marker line remains, and keep the file syntactically valid (balanced braces, valid JSON for .json files, no duplicated imports, no duplicated keys).

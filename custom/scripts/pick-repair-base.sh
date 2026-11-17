@@ -7,13 +7,18 @@
 # A repair keeps the best candidate so far, shows the model that candidate's real gate output and lets it edit the conflicted files
 # plus the files our customization commits own (agent-round.sh, mode repair).
 #
-# The base is the candidate pick-round.sh would publish if the pipeline stopped now, restricted to rounds that are worth repairing:
-# the merge is resolved, the round's output did not contain the API key, and its gates reported (see round_score in lib.sh).
-# Lowest number of failed gates wins; on a tie the later round (it saw more information).
-# When no such candidate exists (every round left conflict markers, crashed, or leaked) the answer is a fresh `retry`.
+# The base is the candidate pick-round.sh would publish if the pipeline stopped now, restricted to rounds worth continuing: the
+# round's output did not contain the API key and its merge is either resolved with gates that reported, or only PARTLY resolved
+# (round_score in lib.sh: 1000 + the files still carrying conflict markers). A partly resolved candidate is continued, never
+# restarted: v1.4.261 ran out of turns in round 1 with 16 of its 22 model files resolved, the restart threw those away and the
+# stronger, slower model resolved fewer (11) in its own 60 turns. Lowest score wins (a resolved candidate always beats an unresolved one);
+# on a tie the later round (it saw more information).
+# When no such candidate exists (every round crashed, leaked, or left a resolved merge whose gates never reported) the answer is
+# a fresh `retry`.
 # Outputs: mode (repair | retry), prev_round (the base for repair; for retry the latest round that left a candidate, whose
 #          unresolved files go into the prompt, or empty), prev_gates_round (prev_round when that round's gate results
-#          exist, else empty: the agent workflow downloads gate results only for a non-empty value), score (of the base, or empty).
+#          exist, else empty: the agent workflow downloads gate results only for a non-empty value; a partly resolved candidate has
+#          none), score (of the base, or empty).
 # shellcheck source=lib.sh
 . "$(dirname "$0")/lib.sh"
 
@@ -23,19 +28,21 @@ for n in 1 2; do
   score="$(round_score "$all" "$n")" || { log "round $n: no candidate (no facts or no bundle)"; continue; }
   latest="$n"
   log "round $n: unresolved=$(jq -r '.unresolved' "$all/round-$n/sync-facts.json") key_leak=$(jq -r '.key_leak // false' "$all/round-$n/sync-facts.json") score=$score"
-  if [ "$score" -lt 1000 ] && [ "$score" -le "$base_score" ]; then base="$n"; base_score="$score"; fi
+  # 1000 exactly = resolved but its gates never reported: nothing to repair from. 100000 = key leak.
+  if [ "$score" -ne 1000 ] && [ "$score" -lt 100000 ] && [ "$score" -le "$base_score" ]; then base="$n"; base_score="$score"; fi
 done
 
 has_gates() { local g; for g in "$all"/gates-"$1"-*/gates.json; do if [ -s "$g" ]; then return 0; fi; done; return 1; }
 
 if [ -n "$base" ]; then
-  log "round 3 repairs round $base ($base_score failed gate(s))"
+  if [ "$base_score" -gt 1000 ]; then log "round 3 continues round $base ($((base_score - 1000)) file(s) still unresolved)"
+  else log "round 3 repairs round $base ($base_score failed gate(s))"; fi
   gh_out mode repair
   gh_out prev_round "$base"
-  gh_out prev_gates_round "$base"
+  if has_gates "$base"; then gh_out prev_gates_round "$base"; else gh_out prev_gates_round ""; fi
   gh_out score "$base_score"
 else
-  log "no resolved candidate with reported gates: round 3 starts again from the merge${latest:+ (shown what round $latest left)}"
+  log "no candidate worth continuing: round 3 starts again from the merge${latest:+ (shown what round $latest left)}"
   gh_out mode retry
   gh_out prev_round "$latest"
   if [ -n "$latest" ] && has_gates "$latest"; then gh_out prev_gates_round "$latest"; else gh_out prev_gates_round ""; fi

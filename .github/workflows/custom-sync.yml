@@ -6,11 +6,13 @@ name: custom-sync
 #
 #   detect   newest stable upstream release vs custom/BASE; quiet exit when there is nothing new
 #   merge    merge the release into sync/<tag> by script (clean, or scripted conflict rules), no model
-#   agent1   (only when conflicts remain) Flash resolves the conflicted files            } custom-agent.yml,
-#   agent2   Flash repairs the candidate using the REAL gate output of round 1           } environment `agent`,
+#   agent1   (only when conflicts remain) Flash resolves the conflicted files    } custom-agent.yml, environment `agent`
+#   agent2   Flash repairs the candidate using the REAL gate output of round 1,   } (agent2 and agent3 also CONTINUE a
+#            or continues a round 1 that stopped with files unresolved             }  candidate that has files unresolved)
 #   pick3    chooses what round 3 starts from (no model; pick-repair-base.sh)
 #   agent3   Pro REPAIRS the best candidate of rounds 1 and 2 with that candidate's real gate output (same wider edit
-#            scope as round 2); only when no earlier round left a resolved merge does it start again from scratch
+#            scope as round 2), or continues the one that got furthest; only when no round left a usable candidate
+#            does it start again from scratch
 #   gates*   custom-gates.yml: install, typecheck, lint, format, unit tests, localization, e2e ratchet, e2e specs
 #   open-pr  push sync/<tag> (the only branch this workflow may push), open the PR from FACTS, retire older sync PRs
 #   land     real runs only, all gates green, custom unchanged: check-run `gates / result`, merge commit, dispatch the release
@@ -196,15 +198,19 @@ jobs:
   agent2:
     name: agent (round 2, flash repair)
     needs: [detect, agent1, gates1]
-    # A key leak in round 1 already means unresolved (gates1 is skipped); it is also checked here on purpose.
-    if: needs.gates1.result == 'success' && needs.gates1.outputs.failed != '0' && needs.agent1.outputs.key_leaks == '0'
+    # Two cases. Round 1 resolved everything and its gates failed: repair it with that gate output. Round 1 stopped (the 30 minute clock)
+    # with files still unresolved (gates1 is skipped, so `!cancelled()` is what lets this job run at all): continue it. A key leak in
+    # round 1 means unresolved too; it is checked here on purpose and never continued.
+    if: >-
+      ${{ !cancelled() && needs.agent1.result == 'success' && needs.agent1.outputs.key_leaks == '0'
+      && ((needs.gates1.result == 'success' && needs.gates1.outputs.failed != '0') || needs.agent1.outputs.unresolved == 'true') }}
     uses: ./.github/workflows/custom-agent.yml
     with:
       round: '2'
       mode: repair
       tier: flash
       prev_round: '1'
-      prev_gates_round: '1'
+      prev_gates_round: ${{ needs.gates1.result == 'success' && '1' || '' }}
       tag: ${{ needs.detect.outputs.tag }}
       tag_is_release: ${{ needs.detect.outputs.tag_is_release }}
       is_test: ${{ needs.detect.outputs.is_test }}

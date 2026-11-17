@@ -20,6 +20,13 @@
 . "$(dirname "$0")/lib.sh"
 
 # conflict_set PATH RESOLUTION: update one entry of facts.conflicts.
+# conflict_decision PATH VALUE: what the agent decided for a modify/delete conflict (kept | deleted); shown in the PR table.
+conflict_decision() {
+  local f="$SYNC_OUT/sync-facts.json" tmp
+  tmp="$(mktemp)"
+  jq --arg p "$1" --arg d "$2" '.conflicts |= map(if .path == $p then .decision = $d else . end)' "$f" > "$tmp" && mv "$tmp" "$f"
+}
+
 conflict_set() {
   local f="$SYNC_OUT/sync-facts.json" tmp
   tmp="$(mktemp)"
@@ -33,6 +40,17 @@ caveat() { # TEXT
 }
 
 list_unmerged() { git diff --name-only --diff-filter=U | sort -u; }
+
+# our_side_changed PATH: true when our side holds a change in this unmerged file, whatever its path was before. Stage 1 is the
+# ancestor and stage 2 is ours; they differ exactly when a customization edited the file, also when upstream moved it and
+# the edit travelled to the new path (our-files.txt lists the OLD paths, so a path lookup misses every moved file).
+our_side_changed() {
+  local stages ancestor ours
+  stages="$(git ls-files -u -- "$1")"
+  ancestor="$(awk '$3 == 1 {print $2}' <<<"$stages")"
+  ours="$(awk '$3 == 2 {print $2}' <<<"$stages")"
+  [ -n "$ours" ] && [ "$ours" != "$ancestor" ]
+}
 
 conflict_kind() { # PATH -> content | both-added | deleted-by-them | deleted-by-us | other
   case "$(git ls-files -u -- "$1" | awk '{print $3}' | sort -u | tr -d '\n')" in
@@ -88,8 +106,11 @@ Synthetic commit made by custom-sync. Its tree is identical to $TAG (${UPSTREAM_
 parent is the previous BASE tag $old_tag. It exists only so that git uses $old_tag as the merge base
 (release tags are not ancestors of each other), which makes the merge replay our changes on the new tag.")"
 
+  # find-renames=30%: git pairs a moved file with its old path only above 50% similarity. A release that moves AND trims a
+  # file we edited (v1.4.261: 46% and 48% on two of them) was merged as "deleted by them" plus a new file, a conflict kind
+  # the model may not touch and our edit lost. 30% keeps those pairs; a wrong pair is only a content conflict that the gates judge.
   local merge_rc=0
-  git -c merge.conflictStyle=zdiff3 merge --no-commit --no-ff "$link" > "$SYNC_OUT/merge.log" 2>&1 || merge_rc=$?
+  git -c merge.conflictStyle=zdiff3 merge -X find-renames=30% --no-commit --no-ff "$link" > "$SYNC_OUT/merge.log" 2>&1 || merge_rc=$?
   [ "$merge_rc" -le 1 ] || { cat "$SYNC_OUT/merge.log" >&2; die "git merge failed with exit $merge_rc"; }
 
   # Initial conflict list (before any scripted resolution), as TSV: path, kind, hunks, resolution.
@@ -150,13 +171,14 @@ parent is the previous BASE tag $old_tag. It exists only so that git uses $old_t
   fi
 
   # (e) A conflicted file that no customization touched cannot hold a decision of ours, and a generated file must
-  # not be hand-merged: take upstream's version. (With the old BASE tag as merge base the first case only arises
-  # through renames; the second is a safety net.)
+  # not be hand-merged: take upstream's version. "Touched" is read from the stages (our_side_changed), not from
+  # our-files.txt: that list has the old paths, and a file upstream moved carries our edit to its new path. Judged by path,
+  # six moved files of v1.4.261 had our edits replaced by upstream's version without a word.
   local theirs_list="$SYNC_OUT/taken-from-upstream.txt"
   : > "$theirs_list"
   while IFS= read -r p; do
     [ -n "$p" ] || continue
-    if grep -qxF -- "$p" "$SYNC_OUT/our-files.txt" && ! generated_path "$p"; then continue; fi
+    if ! generated_path "$p" && { grep -qxF -- "$p" "$SYNC_OUT/our-files.txt" || our_side_changed "$p"; }; then continue; fi
     if [ -n "$(git ls-files -u -- "$p" | awk '$3 == 3')" ]; then
       git checkout -q --theirs -- "$p"
       git add --sparse -- "$p"
@@ -327,25 +349,35 @@ cmd_finish_core() {
   fi
 
   # 2. Resolution state of every file the merge left to a model/human.
-  local unresolved=() kind res
+  local unresolved=() kind res drop
   while IFS= read -r p; do
     [ -n "$p" ] || continue
     kind="$(jq -r --arg p "$p" '.conflicts[] | select(.path == $p) | .kind' "$facts")"
-    res=ok
+    res=ok; drop=false
     if [ "$key_leak" = true ]; then res="the agent's output contained the API key; its edits were discarded"
+    elif [ "$kind" = deleted-by-them ] || [ "$kind" = deleted-by-us ]; then
+      # Modify/delete: the file in the tree is the side that kept it. The agent keeps it (untouched or edited to fit upstream), or
+      # replaces it with the delete sentinel; a file that is already gone (a repair of a candidate that dropped it) stays dropped.
+      if [ ! -e "$p" ] || is_delete_request "$p"; then drop=true
+      elif has_markers "$p"; then res="conflict markers remain"
+      fi
     elif [ "$kind" != content ] && [ "$kind" != both-added ]; then res="needs a human: $kind conflict"
     elif [ ! -f "$p" ]; then res="file is missing"
+    elif is_delete_request "$p"; then res="$DELETE_SENTINEL was written to a file that upstream still has"
     elif has_markers "$p"; then res="conflict markers remain"
     elif [[ "$p" == *.json ]] && ! jq empty "$p" >/dev/null 2>&1; then res="no longer valid JSON"
     fi
     if [ "$res" = ok ]; then
       conflict_set "$p" agent
+      if [ "$kind" = deleted-by-them ] || [ "$kind" = deleted-by-us ]; then conflict_decision "$p" "$([ "$drop" = true ] && echo deleted || echo kept)"; fi
     else
       conflict_set "$p" unresolved
       unresolved+=("$p")
       log "UNRESOLVED $p: $res"
     fi
-    [ -e "$p" ] && git add --sparse -- "$p" || git rm --sparse -q -f --ignore-unmatch -- "$p"
+    if [ "$drop" = true ]; then git rm --sparse -q -f --ignore-unmatch -- "$p"
+    elif [ -e "$p" ]; then git add --sparse -- "$p"
+    else git rm --sparse -q -f --ignore-unmatch -- "$p"; fi
   done < "$allowed"
 
   # Lockfile follow-up when package.json was part of the conflict.

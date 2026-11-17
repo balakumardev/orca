@@ -10,7 +10,9 @@
 #   first   resolve the conflicted files of a fresh merge.
 #   repair  start from a candidate an earlier round committed, show the model that candidate's REAL gate output, and let it
 #           edit the conflicted files plus the files our customization commits own. Rounds 2 and 3 use it (round 3 starts from
-#           the best earlier candidate, chosen by pick-repair-base.sh).
+#           the best earlier candidate, chosen by pick-repair-base.sh). When that candidate is only PARTLY resolved (its facts
+#           list unresolved files) the round CONTINUES it: the prompt lists just the files that still hold conflict markers,
+#           the resolved ones stay as they are.
 #   retry   a fresh merge again, with the earlier attempt's gate output as context. Round 3 only when no earlier round left
 #           a resolved merge commit to repair.
 # prepare also: PREV_DIR (dir holding the previous round's sync-facts.json and, for repair, merge.bundle),
@@ -62,11 +64,19 @@ cmd_prepare() {
     fi
   fi
 
-  local files manual nfiles check old_tag
+  local files manual nfiles check old_tag resume=0 nresume=0
   old_tag="$(facts_get .old_base_tag)"
+  # A repair of a candidate that still has unresolved files CONTINUES it (see the header): never start those files again.
+  if [ "$MODE" = repair ] && [ "$(facts_get '(.unresolved_files // []) | length')" -gt 0 ]; then
+    resume=1
+    nresume="$(facts_get '[(.unresolved_files // [])[] as $u | .conflicts[] | select(.path == $u and (.kind == "content" or .kind == "both-added" or .kind == "deleted-by-them" or .kind == "deleted-by-us"))] | length')"
+  fi
   # A repair has no conflict markers left to count, so only a fresh merge (first, retry) is told the hunk count.
-  files="$(jq -r --arg mode "$MODE" '.conflicts[] | select(.resolution != "scripted" and (.resolution | startswith("scripted") | not)) | select(.kind == "content" or .kind == "both-added") | if $mode == "repair" then "- \(.path) (\(.kind), conflicted in the merge; the file holds the earlier resolution)" else "- \(.path) (\(.kind), \(.hunks) conflict hunk(s))" end' "$SYNC_OUT/sync-facts.json")"
-  if [ "$MODE" = repair ]; then
+  files="$(jq -r --arg mode "$MODE" '.conflicts[] | select(.resolution != "scripted" and (.resolution | startswith("scripted") | not)) | select(.kind == "content" or .kind == "both-added" or .kind == "deleted-by-them" or .kind == "deleted-by-us") | if .kind == "deleted-by-them" then "- \(.path) (deleted-by-them: upstream deleted or moved it and our commits edited it; no markers, the file here is OURS: keep it, fixed to fit upstream, or delete it)" elif .kind == "deleted-by-us" then "- \(.path) (deleted-by-us: our commits deleted it and upstream changed it; no markers, the file here is UPSTREAM'"'"'S: keep it or delete it)" elif $mode == "repair" then "- \(.path) (\(.kind), conflicted in the merge; the file holds the earlier resolution)" else "- \(.path) (\(.kind), \(.hunks) conflict hunk(s))" end' "$SYNC_OUT/sync-facts.json")"
+  if [ "$resume" -eq 1 ]; then
+    # Only the files that still hold conflict markers: the resolved ones are done and are not offered for editing again.
+    files="$(jq -r '(.unresolved_files // []) as $u | .conflicts[] | select(.path as $p | $u | index($p)) | select(.kind == "content" or .kind == "both-added" or .kind == "deleted-by-them" or .kind == "deleted-by-us") | "- \(.path) (\(.kind), still holds conflict markers)"' "$SYNC_OUT/sync-facts.json")"
+  elif [ "$MODE" = repair ]; then
     # A repair may also touch the files our customization commits own (never fork infrastructure or upstream CI).
     while IFS= read -r p; do
       [ -n "$p" ] || continue
@@ -76,7 +86,7 @@ cmd_prepare() {
     done < "$SYNC_OUT/our-files.txt"
     files="$(printf '%s\n' "$files" | sed '/^$/d')" # not grep -v: it exits 1 when nothing is left, and set -e would end the step
   fi
-  manual="$(jq -r '[.conflicts[] | select((.resolution | startswith("scripted") | not) and .kind != "content" and .kind != "both-added") | "- \(.path) (\(.kind))"] | if length == 0 then "" else "NOT YOURS (modify/delete conflicts need a human; leave these files exactly as they are):\n" + join("\n") end' "$SYNC_OUT/sync-facts.json")"
+  manual="$(jq -r '[.conflicts[] | select((.resolution | startswith("scripted") | not) and .kind != "content" and .kind != "both-added" and .kind != "deleted-by-them" and .kind != "deleted-by-us") | "- \(.path) (\(.kind))"] | if length == 0 then "" else "NOT YOURS (conflicts of an unusual kind need a human; leave these files exactly as they are):\n" + join("\n") end' "$SYNC_OUT/sync-facts.json")"
   nfiles="$(printf '%s\n' "$files" | grep -c . || true)"
 
   # Previous check output, as data. Gate output comes from our scripts; unresolved markers come from the facts.
@@ -100,7 +110,7 @@ $(jq -r '.gates[] | select(.status == "fail") | "### \(.name) (exit \(.exit_code
   customizations="$(customization_log "$(facts_get .base_sha)" | trunc_bytes 6000)"
 
   local prompt="$SYNC_OUT/agent-prompt.txt" sections
-  if [ "$MODE" = repair ]; then sections="all repair"; else sections="all merge"; fi
+  if [ "$resume" -eq 1 ]; then sections="all resume"; elif [ "$MODE" = repair ]; then sections="all repair"; else sections="all merge"; fi
   # Pass values through the environment so they are never re-parsed as code or as awk/sed patterns.
   # shellcheck disable=SC2086
   section_text "$TOOLS_DIR/../agent/prompt.txt" $sections | P_TAG="$(facts_get .tag)" P_OLD_TAG="$old_tag" P_BASE_BRANCH="$(facts_get .base_branch)" \
@@ -115,17 +125,18 @@ $(jq -r '.gates[] | select(.status == "fail") | "### \(.name) (exit \(.exit_code
       process.stdout.write(text.replace(/\n{3,}/g, "\n\n"))
     ' > "$prompt"
 
-  local turns wall
-  # Rehearsal: Flash resolved 5 conflicted files in 61 turns; a repair of 56 editable files hit a cap of 60 (it counted 61) with
-  # its edits intact. The caps are hard limits, not targets; a round that reaches one is reported as such in the PR.
-  if [ "$MODE" = repair ]; then turns=80; wall=1200
-  else turns=$((24 + 10 * nfiles)); [ "$turns" -le 70 ] || turns=70; wall=1500; fi
-  # Pro (round 3, repair or retry) is the expensive tier: $1.30 per million input tokens, and a turn re-reads about 53k of them
-  # (measured on Flash repairs), about $0.07 a turn. 60 turns is about $4; the old 80 was about $5.5. If every turn ran at the
-  # 131k context ceiling it would be about $10 against $14. Flash keeps its caps.
-  if [ "$TIER" = pro ]; then [ "$turns" -le 60 ] || turns=60; wall=1800; fi
-  jq -n -c --arg model "$MODEL" --arg tier "$TIER" --arg mode "$MODE" --argjson round "$ROUND" --argjson turns "$turns" --argjson wall "$wall" --argjson nfiles "$nfiles" \
-    '{model: $model, tier: $tier, mode: $mode, round: $round, max_turns: $turns, wall_seconds: $wall, files: $nfiles}' > "$SYNC_OUT/agent-plan.json"
+  local wall work skip=false
+  # No turn cap: a round ends when the model is done or when the wall clock runs out (30 minutes, every round). A turn cap stopped
+  # v1.4.261 at 16 of its 22 model files (70 turns, about 4.4 a file) and the fixed merge leaves 31, so the work decides the length,
+  # not a number guessed in advance. The wall clock bounds the money: about $0.01 a Flash turn and $0.07 a Pro turn (measured, full
+  # list rate), 6.7 s and 16.8 s a turn, so 30 minutes is at most about $3 on Flash and $7.5 on Pro. A round that hits the clock keeps its
+  # edits and the next round continues from them; the CLI is killed then, so that round has no token or cost figures.
+  wall=1800
+  # Nothing a model may edit is left (only conflicts of an unusual kind): run does not call it.
+  work="$nfiles"; [ "$resume" -eq 0 ] || work="$nresume"
+  if [ "$MODE" != repair ] || [ "$resume" -eq 1 ]; then [ "$work" -gt 0 ] || skip=true; fi
+  jq -n -c --arg model "$MODEL" --arg tier "$TIER" --arg mode "$MODE" --argjson round "$ROUND" --argjson wall "$wall" --argjson nfiles "$nfiles" --argjson skip "$skip" \
+    '{model: $model, tier: $tier, mode: $mode, round: $round, wall_seconds: $wall, files: $nfiles, skip: $skip}' > "$SYNC_OUT/agent-plan.json"
   log "agent plan: $(cat "$SYNC_OUT/agent-plan.json"); prompt $(wc -c < "$prompt") bytes"
 }
 
@@ -169,8 +180,14 @@ safe_name() {
 
 cmd_run() {
   : "${DEEPINFRA_API_KEY:?DEEPINFRA_API_KEY must be set for this step}"
-  local plan="$SYNC_OUT/agent-plan.json" turns wall out="$SYNC_OUT/agent-out.json" started rc=0
-  turns="$(jq -r .max_turns "$plan")"; wall="${AGENT_WALL_SECONDS:-$(jq -r .wall_seconds "$plan")}"
+  local plan="$SYNC_OUT/agent-plan.json" wall out="$SYNC_OUT/agent-out.json" started rc=0
+  wall="${AGENT_WALL_SECONDS:-$(jq -r .wall_seconds "$plan")}"
+  if [ "$(jq -r .skip "$plan")" = true ]; then
+    log "agent skipped: no conflicted file is left that a model may resolve (what remains is a conflict of an unusual kind)"
+    jq -n -c '{exit_code: 0, wall_s: 0, key_leaks: 0, key_leak_files: [], skipped: true}' > "$SYNC_OUT/agent-run.json"
+    gh_out key_leaks 0
+    exit 0
+  fi
   local top
   top="$(git rev-parse --show-toplevel)" # resolved BEFORE the agent runs: no git after it
   # The CLI's own state lives outside SYNC_OUT: SYNC_OUT is uploaded as an artifact, the CLI's config is not.
@@ -206,7 +223,6 @@ cmd_run() {
       CLAUDE_CONFIG_DIR="$cfg" \
       claude -p \
         --output-format json \
-        --max-turns "$turns" \
         --restricted --strict-mcp-config --safe-mode --setting-sources "" \
         --no-session-persistence \
         --permission-mode dontAsk \
@@ -293,8 +309,9 @@ cmd_finish() {
      --argjson turns "$turns" --arg stop "$stop" --arg iserr "$errflag" --argjson cost "$cost" --arg usage_ok "$usage_ok" \
      --argjson leak_files "$leak_files" \
     '.agent = ((.agent // {rounds: []}) | .rounds += [{
-        round: $plan.round, mode: $plan.mode, model: $plan.model, tier: $plan.tier, max_turns: $plan.max_turns,
+        round: $plan.round, mode: $plan.mode, model: $plan.model, tier: $plan.tier,
         exit_code: $run.exit_code, wall_s: $run.wall_s, key_leaks: $run.key_leaks, key_leak_files: $leak_files, turns: $turns, stop: $stop,
+        skipped: ($run.skipped // false),
         is_error: ($iserr == "true"), output_parsed: ($usage_ok == "true"), input_tokens: $in_tok, output_tokens: $out_tok,
         estimated_cost_usd: $cost, report: $report }])' "$SYNC_OUT/sync-facts.json" > "$tmp" && mv "$tmp" "$SYNC_OUT/sync-facts.json"
 
@@ -305,13 +322,14 @@ cmd_finish() {
     stop_word="$(printf '%s' "$stop" | tr -cd 'A-Za-z0-9_.-' | trunc_bytes 40)"
     rc="$(jq -r '.exit_code // -1' <<<"$run")"
     if [ "$leaks" -gt 0 ]; then why="the output contained the API key; edits discarded"
+    elif [ "$(jq -r '.skipped // false' <<<"$run")" = true ]; then why="skipped; no file was left that a model may resolve"
     elif [ "$stop_word" = error_max_turns ]; then why="ran out of turns; edits kept; gates decide"
     elif [ "$rc" = 124 ]; then why="hit the wall-clock limit; edits kept; gates decide"
     elif [ "$usage_ok" != true ]; then why="no readable output; edits kept; gates decide"
     elif [ "$rc" != 0 ] || [ "$errflag" = true ]; then why="ended with an error (exit $rc, stop: ${stop_word:-none}); edits kept; gates decide"
     fi
-    printf -- '- Agent round %s (%s, %s): %s of at most %s turns, exit code %s, estimated $%s. Result: %s.\n' \
-      "$ROUND" "$MODE" "$TIER" "$turns" "$(jq -r .max_turns "$plan")" "$rc" "$cost" "$why" >> "$GITHUB_STEP_SUMMARY"
+    printf -- '- Agent round %s (%s, %s): %s turns, exit code %s, estimated $%s. Result: %s.\n' \
+      "$ROUND" "$MODE" "$TIER" "$turns" "$rc" "$cost" "$why" >> "$GITHUB_STEP_SUMMARY"
   fi
 
   # AGENT_KEY_LEAK=1 makes sync-merge.sh throw away every edit of this round and mark the candidate unresolved.

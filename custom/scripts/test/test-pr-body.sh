@@ -24,7 +24,7 @@ cat > "$tmp/facts.json" <<'JSON'
  "outcome":"conflicts","unresolved":false,"upstream_sha":"1111111111111111111111111111111111111111",
  "base_sha":"2222222222222222222222222222222222222222","merge_sha":"3333333333333333333333333333333333333333",
  "link_sha":"4444444444444444444444444444444444444444","upstream_commits":3,"our_files_count":2,
- "conflicts":[{"path":"src/a.ts","kind":"content","hunks":1,"resolution":"agent"}],"caveats":[],
+ "conflicts":[{"path":"src/a.ts","kind":"content","hunks":1,"resolution":"agent"},{"path":"src/gone.ts","kind":"deleted-by-them","hunks":0,"resolution":"agent","decision":"deleted"}],"caveats":[],
  "scripted":{"upstream_ci_removed":0,"our_wins_restored":[]},"drift":[],
  "repair_edits":["src/owned.ts","tests/e2e/owned.spec.ts"]}
 JSON
@@ -154,5 +154,13 @@ has "$body" 'Repair round(s) edited 2 file(s) that were not conflicted: `src/own
 jq '[.[0], (.[1] | .stop = "" | .exit_code = 124), {"round":3,"mode":"repair","model":"m","tier":"pro","max_turns":80,"exit_code":2,"wall_s":5,"key_leaks":0,"turns":1,"stop":"error_during_execution","is_error":true,"output_parsed":true,"input_tokens":1,"output_tokens":1,"estimated_cost_usd":0.1,"report":""}]' "$tmp/rounds.json" > "$tmp/rounds2.json"
 ROUNDS_FILE="$tmp/rounds2.json" render exits "$tmp/dispatch-only.yml"
 has "$body" '124: hit the wall-clock limit; edits kept; gates decide' && has "$body" '2: ended with an error (exit 2, error_during_execution); edits kept; gates decide' && ok "wall-clock and other error exits are explained too" || bad "other exit reasons"
+
+# a modify/delete conflict shows what the agent decided
+has "$body" '| `src/gone.ts` | deleted-by-them | 0 | agent (deleted the file) |' && ok "the conflict table says the agent deleted the file" || bad "decision column: $(grep 'src/gone.ts' "$body")"
+
+# a round the script skipped because only conflicts that need a human were left
+jq '[.[0], {"round":2,"mode":"repair","model":"m","tier":"flash","max_turns":0,"exit_code":0,"wall_s":0,"key_leaks":0,"turns":0,"stop":"","skipped":true,"is_error":true,"output_parsed":false,"input_tokens":0,"output_tokens":0,"estimated_cost_usd":0,"report":""}]' "$tmp/rounds.json" > "$tmp/rounds3.json"
+ROUNDS_FILE="$tmp/rounds3.json" render skipped "$tmp/dispatch-only.yml"
+has "$body" '0: skipped; no file was left that a model may resolve' && ok "a skipped round says so instead of 'no readable output'" || bad "skipped round wording: $(grep '^| 2 | repair' "$body")"
 
 exit "$([ "$fails" -eq 0 ] && echo 0 || echo 1)"
