@@ -81,6 +81,11 @@ test('Cmd+J shows where a new worktree can be made: footer, key hint on the high
   mkdirSync(path.join(parent, 'fresh-plain'))
 
   await waitForSessionReady(orcaPage)
+  // Cmd+J scans only the configured search locations; this spec's folders live under its own parent.
+  await orcaPage.evaluate(
+    (root) => window.__store!.getState().updateSettingsOrThrow({ folderSearchLocations: [root] }),
+    parent
+  )
   for (const repoPath of [web, notes]) {
     await orcaPage.evaluate(async (target) => {
       if (!(await window.__store!.getState().addRepoPath(target))) {

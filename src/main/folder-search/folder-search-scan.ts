@@ -13,7 +13,7 @@ export type FolderScanLimits = {
   maxEntries: number
   /** The whole scan answers by then, with what it has. */
   budgetMs: number
-  /** Git roots are listed down to this depth below a search root; plain folders only at depth 1. */
+  /** All directories are listed down to this depth below a search root. */
   maxDepth: number
   /** One read that takes longer ends that root's walk. */
   callTimeoutMs: number

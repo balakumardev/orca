@@ -55,9 +55,9 @@ describe('folder search never touches a path it cannot collide with', () => {
     expect(fakeFs.pathsCalled()).toEqual(['/code/main'])
   })
 
-  it('reads no WSL project to find a search root', async () => {
+  it('reads no WSL location to find a search root', async () => {
     const result = await deriveFolderSearchRoots({
-      repos: [{ path: WSL_PATH, connectionId: null, executionHostId: null, addedAt: 0 }],
+      locations: [WSL_PATH],
       homeDir: '/home/me',
       managedWorkspaceDirs: []
     })

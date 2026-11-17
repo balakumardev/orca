@@ -93,8 +93,10 @@ async function seedWorld(
 
   await waitForSessionReady(orcaPage)
   const worktreeId = await orcaPage.evaluate(
-    async ({ repoPath, command }) => {
+    async ({ repoPath, command, searchRoot }) => {
       const store = window.__store!
+      // Cmd+J scans only the configured search locations; without this it scans the profile's home, which holds the transcripts.
+      await store.getState().updateSettingsOrThrow({ folderSearchLocations: [searchRoot] })
       const repo = await store.getState().addRepoPath(repoPath)
       if (!repo) {
         throw new Error('Could not register the fixture project')
@@ -112,7 +114,7 @@ async function seedWorld(
       }
       return worktree.id
     },
-    { repoPath, command: buildFakeAgentCommandOverride(claudeStub.command) }
+    { repoPath, command: buildFakeAgentCommandOverride(claudeStub.command), searchRoot: parent }
   )
   if (options.enableSearch) {
     // Only this throwaway profile turns it on; the product default stays off.

@@ -2,7 +2,7 @@ import { ipcMain } from 'electron'
 import type { Store } from '../../persistence/loading-store/store'
 import { createFolderSearchService } from '../../folder-search/folder-search-service'
 
-/** Local desktop only: the search roots come from this machine's registered projects, never from the renderer. */
+/** Local desktop only: search roots come from this machine's saved settings, not list-call arguments. */
 export function registerFolderSearchHandlers(store: Store): void {
   const service = createFolderSearchService({ store })
   ipcMain.handle('folderSearch:list', () => service.list())

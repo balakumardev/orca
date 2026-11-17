@@ -1,6 +1,5 @@
 import { realpath } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { dirname, parse } from 'node:path'
+import { isAbsolute } from 'node:path'
 import type { Repo } from '../../shared/repo-types'
 import {
   LOCAL_EXECUTION_HOST_ID,
@@ -12,24 +11,23 @@ import {
   normalizeRuntimePathForComparison
 } from '../../shared/cross-platform-path'
 import { isWslUncPath } from '../../shared/wsl-paths'
+import { MAX_FOLDER_SEARCH_ROOTS } from '../../shared/folder-search-settings'
+import { expandLeadingHomePath } from '../filesystem/home-path-expansion'
 import { FOLDER_SEARCH_CALL_TIMEOUT_MS, TIMED_OUT, withinMs } from './folder-search-time'
 
 export type FolderSearchRoot = {
-  /** The parent as the user registered it; when projects reached it through several spellings, the first. */
+  /** The configured location, with a leading home shorthand expanded. */
   path: string
-  /** The parent with links resolved; every directory read starts here. */
+  /** The location with links resolved; every directory read starts here. */
   realPath: string
   /**
-   * Every spelling of this parent that a registered project went through, `path` included. A tracked path
+   * Every configured spelling of this location, `path` included. A tracked path
    * under any of them is known to sit in this root, so it is the only kind of path that is resolved.
    */
   spellings?: readonly string[]
 }
 
-type RootRepo = Pick<Repo, 'path' | 'connectionId' | 'executionHostId' | 'addedAt'>
-
-/** A search walks every root, so the list stays short: the roots of the most recently added projects win. */
-export const MAX_FOLDER_SEARCH_ROOTS = 12
+type RootRepo = Pick<Repo, 'path' | 'connectionId' | 'executionHostId'>
 
 /** Resolves a path, or says why not: `null` when it is missing, and `TIMED_OUT` when the call hung. */
 async function resolvePath(
@@ -43,7 +41,7 @@ async function resolvePath(
   }
 }
 
-/** Local repos only: an SSH, runtime or WSL project's parent is not a folder this process can list. */
+/** Only local projects contribute managed workspace directories. */
 export function isLocalDiskRepo(repo: RootRepo): boolean {
   return (
     getRepoRoutingConnectionId(repo) === null &&
@@ -52,20 +50,10 @@ export function isLocalDiskRepo(repo: RootRepo): boolean {
   )
 }
 
-/** On macOS and Linux a top-level folder (`/Users`, `/Volumes`, `/opt`, `/tmp`) holds users, disks or the system. */
-function isTopLevelPosixFolder(path: string): boolean {
-  return process.platform !== 'win32' && dirname(path) === parse(path).root
-}
-
-/**
- * The parents of registered local projects, minus places that are never a project collection: the
- * filesystem root, a top-level folder, the home folder and every folder above it, the temporary folder and
- * Orca's own workspace folders. A root inside another root stays, so its plain folders are still listed.
- */
+/** Explicit local locations work before any project is registered, including the user's home directory. */
 export async function deriveFolderSearchRoots(args: {
-  repos: readonly RootRepo[]
+  locations: readonly string[]
   homeDir: string
-  tmpDir?: string
   /** Where Orca itself creates worktrees; everything under it is already a tracked workspace. */
   managedWorkspaceDirs: readonly string[]
   maxRoots?: number
@@ -78,57 +66,44 @@ export async function deriveFolderSearchRoots(args: {
     timedOut ||= resolved === TIMED_OUT
     return typeof resolved === 'string' ? resolved : path
   }
-  const [homeDir, tmpDir, ...managedDirs] = await Promise.all(
-    [args.homeDir, args.tmpDir ?? tmpdir(), ...args.managedWorkspaceDirs].map(resolveOrSelf)
-  )
-  const tmpKey = normalizeRuntimePathForComparison(tmpDir)
-
-  const newestAddedAtByParent = new Map<string, number>()
-  for (const repo of args.repos.filter(isLocalDiskRepo)) {
-    const parent = dirname(repo.path)
-    newestAddedAtByParent.set(
-      parent,
-      Math.max(newestAddedAtByParent.get(parent) ?? 0, repo.addedAt ?? 0)
-    )
-  }
-  const resolvedParents = await Promise.all(
-    [...newestAddedAtByParent].map(
-      async ([parent, addedAt]): Promise<{
-        parent: string
-        addedAt: number
-        realParent: Awaited<ReturnType<typeof resolvePath>>
-      }> => ({ parent, addedAt, realParent: await resolvePath(parent, timeoutMs) })
+  const managedDirs = await Promise.all(args.managedWorkspaceDirs.map(resolveOrSelf))
+  // Reject remote/relative paths before filesystem access; a saved location always names this host.
+  const locations = [...new Set(args.locations)]
+    .map((location) => expandLeadingHomePath(location, args.homeDir))
+    .filter((location) => isAbsolute(location) && !isWslUncPath(location))
+    .slice(0, args.maxRoots ?? MAX_FOLDER_SEARCH_ROOTS)
+  const resolvedLocations = await Promise.all(
+    locations.map(
+      async (
+        path
+      ): Promise<{ path: string; realPath: Awaited<ReturnType<typeof resolvePath>> }> => ({
+        path,
+        realPath: await resolvePath(path, timeoutMs)
+      })
     )
   )
-  const candidates = new Map<string, Required<FolderSearchRoot> & { addedAt: number }>()
-  // Folded in project order, so which spelling a root calls its own does not depend on which call returned first.
-  for (const { parent, addedAt, realParent } of resolvedParents) {
-    if (realParent === TIMED_OUT) {
+  const candidates = new Map<string, Required<FolderSearchRoot>>()
+  // Fold in settings order so an alias's display path never depends on filesystem completion order.
+  for (const { path, realPath } of resolvedLocations) {
+    if (realPath === TIMED_OUT) {
       timedOut = true
       continue
     }
     if (
-      !realParent ||
-      dirname(realParent) === realParent ||
-      isTopLevelPosixFolder(realParent) ||
-      isPathInsideOrEqual(realParent, homeDir) ||
-      normalizeRuntimePathForComparison(realParent) === tmpKey ||
-      managedDirs.some((dir) => isPathInsideOrEqual(dir, realParent))
+      !realPath ||
+      isWslUncPath(realPath) ||
+      managedDirs.some((dir) => isPathInsideOrEqual(dir, realPath))
     ) {
       continue
     }
-    const key = normalizeRuntimePathForComparison(realParent)
+    const key = normalizeRuntimePathForComparison(realPath)
     const known = candidates.get(key)
     candidates.set(key, {
-      path: known?.path ?? parent,
-      realPath: realParent,
-      spellings: [...(known?.spellings ?? []), parent],
-      addedAt: Math.max(known?.addedAt ?? 0, addedAt)
+      path: known?.path ?? path,
+      realPath,
+      spellings: [...(known?.spellings ?? []), path]
     })
   }
   const roots = [...candidates.values()]
-    .sort((a, b) => b.addedAt - a.addedAt || (a.realPath < b.realPath ? -1 : 1))
-    .slice(0, args.maxRoots ?? MAX_FOLDER_SEARCH_ROOTS)
-    .map(({ path, realPath, spellings }) => ({ path, realPath, spellings }))
   return { roots: roots.sort((a, b) => (a.realPath < b.realPath ? -1 : 1)), timedOut }
 }

@@ -38,6 +38,7 @@ function fakeStore(repoPaths: string[], repoExtras: Partial<Repo> = {}) {
     getAllWorktreeMetaForHost: () => ({}),
     getSettings: () => ({
       ...getDefaultSettings(join(tree.root, 'home')),
+      folderSearchLocations: [join(tree.root, 'code')],
       workspaceDir: join(tree.root, 'orca-workspaces')
     })
   }
@@ -66,34 +67,23 @@ function setup(repoPaths: string[], repoExtras: Partial<Repo> = {}) {
 const CACHE_TTL_MS = 1000
 
 describe('createFolderSearchService', () => {
-  it('lists the folders next to a registered project but not the project', async () => {
+  it('lists the configured root and its folders but not an already registered project', async () => {
     await makeGitRoot(join(tree.root, 'code', 'app'))
     await makePlainFolder(join(tree.root, 'code', 'notes'))
     const { names } = setup([join(tree.root, 'code', 'app')])
-    expect(await names()).toEqual(['code/notes'])
+    expect(await names()).toEqual(['code', 'code/notes'])
   })
 
   it('reuses one scan until the time to live passes', async () => {
     await makeGitRoot(join(tree.root, 'code', 'app'))
     const { clock, names, scans } = setup([join(tree.root, 'code', 'app')])
-    expect(await names()).toEqual([])
+    expect(await names()).toEqual(['code'])
     await makePlainFolder(join(tree.root, 'code', 'late'))
     clock.now += CACHE_TTL_MS - 1
-    expect(await names()).toEqual([])
+    expect(await names()).toEqual(['code'])
     expect(scans.count).toBe(1)
     clock.now += 1
-    expect(await names()).toEqual(['code/late'])
-    expect(scans.count).toBe(2)
-  })
-
-  it('rescans when a project in a new parent changes the set of search roots', async () => {
-    await makeGitRoot(join(tree.root, 'code', 'app'))
-    await makeGitRoot(join(tree.root, 'work', 'api'))
-    await makePlainFolder(join(tree.root, 'work', 'docs'))
-    const { state, names, scans } = setup([join(tree.root, 'code', 'app')])
-    expect(await names()).toEqual([])
-    state.repoPaths.push(join(tree.root, 'work', 'api'))
-    expect(await names()).toEqual(['work/docs'])
+    expect(await names()).toEqual(['code', 'code/late'])
     expect(scans.count).toBe(2)
   })
 
@@ -101,11 +91,11 @@ describe('createFolderSearchService', () => {
     await makeGitRoot(join(tree.root, 'code', 'app'))
     await makePlainFolder(join(tree.root, 'code', 'notes'))
     const { state, names, scans } = setup([join(tree.root, 'code', 'app')])
-    expect(await names()).toEqual(['code/notes'])
+    expect(await names()).toEqual(['code', 'code/notes'])
     state.repoPaths.push(join(tree.root, 'code', 'notes'))
-    expect(await names()).toEqual([])
+    expect(await names()).toEqual(['code'])
     state.repoPaths.pop()
-    expect(await names()).toEqual(['code/notes'])
+    expect(await names()).toEqual(['code', 'code/notes'])
     expect(scans.count).toBe(1)
   })
 
@@ -136,7 +126,7 @@ describe('createFolderSearchService', () => {
     const { names } = setup([join(tree.root, 'code', 'app')], {
       worktreeBasePath: join(tree.root, 'code', 'app-worktrees')
     })
-    expect(await names()).toEqual(['code/notes'])
+    expect(await names()).toEqual(['code', 'code/notes'])
   })
 
   describe('resolve', () => {
@@ -167,10 +157,10 @@ describe('createFolderSearchService', () => {
       await makeGitRoot(join(rootPath(), 'app'))
       await makePlainFolder(join(rootPath(), 'notes'))
       const { service, names, scans } = setup([join(rootPath(), 'app')])
-      expect(await names()).toEqual(['code/notes'])
+      expect(await names()).toEqual(['code', 'code/notes'])
       await rm(join(rootPath(), 'notes'), { recursive: true })
       expect(await service.resolve(join(rootPath(), 'notes'))).toBeNull()
-      expect(await names()).toEqual([])
+      expect(await names()).toEqual(['code'])
       expect(scans.count).toBe(2)
     })
 

@@ -1,5 +1,6 @@
 import { lstat } from 'node:fs/promises'
-import { homedir, tmpdir } from 'node:os'
+import { homedir } from 'node:os'
+import { dirname } from 'node:path'
 import type { FolderWorkspace } from '../../shared/folder-workspaces/folder-workspace-types'
 import type { FolderSearchEntry, FolderSearchResult } from '../../shared/folder-search-types'
 import type { GlobalSettings } from '../../shared/global-settings-types'
@@ -7,6 +8,7 @@ import type { Repo } from '../../shared/repo-types'
 import { LOCAL_EXECUTION_HOST_ID, type ExecutionHostId } from '../../shared/execution-host'
 import { normalizeRuntimePathForComparison } from '../../shared/cross-platform-path'
 import { getDefaultWorkspaceDir } from '../../shared/constants'
+import { getFolderSearchLocations } from '../../shared/folder-search-settings'
 import { getEffectiveHostSetting } from '../../shared/host-setting-overrides'
 import { buildKnownOrcaWorkspaceLayouts } from '../../shared/worktree/ownership'
 import { readGitMarker } from './git-marker'
@@ -68,13 +70,12 @@ function toEntry(folder: ScannedFolder): FolderSearchEntry {
 }
 
 /**
- * Lists folders next to registered local projects. The raw scan is cached by search-root set; tracked
+ * Lists folders in the saved local search locations. The raw scan is cached by search-root set; tracked
  * folders are removed on every call, so adding or removing a project shows at once without a rescan.
  */
 export function createFolderSearchService(options: {
   store: FolderSearchStore
   homeDir?: string
-  tmpDir?: string
   ttlMs?: number
   limits?: Partial<FolderScanLimits>
   maxRoots?: number
@@ -106,15 +107,25 @@ export function createFolderSearchService(options: {
     repos: Repo[]
   ): Promise<ScannedFolder[]> => {
     const { store } = options
+    // Registered parent aliases are filtering-only roots; saved locations still define what is scanned.
+    const parents = [...new Set(repos.filter(isLocalDiskRepo).map((repo) => dirname(repo.path)))]
+    const parentRoots = await deriveFolderSearchRoots({
+      locations: parents,
+      homeDir: options.homeDir ?? homedir(),
+      managedWorkspaceDirs: [],
+      maxRoots: parents.length,
+      callTimeoutMs: timeoutMs
+    })
+    const filterRoots = [...roots, ...parentRoots.roots]
     const tracked = await collectTrackedFolderKeys({
       repos,
       folderWorkspaces: store.getFolderWorkspaces(),
       localWorktreeIds: Object.keys(store.getAllWorktreeMetaForHost(LOCAL_EXECUTION_HOST_ID)),
-      roots,
+      roots: filterRoots,
       callTimeoutMs: timeoutMs
     })
     return dropTrackedFolders(folders, tracked, {
-      roots,
+      roots: filterRoots,
       managedDirs: managedWorkspaceDirs(store.getSettings(), options.homeDir ?? homedir(), repos),
       callTimeoutMs: timeoutMs
     })
@@ -126,14 +137,15 @@ export function createFolderSearchService(options: {
       const home = options.homeDir ?? homedir()
       const repos = store.getRepos()
       const derived = await deriveFolderSearchRoots({
-        repos,
+        // Home is the first-run fallback; discovery never depends on a registered project.
+        locations: getFolderSearchLocations(store.getSettings()),
         homeDir: home,
-        tmpDir: options.tmpDir ?? tmpdir(),
         managedWorkspaceDirs: managedWorkspaceDirs(store.getSettings(), home, repos),
         maxRoots: options.maxRoots,
         callTimeoutMs: timeoutMs
       })
-      const key = derived.roots.map((root) => root.realPath).join('\n')
+      // Editing an alias spelling must refresh both displayed paths and tracked-path comparisons.
+      const key = JSON.stringify(derived.roots)
       let scanned: CachedScan
       if (cache && cache.key === key && now() - cache.scannedAt < ttlMs) {
         scanned = cache
