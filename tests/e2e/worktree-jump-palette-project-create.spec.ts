@@ -125,6 +125,11 @@ test('Cmd+J starts a worktree in a project from the keyboard, with a name typed 
   mkdirSync(path.join(parent, 'acme-docs'))
 
   await waitForSessionReady(orcaPage)
+  // Cmd+J scans only the configured search locations; this spec's folders live under its own parent.
+  await orcaPage.evaluate(
+    (root) => window.__store!.getState().updateSettingsOrThrow({ folderSearchLocations: [root] }),
+    parent
+  )
   for (const repoPath of [web, api, notes]) {
     await orcaPage.evaluate(async (target) => {
       if (!(await window.__store!.getState().addRepoPath(target))) {
