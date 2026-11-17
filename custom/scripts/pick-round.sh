@@ -3,10 +3,10 @@
 # Usage: pick-round.sh ALL_DIR   (ALL_DIR holds round-N/ and gates-N-*/ directories from download-artifact)
 #
 # round-0 is what the merge job made without a model (clean, scripted, or an unresolved fallback). Rounds 1..3 are
-# agent attempts. Score = number of failed gates; a candidate with unresolved conflicts, or whose gates never
-# reported, scores 1000 so that any candidate that actually passed or failed honestly on its gates beats it.
-# A round whose output contained the API key (its edits were discarded) scores 1001: it loses even to another
-# unresolved candidate. Lowest score wins; on a tie the later round wins (it saw more information).
+# agent attempts. Score = round_score in lib.sh: the number of failed gates; 1000 plus the number of files still carrying
+# conflict markers for an unresolved candidate (so the one that got further wins, not merely the later one), and 1000 for a
+# resolved one whose gates never reported; a round whose output contained the API key (its edits were discarded) scores
+# 100000 and loses to everything. Lowest score wins; on a tie the later round wins (it saw more information).
 # Outputs: round, round_dir, gates_dirs (space separated, may be empty), score. Also writes ALL_DIR/agent-rounds.json,
 # the union of every round's agent records, so the PR reports the cost of rounds that were not chosen too.
 # shellcheck source=lib.sh

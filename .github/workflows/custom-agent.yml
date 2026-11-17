@@ -20,7 +20,7 @@ on:
         type: string
         required: true
       mode:
-        description: first (resolve from scratch), repair (fix the previous candidate using real gate output; may also edit the files our customizations own), retry (resolve from scratch again, with the previous attempt's output as context; only when there is no resolved candidate to repair)
+        description: first (resolve from scratch), repair (fix the previous candidate using real gate output; may also edit the files our customizations own; when that candidate still has unresolved files, continue it and finish only those), retry (resolve from scratch again, with the previous attempt's output as context; only when there is no candidate to continue)
         type: string
         required: true
       tier:

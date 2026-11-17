@@ -14,12 +14,12 @@ fails=0
 ok() { printf 'ok   %s\n' "$1"; }
 bad() { printf 'FAIL %s\n' "$1"; fails=$((fails + 1)); }
 
-# mk DIR N unresolved(true|false) FAILED_GATES(number | none = gates never reported) [leak] [no-bundle]
+# mk DIR N unresolved(true|false) FAILED_GATES(number | none = gates never reported) [leak] [no-bundle] [FILES_STILL_UNRESOLVED, default 1]
 mk() {
-  local all="$1" n="$2" unresolved="$3" failed="$4" leak="${5:-false}" bundle="${6:-yes}" d i gates='[]'
+  local all="$1" n="$2" unresolved="$3" failed="$4" leak="${5:-false}" bundle="${6:-yes}" left="${7:-1}" d i gates='[]'
   d="$all/round-$n"; mkdir -p "$d"
-  jq -n --argjson u "$unresolved" --argjson l "$leak" --argjson n "$n" \
-    '{unresolved: $u, key_leak: $l, agent: {rounds: [{round: $n}]}}' > "$d/sync-facts.json"
+  jq -n --argjson u "$unresolved" --argjson l "$leak" --argjson n "$n" --argjson left "$left" \
+    '{unresolved: $u, key_leak: $l, unresolved_files: (if $u then [range($left) | "src/f\(.).ts"] else [] end), agent: {rounds: [{round: $n}]}}' > "$d/sync-facts.json"
   [ "$bundle" = no ] || printf 'bundle\n' > "$d/merge.bundle"
   if [ "$failed" != none ]; then
     mkdir -p "$all/gates-$n-static" "$all/gates-$n-e2e"
@@ -53,7 +53,7 @@ base_case "round 2 made it worse: repair round 1" "$a" repair 1
 a="$tmp/c"; mk "$a" 1 false 1; mk "$a" 2 false 1
 base_case "a tie goes to the later round" "$a" repair 2
 a="$tmp/d"; mk "$a" 1 true none
-base_case "round 1 left conflict markers, no round 2: fresh retry, shown round 1 (it has no gate results)" "$a" retry 1 ""
+base_case "round 1 left conflict markers, no round 2: continue round 1 (it has no gate results)" "$a" repair 1 ""
 a="$tmp/e"; mk "$a" 1 false 2; mk "$a" 2 false 5 false no
 base_case "round 2 crashed before it wrote a bundle: repair round 1" "$a" repair 1
 a="$tmp/f"; mk "$a" 1 false none
@@ -61,13 +61,25 @@ base_case "a resolved round whose gates never reported is not a base: retry" "$a
 a="$tmp/g"; mk "$a" 1 false 3; mk "$a" 2 false 0 true
 base_case "a round with a key leak is never a base" "$a" repair 1
 a="$tmp/h"; mk "$a" 1 true none; mk "$a" 2 true none
-base_case "every round unresolved: fresh retry, shown the latest round" "$a" retry 2 ""
+base_case "every round unresolved by the same number of files: continue the later round" "$a" repair 2 ""
 a="$tmp/i"; mkdir -p "$a"
 base_case "nothing downloaded: retry with no previous round" "$a" retry ""
 a="$tmp/j"; mk "$a" 1 false 0
 base_case "a round with every gate green is a valid base" "$a" repair 1
 a="$tmp/k"; mk "$a" 1 true none; mk "$a" 2 false 4
 base_case "round 1 unresolved but round 2 resolved: repair round 2" "$a" repair 2
+# v1.4.261: round 1 ran out of turns with 9 files unresolved (3 of them need a human); the old pipeline restarted from the merge and the stronger model
+# left 14. A round that got further must be continued, not thrown away.
+a="$tmp/l"; mk "$a" 1 true none false yes 9; mk "$a" 2 true none false yes 14
+base_case "round 2 got less far: continue round 1 (fewer files unresolved)" "$a" repair 1 ""
+a="$tmp/m"; mk "$a" 1 true none false yes 9; mk "$a" 2 true none false yes 4
+base_case "round 2 got further: continue round 2" "$a" repair 2 ""
+a="$tmp/n"; mk "$a" 1 false 3; mk "$a" 2 true none false yes 1
+base_case "a resolved candidate with failing gates beats a nearly resolved one" "$a" repair 1
+a="$tmp/o"; mk "$a" 1 true none true yes 2
+base_case "a partly resolved round whose output leaked the key is never continued: retry" "$a" retry 1 ""
+a="$tmp/q"; mk "$a" 1 true none true yes 2; mk "$a" 2 true none false yes 20
+base_case "a clean candidate with many files unresolved beats a leaked one" "$a" repair 2 ""
 
 # ---- what the PR publishes: unchanged by the refactor ------------------------------------------------------------------
 a="$tmp/p1"; mk "$a" 0 true none; mk "$a" 1 false 2; mk "$a" 2 false 1; mk "$a" 3 false 1
@@ -75,7 +87,14 @@ pick_case "tie between round 2 and 3 goes to the later round" "$a" 3
 a="$tmp/p2"; mk "$a" 0 true none; mk "$a" 1 false 2; mk "$a" 2 false 1; mk "$a" 3 false 0 true
 pick_case "a leaked round 3 loses to a clean round 2" "$a" 2
 a="$tmp/p3"; mk "$a" 0 true none; mk "$a" 1 true none
-pick_case "only unresolved candidates: the later one" "$a" 1
+pick_case "only unresolved candidates, equally far: the later one" "$a" 1
+# The v1.4.261 incident: round 1 left 9 files unresolved, round 3 left 14, and the later round was published.
+a="$tmp/p7"; mk "$a" 0 true none false yes 31; mk "$a" 1 true none false yes 9; mk "$a" 3 true none false yes 14
+pick_case "unresolved candidates: the one with the fewest files unresolved, not the latest" "$a" 1
+a="$tmp/p8"; mk "$a" 0 true none false yes 31; mk "$a" 1 true none false yes 9; mk "$a" 2 true none false yes 9
+pick_case "unresolved candidates tied on files left: the later round" "$a" 2
+a="$tmp/p9"; mk "$a" 0 true none false yes 3; mk "$a" 1 true none true yes 1
+pick_case "an unresolved candidate with a key leak loses to any other unresolved one" "$a" 0
 a="$tmp/p4"; mk "$a" 0 false 0
 pick_case "a clean merge with green gates" "$a" 0
 a="$tmp/p5"; mk "$a" 0 true none; mk "$a" 1 false 2; mk "$a" 2 false 1 false no

@@ -122,10 +122,19 @@ strip_ansi() { perl -pe 's/\e\[[0-9;?]*[A-Za-z]//g'; }
 count_markers() { grep -a -c -E '^<<<<<<< ' -- "$1" 2>/dev/null || true; }
 has_markers() { grep -a -q -E '^(<<<<<<<|>>>>>>>|\|\|\|\|\|\|\|) ' -- "$1" 2>/dev/null; }
 
+# A model cannot delete a file (its tools can only read and edit). To drop a file of a modify/delete conflict (upstream deleted it, or
+# we did) it replaces the WHOLE file with this one line, and sync-merge.sh finish removes it. Never honoured anywhere else.
+DELETE_SENTINEL="DELETE-THIS-FILE"
+is_delete_request() { # PATH
+  [ -f "$1" ] && [ "$(wc -c < "$1" | tr -d ' ')" -le 64 ] && [ "$(tr -d '[:space:]' < "$1")" = "$DELETE_SENTINEL" ]
+}
+
 # round_score ALL_DIR N: print how bad round N's candidate is (lower wins); return 1 when the round left no candidate (no
 # sync-facts.json or no merge.bundle, e.g. its job crashed). ALL_DIR holds the downloaded round-N/ and gates-N-*/ directories.
-# Score = number of failed gates. 1000 when the merge is unresolved or its gates never reported (any candidate that really
-# passed or failed its gates beats it); 1001 when the round's output contained the API key (its edits were discarded).
+# Resolved merge: the number of failed gates; 1000 when its gates never reported. Unresolved merge: 1000 plus the number of files
+# still carrying conflict markers (at least 1), so a candidate that resolved more of them wins and any candidate that really
+# passed or failed its gates beats every unresolved one. 100000 when the round's output contained the API key (its edits were
+# discarded): it loses to everything, even to a candidate with every file unresolved.
 round_score() {
   local all="$1" n="$2" d score=1000 g
   local -a files=()
@@ -134,8 +143,10 @@ round_score() {
   if [ "$(jq -r '.unresolved' "$d/sync-facts.json")" != true ]; then
     for g in "$all"/gates-"$n"-*/gates.json; do if [ -s "$g" ]; then files+=("$g"); fi; done
     if [ "${#files[@]}" -gt 0 ]; then score="$(jq -s '[.[].gates[] | select(.status == "fail")] | length' "${files[@]}")"; fi
+  else
+    score=$((1000 + $(jq -r '[((.unresolved_files // []) | length), 1] | max' "$d/sync-facts.json")))
   fi
-  if [ "$(jq -r '.key_leak // false' "$d/sync-facts.json")" = true ]; then score=1001; fi
+  if [ "$(jq -r '.key_leak // false' "$d/sync-facts.json")" = true ]; then score=100000; fi
   printf '%s\n' "$score"
 }
 
