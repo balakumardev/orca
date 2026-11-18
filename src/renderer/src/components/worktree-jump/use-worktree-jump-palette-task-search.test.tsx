@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { useWorktreeJumpPaletteTaskSearch } from './use-worktree-jump-palette-task-search'
+import { useWorktreeJumpPaletteTaskSearch } from './tasks/use-worktree-jump-palette-task-search'
 import { createCmdJTaskSearchRequests } from '../cmd-j/task-search-requests'
 import { jiraTaskResult } from '../cmd-j/task-search.test-fixture'
 import { EMPTY_PALETTE_FILTER } from '../cmd-j/palette-filter'

@@ -1,11 +1,13 @@
-import { worktreeWorkspaceKey } from '../../../../../../shared/workspace-scope'
+import { worktreeWorkspaceKey } from '../../../../../../shared/workspace/identity/workspace-scope'
 import { forgetCombinedDiffViewsForWorktrees } from '@/components/editor/combined-diff/remember-view/combined-diff-view-cache'
-import type { ExecutionHostId } from '../../../../../../shared/execution-host'
+import { forgetDisplayedPanesForWorktrees } from '@/components/sidebar/workspace-card/slots/worktree-card-slot-pane-index'
+import type { ExecutionHostId } from '../../../../../../shared/execution-host/execution-host'
 import type { WorktreeSliceSet } from '../listing/worktree-slice-types'
 import { removeDeleteStatesForWorktreeIds } from './worktree-delete-state'
 import { removeWorktreeVisitEntries } from '@/lib/workspace/activation/worktree-visit-recency'
 import { forgetAmbiguousOwnerWarnings } from '@/lib/workspace/ownership/ambiguous-owner-warning'
 import { omitRecordKeys } from './record-key-omission'
+import { removeWorkspaceUnreadState } from '../../workspace-attention/workspace-unread-removal'
 import { removeWorktreeLayout } from '../../tabs/worktree-layout-lifecycle'
 import { omitSleepingAgentSessionsForWorktrees } from './sleeping-agent-session-omission'
 import {
@@ -25,6 +27,7 @@ export function applyRemoveWorktreeSuccessState(
   // Clear module caches outside store state; reused IDs must re-arm ambiguity warnings.
   forgetAmbiguousOwnerWarnings([worktreeId])
   forgetCombinedDiffViewsForWorktrees([worktreeId])
+  forgetDisplayedPanesForWorktrees([{ id: worktreeId }])
   completeProjectTodosForRemovedWorktrees([{ id: worktreeId, hostId: executionHostId }])
   set((s) => {
     const worktreeIds = [worktreeId]
@@ -53,6 +56,7 @@ export function applyRemoveWorktreeSuccessState(
     const removedActiveWorktree = s.activeWorktreeId === worktreeId
     return {
       editorBufferKeepRequest,
+      ...removeWorkspaceUnreadState(s, [{ id: worktreeId }]),
       ...removeWorktreeLayout(s, {
         worktreeIds: new Set(worktreeIds),
         tabIds,
@@ -102,6 +106,7 @@ export function applyRemoveWorktreeSuccessState(
       explorerDisplayRootByWorktree: omitByWorktree(s.explorerDisplayRootByWorktree),
       showDotfilesByWorktree: omitByWorktree(s.showDotfilesByWorktree),
       gitGraphFiltersByWorktree: omitByWorktree(s.gitGraphFiltersByWorktree ?? {}),
+      notificationsMutedByWorktree: omitByWorktree(s.notificationsMutedByWorktree),
       expandedDirs: omitByWorktree(s.expandedDirs),
       gitStatusHugeByWorktree: omitByWorktree(s.gitStatusHugeByWorktree),
       gitStatusReadErrorByWorktree: omitByWorktree(s.gitStatusReadErrorByWorktree),
