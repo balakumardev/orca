@@ -95,7 +95,7 @@ Cmd+J can list past agent conversations that match what you type. It reads the s
 
 Read this before you turn it on. The index holds the text of your agent conversations on your disk, and Orca does not encrypt it. With it on, every search of two or more characters in Cmd+J can show excerpts of those conversations. A screen share can show them too. **Clear search data** in the same settings removes the index.
 
-Enter on a session row reopens its chat, jumps to the pane that still holds it, or resumes it in a new chat tab of the workspace that owns its folder. A session in a folder Orca does not track, or from an agent that cannot become a chat, shows as a dimmed row that Enter skips. A typed Enter never opens a session. You must move to the row first.
+Enter on a session row reopens its chat, jumps to the pane that still holds it, or resumes it in the workspace that owns its folder. It resumes in a new terminal tab when Settings open that agent as CLI, and in a new chat tab when they open it as Chat. A session in a folder Orca does not track, or one that cannot be resumed that way, shows as a dimmed row that Enter skips. A typed Enter never opens a session. You must move to the row first.
 
 ![The Sessions section of the palette for the search "retried": three past conversations with the agent, the project and a text excerpt, and the Create row highlighted](readme/palette-sessions.png)
 
