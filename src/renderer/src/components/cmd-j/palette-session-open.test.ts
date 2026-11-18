@@ -10,6 +10,7 @@ import type { PaletteSessionFacts } from './palette-session-action'
 import { readPaletteSessionFacts } from './palette-session-facts'
 import { sessionHit } from './palette-session-hit.test-fixture'
 import { openPaletteSession } from './palette-session-open'
+import { resumePaletteSessionInTerminal } from './palette-session-terminal-resume'
 
 vi.mock('@/lib/agent-session/open/activate-ai-vault-structured-session', () => ({
   activateAiVaultStructuredSession: vi.fn(async () => true)
@@ -31,12 +32,17 @@ vi.mock('./palette-session-facts', async (importOriginal) => {
   const original = await importOriginal<{ paletteSessionOfHit: unknown }>()
   return { paletteSessionOfHit: original.paletteSessionOfHit, readPaletteSessionFacts: vi.fn() }
 })
+vi.mock('./palette-session-terminal-resume', () => ({
+  resumePaletteSessionInTerminal: vi.fn(async () => {})
+}))
 
 const closed: PaletteSessionFacts = {
   nativeChat: false,
   originalPane: null,
   resumable: true,
   ownerWorkspaceId: 'wt-web',
+  opensAsChat: true,
+  terminalResumeWorkspaceId: 'wt-web',
   chatResume: { available: true, workspaceId: 'wt-web' }
 }
 const hit = sessionHit('s-1')
@@ -57,6 +63,16 @@ describe('openPaletteSession', () => {
       expect.any(String)
     )
     expect(activateAiVaultStructuredSession).not.toHaveBeenCalled()
+  })
+
+  it('resumes it in a new terminal of its own workspace when the agent opens as CLI', async () => {
+    vi.mocked(readPaletteSessionFacts).mockReturnValue({ ...closed, opensAsChat: false })
+    await openPaletteSession(hit)
+    expect(resumePaletteSessionInTerminal).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ agent: 'claude', sessionId: 's-1', cwd: '/code/acme-web' }),
+      'wt-web'
+    )
+    expect(resumeAiVaultSessionInNewChat).not.toHaveBeenCalled()
   })
 
   it('reads the store as it is at Enter, not as it was when the row was drawn', async () => {

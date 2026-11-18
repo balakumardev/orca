@@ -89,4 +89,26 @@ describe('readPaletteSessionFacts', () => {
     )
     expect(facts({}).resumable).toBe(true)
   })
+
+  it('opens as chat only when Settings open every chat that could take the conversation over as Chat', () => {
+    useAppStore.setState({
+      settings: {
+        ...initialAppState.settings!,
+        agentDefaultSurface: 'chat',
+        nativeChatProviders: { claude: false, opencode: false }
+      }
+    })
+    expect(facts({ agent: 'claude' }).opensAsChat).toBe(false)
+    expect(facts({ agent: 'codex' }).opensAsChat).toBe(true)
+    // An OpenCode chat can take an OpenCode 2 conversation over, and OpenCode opens as CLI.
+    expect(facts({ agent: 'opencode2' }).opensAsChat).toBe(false)
+  })
+
+  it('names where the Agents panel would resume it in a terminal', () => {
+    resolveResume.mockReturnValueOnce({
+      resumeState: { blocked: false, worktreeId: 'wt-web', usesSessionWorktree: true },
+      resumeInChat: { available: true, workspaceId: 'wt-web' }
+    })
+    expect(facts({}).terminalResumeWorkspaceId).toBe('wt-web')
+  })
 })

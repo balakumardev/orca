@@ -67,6 +67,8 @@ beforeEach(() => {
     originalPane: null,
     resumable: true,
     ownerWorkspaceId: hit.cwd === '/code/known' ? 'wt-known' : null,
+    opensAsChat: true,
+    terminalResumeWorkspaceId: 'wt-known',
     chatResume: { available: true, workspaceId: 'wt-known' }
   }))
 })

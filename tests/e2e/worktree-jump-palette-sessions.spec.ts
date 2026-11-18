@@ -1,6 +1,14 @@
 import type { ElectronApplication, Locator, Page } from '@stablyai/playwright-test'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { expect } from './helpers/orca-app'
@@ -165,6 +173,25 @@ const readTabCount = (page: Page, worktreeId: string): Promise<number> =>
     (id) => window.__store!.getState().unifiedTabsByWorktree[id]?.length ?? 0,
     worktreeId
   )
+
+/** True once the Claude stub was started as `claude --resume <sessionId>`, as a terminal resume starts it. */
+function stubResumed(launchLog: string, sessionId: string): boolean {
+  if (!existsSync(launchLog)) {
+    return false
+  }
+  return readFileSync(launchLog, 'utf8')
+    .split('\n')
+    .filter(Boolean)
+    .some((line) => {
+      const entry: unknown = JSON.parse(line)
+      const args =
+        entry && typeof entry === 'object' && 'args' in entry && Array.isArray(entry.args)
+          ? entry.args.map(String)
+          : []
+      const at = args.indexOf('--resume')
+      return at !== -1 && args[at + 1] === sessionId
+    })
+}
 
 /**
  * Type 'quarterly' by the given means, then press Enter. The fixture lists the session whose folder is not in
@@ -405,6 +432,48 @@ test('Cmd+J lists transcript hits after Workspaces and Folders and resumes a clo
       worktreeId
     )
   })
+})
+
+test('Cmd+J resumes a closed session in a new terminal of its workspace when Claude opens as CLI', async ({
+  electronApp,
+  orcaPage,
+  claudeStub,
+  registerPostElectronShutdownCleanup
+}) => {
+  const { worktreeId } = await seedWorld(
+    { electronApp, orcaPage, claudeStub, registerPostElectronShutdownCleanup },
+    { enableSearch: true }
+  )
+  // The world opens Claude as a chat; this profile opens it as CLI, as when the chat UI is turned off.
+  await orcaPage.evaluate(() =>
+    window.__store!.getState().updateSettingsOrThrow({
+      nativeChatProviders: { claude: false, codex: true }
+    })
+  )
+  const tabsBefore = await readTabCount(orcaPage, worktreeId)
+  const { palette, input } = await openPalette(orcaPage)
+  await input.fill('billing')
+  const row = sessionRows(palette).filter({ hasText: KNOWN_TITLE })
+  await expect(row).toHaveAttribute('aria-disabled', 'false')
+  await arrowToRow(input, row)
+  await input.press('Enter')
+  await expect(palette).toHaveCount(0)
+  // A terminal runs Claude's own resume of the conversation.
+  await expect
+    .poll(() => stubResumed(claudeStub.launchLog, KNOWN_SESSION_ID), { timeout: 30_000 })
+    .toBe(true)
+  // In a new tab of the session's own workspace, now in front; no chat tab opens to take it over.
+  await expect.poll(() => readTabCount(orcaPage, worktreeId)).toBeGreaterThan(tabsBefore)
+  const tabTypes = await orcaPage.evaluate(
+    (id) =>
+      (window.__store!.getState().unifiedTabsByWorktree[id] ?? []).map((tab) => tab.contentType),
+    worktreeId
+  )
+  expect(tabTypes).toContain('terminal')
+  expect(tabTypes).not.toContain('agent-session')
+  expect(await orcaPage.evaluate(() => window.__store!.getState().activeWorktreeId)).toBe(
+    worktreeId
+  )
 })
 
 test('Cmd+J shows no Sessions section and asks the index nothing while Agent Session History search is off', async ({

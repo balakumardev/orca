@@ -8,6 +8,7 @@ import { revealSessionWorkspace } from '@/components/right-sidebar/ai-vault/sess
 import { resumeAiVaultSessionInNewChat } from '@/components/right-sidebar/ai-vault/session-actions/ai-vault-session-resume-in-chat-launch'
 import { resolvePaletteSessionAction } from './palette-session-action'
 import { paletteSessionOfHit, readPaletteSessionFacts } from './palette-session-facts'
+import { resumePaletteSessionInTerminal } from './palette-session-terminal-resume'
 
 /**
  * Enter on a transcript hit. The store is read again here, so a tab that closed or a workspace that went away
@@ -28,6 +29,8 @@ export async function openPaletteSession(hit: AiVaultSearchHit): Promise<void> {
         scrollToBottomIfOutputSinceLastView: true
       })
     }
+  } else if (action.kind === 'resume-terminal') {
+    await resumePaletteSessionInTerminal(session, action.workspaceId)
   } else if (action.kind === 'resume-chat' && adoptsCliConversations(session.agent)) {
     await resumeAiVaultSessionInNewChat(
       session,

@@ -9,6 +9,8 @@ const resumable: PaletteSessionFacts = {
   originalPane: null,
   resumable: true,
   ownerWorkspaceId: 'wt-web',
+  opensAsChat: true,
+  terminalResumeWorkspaceId: 'wt-web',
   chatResume: { available: true, workspaceId: 'wt-web' }
 }
 
@@ -18,6 +20,32 @@ describe('resolvePaletteSessionAction', () => {
       kind: 'resume-chat',
       workspaceId: 'wt-web'
     })
+  })
+
+  it('resumes it in a new terminal of that workspace instead when Settings open the agent as CLI', () => {
+    expect(resolvePaletteSessionAction({ ...resumable, opensAsChat: false })).toEqual({
+      kind: 'resume-terminal',
+      workspaceId: 'wt-web'
+    })
+    // Also for an agent no chat can take over, such as Cursor.
+    expect(
+      resolvePaletteSessionAction({
+        ...resumable,
+        opensAsChat: false,
+        chatResume: { available: false, reason: 'agent' }
+      })
+    ).toEqual({ kind: 'resume-terminal', workspaceId: 'wt-web' })
+  })
+
+  it('never hands it to a chat for an agent opened as CLI, when the terminal cannot take it there', () => {
+    for (const terminalResumeWorkspaceId of [null, 'wt-open-elsewhere']) {
+      expect(
+        resolvePaletteSessionAction({ ...resumable, opensAsChat: false, terminalResumeWorkspaceId })
+      ).toEqual({ kind: 'none', reason: 'cannot-resume' })
+    }
+    expect(
+      resolvePaletteSessionAction({ ...resumable, opensAsChat: false, resumable: false })
+    ).toEqual({ kind: 'none', reason: 'cannot-resume' })
   })
 
   it('jumps to the pane that still holds the conversation instead of resuming it', () => {
