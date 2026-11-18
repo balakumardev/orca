@@ -6,9 +6,13 @@ import {
   TEXT_ACTION_DEFAULT_MODEL,
   textActionArgumentsOwnEffort
 } from '../../../../shared/agent-launch/picker/agent-launch-picker-text-action'
+import { withLaunchEffortDefault } from './agent-launch-setup-default-effort'
 import { translate } from '@/i18n/i18n'
 import type { Translate } from '@/i18n/use-translate'
-import type { SessionOptionDescriptor } from '../../../../shared/native-chat/input/native-chat-session-options'
+import type {
+  SessionOptionDescriptor,
+  SessionOptionSelectChoice
+} from '../../../../shared/native-chat/input/native-chat-session-options'
 import type {
   agentPickerEntryOptions,
   agentPickerModels
@@ -58,20 +62,24 @@ function argumentsOwnedRow(
   }
 }
 
-/** Clearing Effort keeps the selected model, so its default is that model's inherited effort. */
-function textEffortDefaultLabel(
+/** Clearing Effort keeps the selected model, so its default is that model's inherited effort.
+ *  Why short: it sits in the effort row beside every level; its name still says what it inherits. */
+function textEffortDefaultChoice(
   kind: {
     choices: readonly { value: string; label: string }[]
     defaultValue: string
   },
   t: Translate = translate
-): string {
+): SessionOptionSelectChoice {
   const effort = kind.choices.find((choice) => choice.value === kind.defaultValue)?.label
-  return effort
-    ? t('agentPicker.sameAsTextDefault', 'Same as default · {{value0}}', {
-        value0: effort
-      })
-    : t('settings.sourceControl.actionModel.effortDefault', 'Default')
+  const short = t('settings.sourceControl.actionModel.effortDefault', 'Default')
+  return {
+    value: TEXT_ACTION_DEFAULT_MODEL,
+    label: effort
+      ? t('agentPicker.sameAsTextDefault', 'Same as default · {{value0}}', { value0: effort })
+      : short,
+    shortLabel: short
+  }
 }
 
 export function agentLaunchSetupOptionRows(
@@ -145,12 +153,7 @@ export function agentLaunchSetupOptionRows(
                           ]
                         : []),
                       ...(entry.textGeneration.defaultLabel !== undefined
-                        ? [
-                            {
-                              value: TEXT_ACTION_DEFAULT_MODEL,
-                              label: textEffortDefaultLabel(option.kind, t)
-                            }
-                          ]
+                        ? [textEffortDefaultChoice(option.kind, t)]
                         : []),
                       ...option.kind.choices
                     ]
@@ -185,27 +188,13 @@ export function agentLaunchSetupOptionRows(
           }
     )
   }
-  return rows
-}
-
-/** Speed rows sit apart from the rest; launch also lifts level rows onto speed's line. */
-export function agentLaunchSetupRowGroups(rows: SessionOptionDescriptor[], launch: boolean) {
-  const isSpeed = (row: SessionOptionDescriptor) =>
-    row.id === 'fastMode' || row.id === 'serviceTier'
-  const isLevel = (row: SessionOptionDescriptor) =>
-    launch && !isSpeed(row) && row.category === 'thought_level' && row.kind.type === 'select'
-  return {
-    level: rows.filter(isLevel),
-    speed: rows.filter(isSpeed),
-    rest: rows.filter((row) => !isSpeed(row) && !isLevel(row))
-  }
+  return withLaunchEffortDefault(rows, entry, draft, t)
 }
 
 export function agentLaunchSetupCatalogState(
   entry: AgentPickerEntry,
   models: readonly { id: string; hidden?: true }[],
   currentModel: string | undefined,
-  mode: 'launch' | 'select',
   t: Translate = translate
 ) {
   const hasModels = models.some((model) => !model.hidden)
@@ -217,17 +206,11 @@ export function agentLaunchSetupCatalogState(
       ? null
       : entry.catalogRead === 'unsupported' ||
           (!hasModels && entry.catalog.origin === 'unknown' && entry.catalogRead === undefined)
-        ? mode === 'launch'
-          ? t(
-              'agentPicker.catalogUnsupportedLaunch',
-              '{{agent}} models are unavailable on this host. Your current choices still apply.',
-              { agent: entry.label }
-            )
-          : t(
-              'agentPicker.catalogUnsupported',
-              '{{agent}} models are unavailable on this host. You can keep your current choices or use Arguments.',
-              { agent: entry.label }
-            )
+        ? t(
+            'agentPicker.catalogUnsupportedLaunch',
+            '{{agent}} models are unavailable on this host. Your current choices still apply.',
+            { agent: entry.label }
+          )
         : entry.catalogRead === 'failed'
           ? t(
               'agentPicker.catalogFailed',
@@ -268,18 +251,22 @@ export function agentLaunchSetupCatalogState(
   return { hasModels, catalogPending, catalogMessage }
 }
 
-/** Visible model rows, plus the model the list starts on. */
+/** Visible model rows, the expanded legacy rows below their toggle, and the model the list starts on. */
 export function agentLaunchSetupModelRows(
   models: readonly AgentPickerModel[],
   currentModel: string | undefined,
   query: string,
-  legacy: boolean,
+  legacyExpanded: boolean,
   modelInArguments: boolean
 ) {
-  const rows: { id: string; label: string; unlisted?: true }[] = models.filter(
-    (model) =>
-      !model.hidden && (model.id === currentModel || query || Boolean(model.isLegacy) === legacy)
-  )
+  type Row = { id: string; label: string; unlisted?: true }
+  // A hidden row is listed by a matching search, or while it is the current choice.
+  const listed = models.filter((model) => !model.hidden || query || model.id === currentModel)
+  // Membership ignores the selection, so picking a model never moves rows in the open list.
+  const folded = (model: AgentPickerModel) => !query && Boolean(model.isLegacy)
+  const rows: Row[] = listed.filter((model) => !folded(model))
+  const legacyRows: Row[] = listed.filter(folded)
+  const shownLegacy = legacyExpanded ? legacyRows : []
   // Why one keyed list: when the catalog later lists an unlisted current model, its row keeps
   // its identity, so the highlight stays on it instead of jumping to the first model.
   if (currentModel && !models.some((model) => model.id === currentModel)) {
@@ -287,6 +274,13 @@ export function agentLaunchSetupModelRows(
   }
   // An Arguments-owned text action has no current model row, so it starts on its default as before.
   const start =
-    !modelInArguments && rows.some((row) => row.id === currentModel) ? currentModel : undefined
-  return { rows, start }
+    !modelInArguments && [...rows, ...shownLegacy].some((row) => row.id === currentModel)
+      ? currentModel
+      : undefined
+  return {
+    rows,
+    legacyRows: shownLegacy,
+    legacyCount: legacyRows.length,
+    start
+  }
 }

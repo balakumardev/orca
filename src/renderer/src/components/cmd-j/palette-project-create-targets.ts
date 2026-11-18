@@ -1,8 +1,8 @@
-import type { Project, ProjectHostSetup } from '../../../../shared/project-types'
-import type { Repo } from '../../../../shared/repo-types'
-import { getNewWorkspaceDialogEligibleRepos } from '../../../../shared/new-workspace-dialog-repo'
-import { isGitRepoKind } from '../../../../shared/repo-kind'
-import { getProjectHeaderRevealTarget } from '../../../../shared/project-section-grouping'
+import type { Project, ProjectHostSetup } from '../../../../shared/project/project-types'
+import type { Repo } from '../../../../shared/repository/repo-types'
+import { getNewWorkspaceDialogEligibleRepos } from '../../../../shared/new-workspace/new-workspace-dialog-repo'
+import { isGitRepoKind } from '../../../../shared/repository/repo-kind'
+import { getProjectHeaderRevealTarget } from '../../../../shared/sidebar-list/sections/project-section-grouping'
 import { searchCmdJProjectResults } from './palette-project-results'
 import {
   cmdJPaletteTokenScore,

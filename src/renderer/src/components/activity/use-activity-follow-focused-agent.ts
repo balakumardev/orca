@@ -1,6 +1,6 @@
 import { useContext, useEffect, useRef } from 'react'
 import { useAppStore } from '@/store'
-import type { ActivityGroupBy } from '../../../../shared/agents-view-thread-filters'
+import type { ActivityGroupBy } from '../../../../shared/agent-status/presentation/agents-view-thread-filters'
 import { getFollowedAgentPaneKey } from './activity-follow-agent-pane'
 import {
   decideActivityFollow,

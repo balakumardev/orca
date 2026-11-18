@@ -3,7 +3,7 @@ import { fakeFs } from './folder-search-fake-fs.test-fixture'
 import { createFolderSearchService, type FolderSearchStore } from './folder-search-service'
 import { scanFolderRoots } from './folder-search-scan'
 import { collectTrackedFolderKeys } from './folder-search-tracked-paths'
-import { getDefaultSettings } from '../../shared/constants'
+import { getDefaultSettings } from '../../shared/orca-profiles/constants'
 
 vi.mock(
   'node:fs/promises',

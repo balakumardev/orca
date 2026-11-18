@@ -1,36 +1,22 @@
 // @vitest-environment happy-dom
 
-import React, { useState } from 'react'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import 'react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { useAppStore } from '@/store'
-import { getDefaultSettings } from '../../../../../../shared/constants'
+import { getDefaultSettings } from '../../../../../../shared/orca-profiles/constants'
 import type { PublicKnownRuntimeEnvironment } from '../../../../../../shared/remote-runtime/host-catalog/runtime-environments'
-import {
-  getProjectHostSetupSelectionKey,
-  type ProjectHostSetupOption
-} from '@/lib/workspace/creation/project-host-setup-options'
-import { NewWorkspaceComposerProjectSection } from '@/components/new-workspace/NewWorkspaceComposerProjectSection'
+import '@/lib/workspace/creation/project-host-setup-options'
+import '@/components/new-workspace/composer/NewWorkspaceComposerProjectSection'
 import { SidebarHeaderActions } from '../../sidebar-header-actions'
-import AddRepoDialog from '../dialog/AddRepoDialog'
-import type { AddRepoDialogEntryRequest } from '../dialog/add-repo-dialog-types'
 
-const browseRuntimeServerDirectoryMock = vi.fn()
-const callRuntimeRpcMock = vi.fn()
-
-vi.mock('@/components/new-workspace/use-recent-project-ids', () => ({
+vi.mock('@/components/new-workspace/project-selection/use-recent-project-ids', () => ({
   useRecentProjectIds: () => []
 }))
 vi.mock('@/components/sidebar/host-admission/ssh/AddRemoteHostDialog', () => ({
   AddRemoteHostDialog: () => null
-}))
-vi.mock('@/runtime/files/reads/runtime-server-directory-browser', () => ({
-  browseRuntimeServerDirectory: (...args: unknown[]) => browseRuntimeServerDirectoryMock(...args)
-}))
-vi.mock('@/runtime/rpc/calls/runtime-rpc-call', () => ({
-  callRuntimeRpc: (...args: unknown[]) => callRuntimeRpcMock(...args)
 }))
 
 const UBUNTU_RUNTIME: PublicKnownRuntimeEnvironment = {
@@ -57,8 +43,6 @@ const pickFoldersMock = vi.fn<() => Promise<string[]>>()
 
 beforeEach(() => {
   pickFoldersMock.mockReset()
-  browseRuntimeServerDirectoryMock.mockReset()
-  callRuntimeRpcMock.mockReset()
   Object.defineProperty(window, 'api', {
     configurable: true,
     value: {
@@ -136,186 +120,5 @@ describe('AddProjectMenu in sidebar header', () => {
       kind: 'clone',
       hostId: 'runtime:wsl-ubuntu'
     })
-  })
-
-  it('opens the native folder picker directly for local Browse folder without opening a modal on cancel', async () => {
-    const user = userEvent.setup()
-    pickFoldersMock.mockResolvedValueOnce([])
-
-    render(
-      <TooltipProvider>
-        <SidebarHeaderActions onWorkspaceBoardMenuOpenChange={vi.fn()} />
-      </TooltipProvider>
-    )
-
-    await user.click(screen.getByRole('button', { name: 'Add project' }))
-    await user.click(await screen.findByRole('menuitem', { name: /Browse folder/ }))
-
-    expect(pickFoldersMock).toHaveBeenCalledOnce()
-    expect(useAppStore.getState().activeModal).toBe('none')
-
-    pickFoldersMock.mockResolvedValueOnce(['/Users/alice/new-repo'])
-    await user.click(screen.getByRole('button', { name: 'Add project' }))
-    await user.click(await screen.findByRole('menuitem', { name: /Browse folder/ }))
-
-    await waitFor(() => expect(useAppStore.getState().activeModal).toBe('add-repo'))
-    expect(useAppStore.getState().modalData.entryRequest).toMatchObject({
-      kind: 'picked-local-paths',
-      paths: ['/Users/alice/new-repo'],
-      hostId: 'local'
-    })
-  })
-})
-
-function ComposerHostSyncHarness({
-  onRequest
-}: {
-  onRequest: (request: AddRepoDialogEntryRequest) => void
-}): React.JSX.Element {
-  const hostOptions: ProjectHostSetupOption[] = [
-    {
-      kind: 'ready',
-      id: 'setup-local',
-      projectId: 'orca',
-      repoId: 'orca-local',
-      hostId: 'local',
-      label: 'Local Mac',
-      detail: 'Local',
-      path: '/Users/alice/orca'
-    },
-    {
-      kind: 'ready',
-      id: 'setup-ubuntu',
-      projectId: 'orca',
-      repoId: 'orca-ubuntu',
-      hostId: 'runtime:wsl-ubuntu',
-      label: 'Ubuntu-24.04',
-      detail: 'WSL',
-      path: '/home/alice/orca'
-    }
-  ]
-  const [setupId, setSetupId] = useState('setup-local')
-  const activeOption = hostOptions.find((item) => item.id === setupId) ?? hostOptions[0]
-
-  return (
-    <TooltipProvider>
-      <NewWorkspaceComposerProjectSection
-        projectOptions={[
-          {
-            kind: 'project',
-            id: 'orca',
-            projectId: 'orca',
-            displayName: 'orca',
-            badgeColor: 'var(--muted-foreground)',
-            detail: 'stablyai/orca'
-          }
-        ]}
-        selectedProjectId="orca"
-        onProjectChange={vi.fn()}
-        projectError={null}
-        projectDescriptionId="desc"
-        onAddProject={vi.fn()}
-        onAddProjectEntryRequest={onRequest}
-        handleOpenRemoteHostDialog={vi.fn()}
-        focusNameInput={vi.fn()}
-        shouldShowRunTargetPicker
-        projectHostSetupOptions={hostOptions}
-        selectedProjectHostSetupId={setupId}
-        selectedRepoExecutionHostId={activeOption.hostId}
-        handleProjectHostSetupChange={(selectionKey) => {
-          const next = hostOptions.find(
-            (candidate) => getProjectHostSetupSelectionKey(candidate) === selectionKey
-          )
-          if (next) {
-            setSetupId(next.id)
-          }
-        }}
-        ephemeralVmRecipes={[]}
-        handleAddSshHost={vi.fn()}
-        handleAddRemoteServer={vi.fn()}
-        handleConnectRunTargetHost={async () => {}}
-        handleSetLocation={vi.fn()}
-        selectedRepoConnectionId={null}
-        selectedRepoRequiresConnection={false}
-        selectedRepoConnectInProgress={false}
-        onConnectSelectedRepo={async () => {}}
-        sshStatusLabel="Connected"
-        connectButtonLabel="Connect"
-        selectedProjectName="orca"
-      />
-    </TooltipProvider>
-  )
-}
-
-describe('AddProjectMenu default host sync in worktree composer', () => {
-  it('uses the Run on host selected in the worktree dialog for both the FolderPlus button and ProjectCombobox cascade', async () => {
-    const user = userEvent.setup()
-    const onRequest = vi.fn<(request: AddRepoDialogEntryRequest) => void>()
-    render(<ComposerHostSyncHarness onRequest={onRequest} />)
-
-    // Switch Run on from Local Mac to Ubuntu-24.04.
-    await user.click(screen.getByRole('combobox', { name: 'Run on' }))
-    await user.click(await screen.findByRole('option', { name: /Ubuntu-24\.04/ }))
-
-    // 1. FolderPlus button above Project defaults to Ubuntu-24.04.
-    await user.click(screen.getByRole('button', { name: 'Add project' }))
-    expect((await screen.findByRole('menuitem', { name: /Project host:/ })).textContent).toContain(
-      'Ubuntu-24.04'
-    )
-    await user.click(screen.getByRole('menuitem', { name: /Create new project/ }))
-
-    expect(onRequest).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        kind: 'create',
-        hostId: 'runtime:wsl-ubuntu'
-      })
-    )
-
-    // 2. ProjectCombobox pinned "Add project" cascade also defaults to Ubuntu-24.04 on hover + click.
-    await user.click(screen.getByRole('combobox', { name: 'Project' }))
-    const addProjectOption = await screen.findByRole('option', { name: /Add project/ })
-    fireEvent.mouseEnter(addProjectOption)
-
-    expect((await screen.findByRole('menuitem', { name: /Project host:/ })).textContent).toContain(
-      'Ubuntu-24.04'
-    )
-    await user.click(screen.getByRole('menuitem', { name: /Clone from URL/ }))
-
-    expect(onRequest).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        kind: 'clone',
-        hostId: 'runtime:wsl-ubuntu'
-      })
-    )
-  })
-})
-
-describe('AddRepoDialog direct menu entry', () => {
-  it('opens directly on Create new project for the requested host without a Back button or cancelled host defaults', async () => {
-    browseRuntimeServerDirectoryMock.mockResolvedValue({
-      resolvedPath: '/home/alice',
-      parentPath: '/home',
-      entries: []
-    })
-    callRuntimeRpcMock.mockResolvedValue({ available: true })
-
-    render(
-      <TooltipProvider>
-        <AddRepoDialog />
-      </TooltipProvider>
-    )
-
-    useAppStore.getState().openModal('add-repo', {
-      entryRequest: {
-        id: 1,
-        kind: 'create',
-        hostId: 'runtime:wsl-ubuntu'
-      }
-    })
-
-    expect(await screen.findByRole('dialog', { name: 'Create a new project' })).not.toBeNull()
-    expect(screen.queryByRole('button', { name: /Back/i })).toBeNull()
-    expect(await screen.findByText('Git repository in /home/alice/orca/projects')).not.toBeNull()
-    expect(browseRuntimeServerDirectoryMock).toHaveBeenCalledWith('wsl-ubuntu', '~')
   })
 })

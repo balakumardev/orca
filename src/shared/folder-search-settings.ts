@@ -1,4 +1,4 @@
-import type { GlobalSettings } from './global-settings-types'
+import type { GlobalSettings } from './settings/global-settings-types'
 
 /** Limit the number of independent filesystem walks started by one palette open. */
 export const MAX_FOLDER_SEARCH_ROOTS = 12

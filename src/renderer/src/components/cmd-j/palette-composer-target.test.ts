@@ -2,7 +2,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useAppStore } from '@/store/index'
-import type { Repo } from '../../../../shared/repo-types'
+import type { Repo } from '../../../../shared/repository/repo-types'
 import {
   resolvePaletteComposerRepoId,
   selectPaletteComposerTargetState,

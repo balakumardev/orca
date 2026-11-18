@@ -8,6 +8,7 @@ import {
   type ConversationNameTab
 } from '../../../../../shared/agent-status/presentation/agent-row-conversation-name'
 import { withNamedSessionTitleOnly } from '../../../../../shared/agent-status/presentation/named-session-title-only'
+import { aiVaultTitleOfSession } from '../../../../../shared/ai-vault/contracts/ai-vault-session-title'
 import type { Worktree } from '../../../../../shared/worktree/types'
 import {
   getAgentRowPrimaryText,
@@ -104,6 +105,23 @@ export function getActivityThreadTaskTitle(args: {
   const orchestrationLabel = orchestrationLabelForEntry(args.entry)
   if (orchestrationLabel) {
     return orchestrationLabel
+  }
+
+  // Like the tab, a session's own name outranks the first prompt this tab saw, e.g. after a resume.
+  const sessionTitle = aiVaultTitleOfSession(
+    args.tab.aiVaultTitle,
+    args.entry.agentType,
+    args.entry.providerSession?.id
+  )
+  const sessionName = sessionTitle?.kind === 'named' ? sessionTitle.title.trim() : ''
+  if (sessionName) {
+    return sessionName
+  }
+
+  // Respect tabAutoGenerateTitle here too so disabled generated titles cannot resurface.
+  const generatedTitle = args.generatedTitlesEnabled ? args.tab.generatedTitle?.trim() : ''
+  if (generatedTitle) {
+    return generatedTitle
   }
 
   // Why: the agent's session name outranks the last prompt like the sidebar, and keeps the tabAutoGenerateTitle gate.

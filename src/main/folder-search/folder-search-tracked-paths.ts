@@ -1,14 +1,17 @@
 import { realpath } from 'node:fs/promises'
 import type { FolderWorkspace } from '../../shared/folder-workspaces/folder-workspace-types'
-import type { Repo } from '../../shared/repo-types'
-import { LOCAL_EXECUTION_HOST_ID, getRepoExecutionHostId } from '../../shared/execution-host'
+import type { Repo } from '../../shared/repository/repo-types'
+import {
+  LOCAL_EXECUTION_HOST_ID,
+  getRepoExecutionHostId
+} from '../../shared/execution-host/execution-host'
 import {
   isPathInsideOrEqual,
   normalizeRuntimePathForComparison
-} from '../../shared/cross-platform-path'
+} from '../../shared/file-access/cross-platform-path'
 import { splitWorktreeIdForFilesystem } from '../../shared/worktree/id'
-import { isFolderRepo } from '../../shared/repo-kind'
-import { isWslUncPath } from '../../shared/wsl-paths'
+import { isFolderRepo } from '../../shared/repository/repo-kind'
+import { isWslUncPath } from '../../shared/file-access/wsl-paths'
 import { readGitMarker } from './git-marker'
 import type { FolderSearchRoot } from './folder-search-roots'
 import type { ScannedFolder } from './folder-search-scan'

@@ -1,7 +1,7 @@
 import type React from 'react'
 import type { ProjectNameStep } from '@/components/cmd-j/palette-project-name-step-store'
 import { useTranslate } from '@/i18n/use-translate'
-import { FooterKey } from './worktree-jump-palette-primitives'
+import { FooterKey } from './rows/worktree-jump-palette-row-content'
 
 /** What the palette shows under the input while a worktree name is being typed. */
 export function WorktreeJumpPaletteNameStepPanel({

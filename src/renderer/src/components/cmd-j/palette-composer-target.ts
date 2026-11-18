@@ -2,9 +2,9 @@ import { useAppStore } from '@/store/index'
 import type { AppState } from '@/store/types'
 import { resolveComposerActiveRepoId } from '@/lib/workspace/creation/new-workspace-composer-repo'
 import { resolveWorkspaceCreationTarget } from '@/lib/workspace/creation/project-host-workspace-target'
-import { getNewWorkspaceDialogEligibleRepos } from '../../../../shared/new-workspace-dialog-repo'
+import { getNewWorkspaceDialogEligibleRepos } from '../../../../shared/new-workspace/new-workspace-dialog-repo'
 import { buildExecutionHostRegistry } from '../../../../shared/execution-host/execution-host-registry'
-import { getHostDisplayLabelOverrides } from '../../../../shared/host-setting-overrides'
+import { getHostDisplayLabelOverrides } from '../../../../shared/execution-host/host-setting-overrides'
 
 export type PaletteComposerTargetState = Pick<
   AppState,

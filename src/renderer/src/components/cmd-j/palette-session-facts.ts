@@ -1,6 +1,6 @@
 import type { AppState } from '@/store/types'
 import type { AiVaultSearchHit } from '../../../../shared/ai-vault/search/ai-vault-search-types'
-import { LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host'
+import { LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host/execution-host'
 import {
   canJumpToAiVaultSessionWorktree,
   resolveAiVaultSessionWorktreeInfo

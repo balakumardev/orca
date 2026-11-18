@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Tab } from '../../../../shared/tab-types'
+import type { Tab } from '../../../../shared/workspace-layout/tab-groups/tab-types'
 import { getActivityThreadTaskTitle } from '@/lib/workspace/activity/activity-thread-display'
 import { buildActivityTabContext } from './activity-event-builder-context'
 

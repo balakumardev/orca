@@ -32,7 +32,7 @@ import { useActivityThreadReveal } from './use-activity-thread-reveal'
 import type {
   ActivityGroupBy,
   ThreadReadFilter
-} from '../../../../shared/agents-view-thread-filters'
+} from '../../../../shared/agent-status/presentation/agents-view-thread-filters'
 import type { ActivityThreadGroup, AgentPaneThread } from './activity-thread-types'
 
 const ZERO_RECT_FALLBACK_VIEWPORT = { width: 320, height: 600 }

@@ -1,4 +1,4 @@
-import type { ComputerAwakeStatus } from '../../../shared/computer-awake-mode'
+import type { ComputerAwakeStatus } from '../../../shared/app-lifecycle/computer-awake-mode'
 import {
   DEFAULT_LID_AWAKE_CONFIG,
   normalizeLidAwakeConfig,

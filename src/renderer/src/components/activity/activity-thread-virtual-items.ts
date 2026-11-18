@@ -1,4 +1,4 @@
-import type { ActivityGroupBy } from '../../../../shared/agents-view-thread-filters'
+import type { ActivityGroupBy } from '../../../../shared/agent-status/presentation/agents-view-thread-filters'
 import { getActivityDescriptionVisible } from './activity-description-visibility'
 import type { ActivityThreadGroup, AgentPaneThread } from './activity-thread-types'
 
