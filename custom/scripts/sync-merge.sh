@@ -382,13 +382,13 @@ cmd_finish_core() {
     kind="$(jq -r --arg p "$p" '.conflicts[] | select(.path == $p) | .kind' "$facts")"
     res=ok; drop=false
     if [ "$key_leak" = true ]; then res="the agent's output contained the API key; its edits were discarded"
-    elif [ "$kind" = deleted-by-them ] || [ "$kind" = deleted-by-us ]; then
-      # Modify/delete: the file in the tree is the side that kept it. The agent keeps it (untouched or edited to fit upstream), or
-      # replaces it with the delete sentinel; a file that is already gone (a repair of a candidate that dropped it) stays dropped.
+    elif [ "$kind" != content ] && [ "$kind" != both-added ]; then
+      # Modify/delete, and every other kind without markers (a rename conflict, a file placed by git): the file in the tree is one
+      # side's version. The agent keeps it (untouched or edited to fit upstream), or replaces it with the delete sentinel; a file
+      # that is already gone (a repair of a candidate that dropped it) stays dropped. No kind is left to a human.
       if [ ! -e "$p" ] || is_delete_request "$p"; then drop=true
       elif has_markers "$p"; then res="conflict markers remain"
       fi
-    elif [ "$kind" != content ] && [ "$kind" != both-added ]; then res="needs a human: $kind conflict"
     elif [ ! -f "$p" ]; then res="file is missing"
     elif is_delete_request "$p"; then res="$DELETE_SENTINEL was written to a file that upstream still has"
     elif has_markers "$p"; then res="conflict markers remain"
@@ -396,7 +396,7 @@ cmd_finish_core() {
     fi
     if [ "$res" = ok ]; then
       conflict_set "$p" agent
-      if [ "$kind" = deleted-by-them ] || [ "$kind" = deleted-by-us ]; then conflict_decision "$p" "$([ "$drop" = true ] && echo deleted || echo kept)"; fi
+      if [ "$kind" != content ] && [ "$kind" != both-added ]; then conflict_decision "$p" "$([ "$drop" = true ] && echo deleted || echo kept)"; fi
     else
       conflict_set "$p" unresolved
       unresolved+=("$p")

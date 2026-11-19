@@ -216,19 +216,22 @@ check "dropped: the merge is resolved" test "$(facts d2 .unresolved)" = false
 check "dropped: the decision is recorded" test "$(facts d2 '.conflicts[] | select(.path == "src/gone.ts") | .decision')" = deleted
 check "dropped: the resolution is the agent's" test "$(facts d2 '.conflicts[] | select(.path == "src/gone.ts") | .resolution')" = agent
 
-echo "only a conflict of an unusual kind is left: the model is not called at all"
+echo "a conflict of an unusual kind (a rename conflict, a file git placed after a move) is the model's too: no human step is left"
 cp -R "$tmp/d1.out" "$tmp/d3.out"
 jq '.unresolved = true | .unresolved_files = ["src/gone.ts"] | .conflicts |= map(.kind = "other")' "$tmp/d1.out/sync-facts.json" > "$tmp/d3.out/sync-facts.json"
 calls_before="$(wc -l < "$tmp/bin/calls" | tr -d ' ')"
 round d4 repair noop 2 flash d3
-check "a repair with nothing a model may edit: the plan says skip" test "$(jq -r .skip "$tmp/d4.out/agent-plan.json")" = true
-check "the model was never started" test "$(wc -l < "$tmp/bin/calls" | tr -d ' ')" = "$calls_before"
-check "the round is recorded as skipped" test "$(facts d4 '.agent.rounds[-1].skipped')" = true
-check "the job summary says why" grep -q 'Result: skipped; no file was left that a model may resolve\.' "$tmp/d4.summary"
-check "the file stays unresolved for a human" test "$(facts d4 '.unresolved_files | join(",")')" = "src/gone.ts"
+check "the plan does not skip" test "$(jq -r .skip "$tmp/d4.out/agent-plan.json")" = false
+check "the model was started" test "$(wc -l < "$tmp/bin/calls" | tr -d ' ')" -gt "$calls_before"
+check "the prompt offers the file with its kind and says it has no markers" grep -q 'src/gone.ts (other, no markers, still undecided' "$tmp/d4.out/agent-prompt.txt"
+check "the prompt tells the model to decide every kind and to pick its own recommendation" grep -q "pick the side YOU recommend" "$tmp/d4.out/agent-prompt.txt"
+check "nothing is fenced off as NOT YOURS" test -z "$(grep -F 'NOT YOURS' "$tmp/d4.out/agent-prompt.txt" || true)"
+check "a file of that kind the model left untouched is kept: the merge is resolved" test "$(facts d4 .unresolved)" = false
+check "the decision is recorded as kept" test "$(facts d4 '.conflicts[] | select(.path == "src/gone.ts") | .decision')" = kept
+check "the resolution is the agent's" test "$(facts d4 '.conflicts[] | select(.path == "src/gone.ts") | .resolution')" = agent
 src="$src_saved"; BASE_SHA="$base_saved"; UPSTREAM_SHA="$up_saved"
 
-echo "the delete line is honoured only for a modify/delete conflict"
+echo "the delete line is honoured only for a file without markers, never for a content conflict"
 round s1 first sentinel-content 1 flash
 check "the delete line in a file upstream still has leaves it unresolved" test "$(facts s1 '.unresolved_files | join(",")')" = "src/alpha.ts"
 check "the other two files were resolved" test "$(facts s1 '[.conflicts[] | select(.resolution == "agent")] | length')" = 2
