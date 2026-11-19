@@ -64,18 +64,18 @@ cmd_prepare() {
     fi
   fi
 
-  local files manual nfiles check old_tag resume=0 nresume=0
+  local files nfiles check old_tag resume=0 nresume=0
   old_tag="$(facts_get .old_base_tag)"
   # A repair of a candidate that still has unresolved files CONTINUES it (see the header): never start those files again.
   if [ "$MODE" = repair ] && [ "$(facts_get '(.unresolved_files // []) | length')" -gt 0 ]; then
     resume=1
-    nresume="$(facts_get '[(.unresolved_files // [])[] as $u | .conflicts[] | select(.path == $u and (.kind == "content" or .kind == "both-added" or .kind == "deleted-by-them" or .kind == "deleted-by-us"))] | length')"
+    nresume="$(facts_get '[(.unresolved_files // [])[] as $u | .conflicts[] | select(.path == $u)] | length')"
   fi
   # A repair has no conflict markers left to count, so only a fresh merge (first, retry) is told the hunk count.
-  files="$(jq -r --arg mode "$MODE" '.conflicts[] | select(.resolution != "scripted" and (.resolution | startswith("scripted") | not)) | select(.kind == "content" or .kind == "both-added" or .kind == "deleted-by-them" or .kind == "deleted-by-us") | if .kind == "deleted-by-them" then "- \(.path) (deleted-by-them: upstream deleted or moved it and our commits edited it; no markers, the file here is OURS: keep it, fixed to fit upstream, or delete it)" elif .kind == "deleted-by-us" then "- \(.path) (deleted-by-us: our commits deleted it and upstream changed it; no markers, the file here is UPSTREAM'"'"'S: keep it or delete it)" elif $mode == "repair" then "- \(.path) (\(.kind), conflicted in the merge; the file holds the earlier resolution)" else "- \(.path) (\(.kind), \(.hunks) conflict hunk(s))" end' "$SYNC_OUT/sync-facts.json")"
+  files="$(jq -r --arg mode "$MODE" '.conflicts[] | select(.resolution != "scripted" and (.resolution | startswith("scripted") | not)) | if .kind == "deleted-by-them" then "- \(.path) (deleted-by-them: upstream deleted or moved it and our commits edited it; no markers, the file here is OURS: keep it, fixed to fit upstream, or delete it)" elif .kind == "deleted-by-us" then "- \(.path) (deleted-by-us: our commits deleted it and upstream changed it; no markers, the file here is UPSTREAM'"'"'S: keep it or delete it)" elif (.kind != "content" and .kind != "both-added") then "- \(.path) (\(.kind): git could not merge it by content and left no markers; the file here is one side'"'"'s version, read the others with git show :1:<path>, :2:<path>, :3:<path>; keep it, fixed to fit upstream, or delete it)" elif $mode == "repair" then "- \(.path) (\(.kind), conflicted in the merge; the file holds the earlier resolution)" else "- \(.path) (\(.kind), \(.hunks) conflict hunk(s))" end' "$SYNC_OUT/sync-facts.json")"
   if [ "$resume" -eq 1 ]; then
     # Only the files that still hold conflict markers: the resolved ones are done and are not offered for editing again.
-    files="$(jq -r '(.unresolved_files // []) as $u | .conflicts[] | select(.path as $p | $u | index($p)) | select(.kind == "content" or .kind == "both-added" or .kind == "deleted-by-them" or .kind == "deleted-by-us") | "- \(.path) (\(.kind), still holds conflict markers)"' "$SYNC_OUT/sync-facts.json")"
+    files="$(jq -r '(.unresolved_files // []) as $u | .conflicts[] | select(.path as $p | $u | index($p)) | if (.kind == "content" or .kind == "both-added") then "- \(.path) (\(.kind), still holds conflict markers)" else "- \(.path) (\(.kind), no markers, still undecided: keep it, fixed to fit upstream, or delete it)" end' "$SYNC_OUT/sync-facts.json")"
   elif [ "$MODE" = repair ]; then
     # A repair may also touch the files our customization commits own (never fork infrastructure or upstream CI).
     while IFS= read -r p; do
@@ -86,7 +86,6 @@ cmd_prepare() {
     done < "$SYNC_OUT/our-files.txt"
     files="$(printf '%s\n' "$files" | sed '/^$/d')" # not grep -v: it exits 1 when nothing is left, and set -e would end the step
   fi
-  manual="$(jq -r '[.conflicts[] | select((.resolution | startswith("scripted") | not) and .kind != "content" and .kind != "both-added" and .kind != "deleted-by-them" and .kind != "deleted-by-us") | "- \(.path) (\(.kind))"] | if length == 0 then "" else "NOT YOURS (conflicts of an unusual kind need a human; leave these files exactly as they are):\n" + join("\n") end' "$SYNC_OUT/sync-facts.json")"
   nfiles="$(printf '%s\n' "$files" | grep -c . || true)"
 
   # Previous check output, as data. Gate output comes from our scripts; unresolved markers come from the facts.
@@ -115,11 +114,11 @@ $(jq -r '.gates[] | select(.status == "fail") | "### \(.name) (exit \(.exit_code
   # shellcheck disable=SC2086
   section_text "$TOOLS_DIR/../agent/prompt.txt" $sections | P_TAG="$(facts_get .tag)" P_OLD_TAG="$old_tag" P_BASE_BRANCH="$(facts_get .base_branch)" \
     P_BASE_SHA="$(facts_get .base_sha)" P_UPSTREAM_SHA="$(facts_get .upstream_sha)" P_OLD_COMMIT="$(facts_get .old_base_commit)" \
-    P_CUSTOMIZATIONS="$customizations" P_FILES="$files" P_MANUAL="$manual" P_CHECK="$check" \
+    P_CUSTOMIZATIONS="$customizations" P_FILES="$files" P_CHECK="$check" \
     node -e '
       const fs = require("node:fs")
       const map = { TAG: "P_TAG", OLD_TAG: "P_OLD_TAG", BASE_BRANCH: "P_BASE_BRANCH", BASE_SHA: "P_BASE_SHA", UPSTREAM_SHA: "P_UPSTREAM_SHA",
-        OLD_COMMIT: "P_OLD_COMMIT", CUSTOMIZATIONS: "P_CUSTOMIZATIONS", FILES: "P_FILES", MANUAL_FILES: "P_MANUAL", CHECK_OUTPUT: "P_CHECK" }
+        OLD_COMMIT: "P_OLD_COMMIT", CUSTOMIZATIONS: "P_CUSTOMIZATIONS", FILES: "P_FILES", CHECK_OUTPUT: "P_CHECK" }
       let text = fs.readFileSync(0, "utf8")
       for (const [name, env] of Object.entries(map)) text = text.split("{{" + name + "}}").join(process.env[env] ?? "")
       process.stdout.write(text.replace(/\n{3,}/g, "\n\n"))
@@ -132,7 +131,7 @@ $(jq -r '.gates[] | select(.status == "fail") | "### \(.name) (exit \(.exit_code
   # list rate), 6.7 s and 16.8 s a turn, so 30 minutes is at most about $3 on Flash and $7.5 on Pro. A round that hits the clock keeps its
   # edits and the next round continues from them; the CLI is killed then, so that round has no token or cost figures.
   wall=1800
-  # Nothing a model may edit is left (only conflicts of an unusual kind): run does not call it.
+  # Every conflict the scripts left is the model's, whatever its kind; nothing left to resolve means run does not call it.
   work="$nfiles"; [ "$resume" -eq 0 ] || work="$nresume"
   if [ "$MODE" != repair ] || [ "$resume" -eq 1 ]; then [ "$work" -gt 0 ] || skip=true; fi
   jq -n -c --arg model "$MODEL" --arg tier "$TIER" --arg mode "$MODE" --argjson round "$ROUND" --argjson wall "$wall" --argjson nfiles "$nfiles" --argjson skip "$skip" \
@@ -183,7 +182,7 @@ cmd_run() {
   local plan="$SYNC_OUT/agent-plan.json" wall out="$SYNC_OUT/agent-out.json" started rc=0
   wall="${AGENT_WALL_SECONDS:-$(jq -r .wall_seconds "$plan")}"
   if [ "$(jq -r .skip "$plan")" = true ]; then
-    log "agent skipped: no conflicted file is left that a model may resolve (what remains is a conflict of an unusual kind)"
+    log "agent skipped: no conflicted file is left to resolve"
     jq -n -c '{exit_code: 0, wall_s: 0, key_leaks: 0, key_leak_files: [], skipped: true}' > "$SYNC_OUT/agent-run.json"
     gh_out key_leaks 0
     exit 0
