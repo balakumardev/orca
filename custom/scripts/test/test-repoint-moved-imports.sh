@@ -41,6 +41,7 @@ git init -q -b main "$src"
   mkfile src/lib/util.ts "export const util = 1"
   mkfile src/lib/gone.ts "export const gone = 1"
   mkfile src/dupe.ts "export const dupe = 1"
+  mkfile src/widgets/chart.ts "export const chart = 1"
   mkfile src/renderer/src/components/Widget.tsx "export const Widget = 1"
   for f in orca-app terminal extra store; do mkfile "tests/helpers/$f.ts" "export const $f = 1"; done
   mkfile src/app/main.ts "import { A } from '../shared/constants'" "export const main = A"
@@ -52,6 +53,7 @@ git init -q -b main "$src"
   git mv src/shared/other.ts src/shared/misc/other.ts && edit_line src/shared/misc/other.ts "// other UPSTREAM" 15
   git mv src/lib/util.ts src/lib/deep/util.ts && edit_line src/lib/deep/util.ts "// util UPSTREAM" 15
   git rm -q src/lib/gone.ts
+  git rm -q src/widgets/chart.ts && mkfile src/widgets/charts/chart.ts "export const chart = 2" && mkfile docs/examples/chart.ts "export const chart = 3"
   git rm -q src/dupe.ts && mkfile src/a/dupe.ts "export const dupe = 'a'" && mkfile src/b/dupe.ts "export const dupe = 'b'"
   git mv src/renderer/src/components/Widget.tsx src/renderer/src/components/ui/Widget.tsx
   for f in orca-app terminal extra; do git mv "tests/helpers/$f.ts" "tests/fixtures/electron/$f.ts"; done
@@ -69,7 +71,8 @@ import { util } from '../lib/util'
 import { gone } from '../lib/gone'
 import { dupe } from '../dupe'
 import { Widget } from '@/components/Widget'
-export const x = [A, B, other, raw, util, gone, dupe, Widget]
+import { chart } from '../widgets/chart'
+export const x = [A, B, other, raw, util, gone, dupe, Widget, chart]
 EOF
   cat > tests/helpers/ours.ts <<'EOF'
 import { app } from './orca-app'
@@ -120,6 +123,7 @@ check "moved and edited (the one same-named file the release added)" has src/fea
 check "a ?raw query suffix is kept" has src/feature/ours.ts "import raw from '../shared/core/note.md?raw'"
 check "moved and edited, deeper folder" has src/feature/ours.ts "import { util } from '../lib/deep/util'"
 check "alias import" has src/feature/ours.ts "import { Widget } from '@/components/ui/Widget'"
+check "several same-named new files: the one sharing the most folders with the old path" has src/feature/ours.ts "import { chart } from '../widgets/charts/chart'"
 check "our helper: sibling moved to the folder that took most of the old ones" has tests/helpers/ours.ts "import { app } from '../fixtures/electron/orca-app'"
 check "our helper: a second sibling moved there" has tests/helpers/ours.ts "import { term } from '../fixtures/electron/terminal'"
 check "our helper: sibling moved to another folder" has tests/helpers/ours.ts "import { store } from '../fixtures/probes/store'"
@@ -135,8 +139,8 @@ check "a file with a conflict is not touched" bash -c "grep -q '^<<<<<<< ' '$rep
 
 echo "bookkeeping"
 check "the edits are staged (the working tree equals the index)" git -C "$repo" diff --quiet -- src/feature/ours.ts tests/helpers/ours.ts src/lib/deep/util.ts
-check "facts: 11 imports in 3 files, 2 unresolved" test "$(jq -c '.repointed' "$out/sync-facts.json")" = '{"imports":11,"files":3,"unresolved":2}'
-check "a caveat says a script repointed imports" bash -c "jq -e '.caveats[] | select(startswith(\"A script (no model) repointed 11 import(s) in 3\"))' '$out/sync-facts.json'"
+check "facts: 12 imports in 3 files, 2 unresolved" test "$(jq -c '.repointed' "$out/sync-facts.json")" = '{"imports":12,"files":3,"unresolved":2}'
+check "a caveat says a script repointed imports" bash -c "jq -e '.caveats[] | select(startswith(\"A script (no model) repointed 12 import(s) in 3\"))' '$out/sync-facts.json'"
 check "a caveat names the imports it could not follow" bash -c "jq -e '.caveats[] | select(contains(\"2 import(s) in our files name a file upstream moved or removed\"))' '$out/sync-facts.json'"
 check "the one real conflict is the only pending file" test "$(jq -r '[.conflicts[] | select(.resolution == "pending") | .path] | join(",")' "$out/sync-facts.json")" = src/app/main.ts
 

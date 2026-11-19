@@ -10,7 +10,7 @@
 // What it does: for each of OUR code files (differs from upstream, no conflict in it) and each relative or alias specifier that
 // no longer resolves, resolve it in OUR tree (from the file's old directory too, when upstream moved the file), find where
 // the target went and write the new specifier. Targets are matched without reading blobs (the sync clone is blobless): an exact
-// rename (same object id), else the one file added by the release with the same base name. An ambiguous or deleted target is
+// rename (same object id), else the one file added by the release with the same base name (the closest by shared folders when several). An ambiguous or deleted target is
 // left alone and listed in `unresolved`, for the agent and the gates.
 import { execFileSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
@@ -149,8 +149,24 @@ function main() {
   }
   const added = byName([...newFiles].filter((f) => upstream.has(f) && !releaseOld.has(f)))
   const removed = byName([...releaseOld].filter((f) => !upstream.has(f) && !renamed.has(f)))
-  const unique = (names, f) =>
-    names.get(path.posix.basename(f))?.length === 1 ? names.get(path.posix.basename(f))[0] : null
+  // The one same-named file; with several, the one that shares the most leading folders with `f` (a moved file mostly stays in
+  // its part of the tree), and only when that beats every other. A tie is ambiguous: left to the agent.
+  const sharedFolders = (a, b) => {
+    const [x, y] = [path.posix.dirname(a).split('/'), path.posix.dirname(b).split('/')]
+    let n = 0
+    while (n < x.length && n < y.length && x[n] === y[n]) {
+      n++
+    }
+    return n
+  }
+  const unique = (names, f) => {
+    const candidates = names.get(path.posix.basename(f)) ?? []
+    if (candidates.length <= 1) {
+      return candidates[0] ?? null
+    }
+    const ranked = candidates.map((c) => [sharedFolders(c, f), c]).sort((a, b) => b[0] - a[0])
+    return ranked[0][0] > ranked[1][0] ? ranked[0][1] : null
+  }
 
   const whereIsNow = (oldPath) => {
     if (newFiles.has(oldPath)) {
