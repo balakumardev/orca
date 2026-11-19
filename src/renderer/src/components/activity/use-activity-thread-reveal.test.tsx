@@ -3,8 +3,8 @@ import { act, renderHook } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { makeTab, makeWorktree } from './ActivityPrototypePage-test-fixtures'
 import { requestActivityThreadReveal } from './activity-thread-reveal-request'
-import type { AgentPaneThread } from './activity-thread-types'
-import type { ActivityVirtualItemDescriptor } from './activity-thread-virtual-items'
+import type { AgentPaneThread } from './threads/activity-thread-types'
+import type { ActivityVirtualItemDescriptor } from './thread-list/activity-thread-virtual-items'
 import { useActivityThreadReveal } from './use-activity-thread-reveal'
 
 function makeThread(paneKey: string): AgentPaneThread {

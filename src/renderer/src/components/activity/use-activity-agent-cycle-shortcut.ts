@@ -11,9 +11,9 @@ import {
   findActivityThreadItemIndex,
   getActivityVirtualItemThreads,
   type ActivityVirtualItemDescriptor
-} from './activity-thread-virtual-items'
-import type { ActivityThreadClickEvent } from './use-activity-thread-selection'
-import type { AgentPaneThread } from './activity-thread-types'
+} from './thread-list/activity-thread-virtual-items'
+import type { ActivityThreadClickEvent } from './thread-list/use-activity-thread-selection'
+import type { AgentPaneThread } from './threads/activity-thread-types'
 
 const CYCLE_ACTIONS: readonly (readonly [KeybindingActionId, ActivityCycleDirection])[] = [
   ['sidebar.activity.previousAgent', 'previous'],

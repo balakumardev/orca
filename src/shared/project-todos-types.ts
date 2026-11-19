@@ -1,4 +1,4 @@
-import type { ExecutionHostId } from './execution-host'
+import type { ExecutionHostId } from './execution-host/execution-host'
 import type { GroupHeaderRow, WorktreeGroupBy } from './sidebar-list/row-types'
 
 export const PROJECT_TODOS_MAX_PROJECTS = 512

@@ -11,10 +11,10 @@ import {
 } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { expect } from './helpers/orca-app'
-import { buildFakeAgentCommandOverride } from './helpers/fake-agent-command-override'
-import { waitForSessionReady } from './helpers/store'
-import { SUPPORTED, test, type ClaudeStub } from './helpers/structured-claude-stub'
+import { expect } from './desktop/electron-fixtures/orca-app'
+import { buildFakeAgentCommandOverride } from './agents/session-fixtures/fake-agent-command-override'
+import { waitForSessionReady } from './desktop/renderer-probes/store'
+import { SUPPORTED, test, type ClaudeStub } from './agents/session-fixtures/structured-claude-stub'
 
 test.use({ seedTestRepo: false })
 test.skip(!SUPPORTED, 'the Claude stub wrapper is POSIX-only')

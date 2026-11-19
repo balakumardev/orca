@@ -2,7 +2,7 @@ import {
   getFocusedAgentPaneKeyForWorktree,
   type FocusedAgentRowHighlightState
 } from '@/components/sidebar/workspace-card/activity/focused-agent-row-highlight'
-import { collectLeafIds } from '../../../../shared/workspace-layout/terminal-pane-layout-tree'
+import { collectLeafIds } from '../../../../shared/workspace-layout/terminal-topology/terminal-pane-layout-tree'
 import { isTerminalLeafId, makePaneKey } from '../../../../shared/workspace-layout/stable-pane-id'
 
 /** Whether the pane's agent is still running; a finished one only leaves a snapshot row behind. */

@@ -1,5 +1,5 @@
 import type { Page } from '@stablyai/playwright-test'
-import { test, expect } from './helpers/orca-app'
+import { test, expect } from './desktop/electron-fixtures/orca-app'
 import {
   focusActiveTerminalInput,
   splitActiveTerminalPane,
@@ -12,7 +12,7 @@ import {
   switchToOtherWorktree,
   waitForActiveWorktree,
   waitForSessionReady
-} from './helpers/store'
+} from './desktop/renderer-probes/store'
 import {
   readActiveWorkspaceRowIds,
   readRenderedAgentOrder,

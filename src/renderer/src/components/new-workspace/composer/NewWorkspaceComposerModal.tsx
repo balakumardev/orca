@@ -31,8 +31,8 @@ import {
   composerAutoSubmitDialogProps,
   composerBodyKey,
   composerRecoverySnapshot
-} from './new-workspace/composer-auto-submit-open'
-import { useComposerAutoSubmit } from './new-workspace/use-composer-auto-submit'
+} from '../composer-auto-submit-open'
+import { useComposerAutoSubmit } from '../use-composer-auto-submit'
 import {
   composerLaunchWorkspace,
   quickWorkspacePickerInputs,

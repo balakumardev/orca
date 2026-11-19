@@ -1,6 +1,6 @@
 import { defineFixture } from '../../../component-fixtures/component-fixture'
 import { ActivityThreadRow } from './activity-thread-row'
-import type { Repo } from '../../../../../shared/repo-types'
+import type { Repo } from '../../../../../shared/repository/repo-types'
 import type { AgentPaneThread } from '../threads/activity-thread-types'
 
 function repo(displayName: string, badgeColor: string): Repo {

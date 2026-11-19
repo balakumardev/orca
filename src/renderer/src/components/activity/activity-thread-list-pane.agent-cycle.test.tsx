@@ -4,8 +4,8 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { ActivityThreadListPane } from './activity-thread-list-pane'
-import type { ActivityThreadGroup, AgentPaneThread } from './activity-thread-types'
+import { ActivityThreadListPane } from './thread-list/activity-thread-list-pane'
+import type { ActivityThreadGroup, AgentPaneThread } from './threads/activity-thread-types'
 import { makeTab, makeWorktree } from './ActivityPrototypePage-test-fixtures'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true

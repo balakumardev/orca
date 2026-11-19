@@ -1,7 +1,7 @@
-import { expect } from './helpers/orca-app'
-import { readHookEndpoint } from './helpers/agent-hook-endpoint'
-import { SUPPORTED, openStubChat, test } from './helpers/structured-claude-stub'
-import { getActiveTabType, getActiveWorktreeId } from './helpers/store'
+import { expect } from './desktop/electron-fixtures/orca-app'
+import { readHookEndpoint } from './agents/session-fixtures/agent-hook-endpoint'
+import { SUPPORTED, openStubChat, test } from './agents/session-fixtures/structured-claude-stub'
+import { getActiveTabType, getActiveWorktreeId } from './desktop/renderer-probes/store'
 import {
   activateTab,
   hookAgent,

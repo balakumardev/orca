@@ -1,6 +1,6 @@
 import type { Locator, Page } from '@stablyai/playwright-test'
-import { expect } from './orca-app'
-import { emitCodexHookStatus, type readHookEndpoint } from './agent-hook-endpoint'
+import { expect } from '../desktop/electron-fixtures/orca-app'
+import { emitCodexHookStatus, type readHookEndpoint } from '../agents/session-fixtures/agent-hook-endpoint'
 import {
   waitForActivePaneHookDescriptor,
   waitForActiveTerminalManager,
@@ -11,7 +11,7 @@ import {
   getActiveTabId,
   waitForActiveWorktree,
   waitForSessionReady
-} from './store'
+} from '../desktop/renderer-probes/store'
 import { agentIndexForRowText, threadRows, type SeededAgent } from './activity-sidebar'
 
 declare global {

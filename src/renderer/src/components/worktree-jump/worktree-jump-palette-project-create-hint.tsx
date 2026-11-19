@@ -1,5 +1,5 @@
 import type React from 'react'
-import { ShortcutKeyCombo } from '../ShortcutKeyCombo'
+import { ShortcutKeyCombo } from '../ui/ShortcutKeyCombo'
 import { useTranslate } from '@/i18n/use-translate'
 
 /**

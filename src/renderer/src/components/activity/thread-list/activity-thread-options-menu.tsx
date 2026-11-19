@@ -22,7 +22,7 @@ import { OptionsFilterCountBadge } from '@/components/sidebar/worktree-list/cont
 import {
   setActivityDescriptionVisible,
   useActivityDescriptionVisible
-} from './activity-description-visibility'
+} from '../activity-description-visibility'
 import {
   ActivityScopeFilterMenuItems,
   useActivityScopeFilterCount

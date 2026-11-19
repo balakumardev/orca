@@ -5,7 +5,7 @@ import {
   type ActivityFollowInput
 } from './activity-follow-focused-agent'
 import { makeTab, makeWorktree } from './ActivityPrototypePage-test-fixtures'
-import type { ActivityThreadGroup, AgentPaneThread } from './activity-thread-types'
+import type { ActivityThreadGroup, AgentPaneThread } from './threads/activity-thread-types'
 
 const NOTHING_FOLLOWED: ActivityFollowInput = {
   active: true,

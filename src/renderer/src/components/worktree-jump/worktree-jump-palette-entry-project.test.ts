@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { encodePaletteIdentity } from '../../../../shared/palette-match/palette-ranking'
-import type { Repo } from '../../../../shared/repo-types'
+import type { Repo } from '../../../../shared/repository/repo-types'
 import { PROJECT_CREATE_SOURCE_ID } from '../cmd-j/palette-project-create-source-id'
 import { getPaletteEntryProjectRepoId } from './worktree-jump-palette-entry-project'
 import type { PaletteListEntry } from './worktree-jump-palette-model'

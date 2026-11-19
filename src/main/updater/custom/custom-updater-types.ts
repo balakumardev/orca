@@ -1,4 +1,4 @@
-import type { UpdateCheckOptions } from '../../../shared/update-status-types'
+import type { UpdateCheckOptions } from '../../../shared/updater/update-status-types'
 import type { registerMacUpdaterEvents } from '../mac-install/updater-mac-install'
 import type { downloadUpdateZip } from './custom-update-download'
 import type {

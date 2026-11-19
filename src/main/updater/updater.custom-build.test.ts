@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as UpdaterModule from './updater-service'
 import { loadUpdaterModule, warmUpdaterModule } from './testing/updater-test-module-loader'
 import { updaterMainWindow } from './testing/updater-test-main-window'
-import type { UpdateStatus } from '../../shared/update-status-types'
+import type { UpdateStatus } from '../../shared/updater/update-status-types'
 
 const {
   appMock,
@@ -20,7 +20,7 @@ const {
 vi.mock('electron', () => moduleFactories.electron())
 vi.mock('electron-updater', () => moduleFactories.electronUpdater())
 vi.mock('./electron-updater-loader', () => moduleFactories.electronUpdaterLoader())
-vi.mock('../ipc/pty/kill-all', () => moduleFactories.ptyKillAll())
+vi.mock('../ipc/pty/provider/kill-all', () => moduleFactories.ptyKillAll())
 vi.mock('./linux-package/linux-update-package-type', () => moduleFactories.linuxUpdatePackageType())
 vi.mock('./updater-lifecycle-diagnostics', () => moduleFactories.updaterLifecycleDiagnostics())
 vi.mock('./releases/updater-changelog', () => moduleFactories.updaterChangelog())

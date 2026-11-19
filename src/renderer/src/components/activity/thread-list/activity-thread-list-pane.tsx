@@ -26,9 +26,9 @@ import {
 } from './activity-thread-virtual-items'
 import { ActivityThreadCollapseContext } from './activity-thread-collapse-context'
 import { useActivityThreadSelection } from './use-activity-thread-selection'
-import { useActivityAgentCycleShortcut } from './use-activity-agent-cycle-shortcut'
-import { useActivityListRemeasure } from './use-activity-list-remeasure'
-import { useActivityThreadReveal } from './use-activity-thread-reveal'
+import { useActivityAgentCycleShortcut } from '../use-activity-agent-cycle-shortcut'
+import { useActivityListRemeasure } from '../use-activity-list-remeasure'
+import { useActivityThreadReveal } from '../use-activity-thread-reveal'
 import type {
   ActivityGroupBy,
   ThreadReadFilter

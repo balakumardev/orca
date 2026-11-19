@@ -1,7 +1,7 @@
 import type { getReleaseDownloadUrl } from './releases/updater-release-readiness'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CustomUpdaterHost, CustomUpdaterPort } from './custom/custom-updater-types'
-import type { UpdateStatus } from '../../shared/update-status-types'
+import type { UpdateStatus } from '../../shared/updater/update-status-types'
 import { loadUpdaterModule, warmUpdaterModule } from './testing/updater-test-module-loader'
 import { updaterMainWindow } from './testing/updater-test-main-window'
 
@@ -27,7 +27,7 @@ vi.mock('./custom/custom-updater-defaults', () => ({
 vi.mock('electron', () => moduleFactories.electron())
 vi.mock('electron-updater', () => moduleFactories.electronUpdater())
 vi.mock('./electron-updater-loader', () => moduleFactories.electronUpdaterLoader())
-vi.mock('../ipc/pty/kill-all', () => moduleFactories.ptyKillAll())
+vi.mock('../ipc/pty/provider/kill-all', () => moduleFactories.ptyKillAll())
 vi.mock('./linux-package/linux-update-package-type', () => moduleFactories.linuxUpdatePackageType())
 vi.mock('./updater-lifecycle-diagnostics', () => moduleFactories.updaterLifecycleDiagnostics())
 vi.mock('./releases/updater-changelog', () => moduleFactories.updaterChangelog())
@@ -44,7 +44,7 @@ vi.mock('./releases/updater-release-readiness', async (importOriginal) => ({
 }))
 vi.mock('../local-builds/local-build-switch', () => moduleFactories.localBuildSwitch())
 vi.mock('../local-builds/local-build-feed-server', () => moduleFactories.localBuildFeedServer())
-vi.mock('../startup/hydrate-shell-path', () => ({
+vi.mock('../startup/shell-environment/hydrate-shell-path', () => ({
   runWithLaunchPath: (action: () => unknown): unknown => action()
 }))
 

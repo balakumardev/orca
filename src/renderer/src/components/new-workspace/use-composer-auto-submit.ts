@@ -6,7 +6,7 @@ import {
   stillNeedsUser,
   withoutAutoSubmit
 } from './composer-auto-submit-open'
-import type { ComposerModalData } from './composer-modal-data'
+import type { ComposerModalData } from './composer/composer-modal-data'
 
 /**
  * The Cmd+J name step opens the dialog with `autoSubmit`: the dialog is hidden and non-modal (no overlay, blur,

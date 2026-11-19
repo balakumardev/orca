@@ -23,7 +23,7 @@ import type { WorktreePaletteItem } from '../worktree-jump-palette-model'
 import type { WorktreeJumpPaletteController } from '../use-worktree-jump-palette-controller'
 import { getWorkspaceLastActiveAt } from '../../../../../shared/workspace-cleanup/workspace-last-active'
 import { getWorktreeVisitTimestamp } from '@/lib/workspace/activation/worktree-visit-recency'
-import { WorktreeJumpPaletteProjectChip } from './worktree-jump-palette-project-create-chip'
+import { WorktreeJumpPaletteProjectChip } from '../worktree-jump-palette-project-create-chip'
 import {
   getPaletteSupportingTextLabel,
   HighlightedText,

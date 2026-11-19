@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TerminalLayoutSnapshot } from '../../../../shared/workspace-layout/terminal-tab-types'
-import { buildAgentPaneThreads } from './activity-thread-builder'
+import { buildAgentPaneThreads } from './threads/activity-thread-builder'
 import {
   LEAF_ID,
   LEAF_ID_2,
