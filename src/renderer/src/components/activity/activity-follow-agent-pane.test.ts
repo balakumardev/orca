@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { FocusedAgentRowHighlightState } from '@/components/sidebar/workspace-card/activity/focused-agent-row-highlight'
 import type { AgentStatusEntry } from '../../../../shared/agent-status/contracts/agent-status-types'
+import { acceptedAgentStatuses } from '@/store/slices/agent-status/status-ownership/accepted-agent-statuses'
 import { makePaneKey } from '../../../../shared/workspace-layout/stable-pane-id'
 import { getFollowedAgentPaneKey } from './activity-follow-agent-pane'
 import {
@@ -62,13 +63,12 @@ function makeState(options: {
         expandedLeafId: null
       }
     },
-    agentStatusByPaneKey: Object.fromEntries(
+    agentStatusByPaneKey: acceptedAgentStatuses(
       Object.entries(options.agents).map(([paneKey, state]) => [
         paneKey,
         statusEntry(paneKey, state)
       ])
     ),
-    retainedAgentsByPaneKey: {},
     migrationUnsupportedByPtyId: {}
   }
 }

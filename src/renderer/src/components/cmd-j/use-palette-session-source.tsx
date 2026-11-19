@@ -46,7 +46,7 @@ export function usePaletteSessionSource({
       hasHits
         ? {
             agentStatusByPaneKey: state.agentStatusByPaneKey,
-            retainedAgentsByPaneKey: state.retainedAgentsByPaneKey,
+            agentConversationsByPaneKey: state.agentConversationsByPaneKey,
             sleepingAgentSessionsByPaneKey: state.sleepingAgentSessionsByPaneKey,
             tabsByWorktree: state.tabsByWorktree,
             terminalLayoutsByTabId: state.terminalLayoutsByTabId,

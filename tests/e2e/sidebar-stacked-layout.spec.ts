@@ -1,12 +1,17 @@
 import path from 'node:path'
 import type { Locator, Page, TestInfo } from '@stablyai/playwright-test'
-import { test, expect } from './desktop/electron-fixtures/orca-app'
+import { test } from './desktop/electron-fixtures/orca-app'
+import { expect } from '@stablyai/playwright-test'
 import {
   splitActiveTerminalPane,
   waitForActiveTerminalManager,
   waitForPaneCount
-} from './helpers/terminal'
-import { ensureTerminalVisible, waitForActiveWorktree, waitForSessionReady } from './desktop/renderer-probes/store'
+} from './terminal/layout/terminal-pane-operations'
+import {
+  ensureTerminalVisible,
+  waitForActiveWorktree,
+  waitForSessionReady
+} from './desktop/renderer-probes/store'
 import { seedAgentsForActivePanes, showActivityPane, threadRows } from './helpers/activity-sidebar'
 
 test.use({ launchEnv: { ORCA_BACKGROUND_LAUNCH: '1' } })

@@ -7,7 +7,7 @@ import { isTerminalLeafId, makePaneKey } from '../../../../shared/workspace-layo
 
 /** Whether the pane's agent is still running; a finished one only leaves a snapshot row behind. */
 function paneHasLiveAgent(state: FocusedAgentRowHighlightState, paneKey: string): boolean {
-  const entry = state.agentStatusByPaneKey[paneKey]
+  const entry = state.agentStatusByPaneKey.get(paneKey)
   return entry !== undefined && entry.state !== 'done'
 }
 

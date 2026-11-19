@@ -5,6 +5,7 @@ import {
 import { getNaturalWorktreeKeys } from '../listing/natural-worktree-keys'
 import { getWorktreeHostIdentity } from '../../../../../../shared/worktree/host-qualified-identity'
 import type { HostSectionRow } from '../../../../../../shared/sidebar-list/hosts/host-section-rows'
+import type { RenderRow } from '../listing/render-row'
 import type { WorktreeDragGroup } from './worktree-manual-order'
 import { isFolderLaneSectionKey } from '../../../../../../shared/sidebar-list/folders/folder-workspace-occurrences'
 
@@ -56,7 +57,7 @@ export function getWorktreeDragGroups(rows: HostSectionRow[]): WorktreeDragGroup
   return groups.filter((group) => group.worktreeIds.length > 0)
 }
 
-export function getWorktreeDragIndexes(rows: readonly HostSectionRow[]): {
+export function getWorktreeDragIndexes(rows: readonly RenderRow[]): {
   groupKeyByRowKey: Map<string, string>
   groupIndexByRowKey: Map<string, number>
 } {

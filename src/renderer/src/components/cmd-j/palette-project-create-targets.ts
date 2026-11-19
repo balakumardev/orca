@@ -1,4 +1,4 @@
-import type { Project, ProjectHostSetup } from '../../../../shared/project-types'
+import type { Project, ProjectHostSetup } from '../../../../shared/project/project-types'
 import type { Repo } from '../../../../shared/repository/repo-types'
 import { getNewWorkspaceDialogEligibleRepos } from '../../../../shared/new-workspace/new-workspace-dialog-repo'
 import { isGitRepoKind } from '../../../../shared/repository/repo-kind'

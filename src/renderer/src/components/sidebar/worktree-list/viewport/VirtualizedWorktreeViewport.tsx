@@ -10,7 +10,6 @@ import { renderWorktreeSidebarDropIndicators } from './drop-indicators'
 import { useWorktreeListScrollToTop } from './use-scroll-to-top'
 import { getActiveDescendantOptionId } from '../navigation/active-descendant-option'
 import { useDraggedSubtreeRanges, useLineageRowProjection } from '../listing/lineage-row-projection'
-import { buildRenderableRows } from '../listing/renderable-rows'
 import { useFolderWorkspacePathStatusRows } from '../listing/use-folder-path-statuses'
 import { useGroupToggleWithScrollAnchor } from './use-group-toggle'
 import { usePendingSidebarReveal } from '../navigation/use-pending-reveal'
@@ -37,7 +36,7 @@ import { buildWorktreeVirtualRowContext } from './virtual-row-context'
 import type { RepoHeaderProjectActions } from '../rows/repo-header-project-actions'
 import { getRepoOwnerWorktreeVisibilityDefaults } from '../../../../store/slices/worktrees/listing/worktree-visibility-defaults-by-host'
 import { renderWorktreeVirtualRow } from '../rows/virtual-row-dispatch'
-import { useExpandedProjectTodoSectionKeys } from '../../project-todos/project-todos-store'
+import { useProjectTodoRenderRows } from '../../project-todos/use-project-todo-render-rows'
 import { selectDrawsNewWorktreeCards } from '@/store/appearance/worktree-card-style'
 
 const EMPTY_HOST_OPTIONS: NonNullable<VirtualizedWorktreeViewportProps['hostOptions']> = []
@@ -120,7 +119,6 @@ export const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktr
   const scrollSuppression = useWorktreeSidebarScrollSuppression(scrollRef)
   const { markDirectScrollInput } = scrollSuppression
   const programmaticScrollMarks = useMemo(() => createProgrammaticScrollMarks(), [])
-  const expandedTodoSectionKeys = useExpandedProjectTodoSectionKeys()
 
   const { handleContainerKeyDown, handleContainerKeyUp, handleContainerBlur, keyboardPreview } =
     useWorktreeViewportKeyboardNavigation({ props, scrollRef, markDirectScrollInput })
@@ -130,10 +128,7 @@ export const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktr
     [keyboardPreview, props]
   )
 
-  const renderRows = useMemo(
-    () => buildRenderableRows(rows, groupBy === 'repo' ? expandedTodoSectionKeys : undefined),
-    [expandedTodoSectionKeys, groupBy, rows]
-  )
+  const renderRows = useProjectTodoRenderRows(rows, groupBy)
   const { projection, activeFamilyRoots, firstHeaderIndex } = useLineageRowProjection({
     ...rowProps,
     rows: renderRows,
@@ -163,7 +158,8 @@ export const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktr
     scrollOffsetRef,
     programmaticScrollMarks
   })
-  const rowGeometry = useWorktreeRowGeometry({ rows, projection, virtualization, scrollRef })
+  // oxfmt-ignore
+  const rowGeometry = useWorktreeRowGeometry({ rows: renderRows, projection, virtualization, scrollRef })
 
   const session = useWorktreeDragSession({ rows, scrollRef, geometry: rowGeometry })
   const lineageDrop = useWorktreeLineageDropCommit({

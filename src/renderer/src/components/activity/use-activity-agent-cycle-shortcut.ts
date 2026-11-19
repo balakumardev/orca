@@ -5,7 +5,8 @@ import { addAppKeyListener, removeAppKeyListener } from '@/lib/keyboard/app-keyb
 import { getShortcutPlatform } from '@/lib/keyboard/shortcut-platform'
 import { hasVisibleOverlay } from '@/lib/overlay-interaction/visible-overlay'
 import { globalShortcutTargetYields } from '@/lib/plugins/commands/plugin-command-keybindings'
-import { keybindingMatchesAction, type KeybindingActionId } from '../../../../shared/keybindings'
+import { keybindingMatchesAction } from '../../../../shared/keybindings/matching'
+import type { KeybindingActionId } from '../../../../shared/keybindings/types'
 import { cycleActivityThread, type ActivityCycleDirection } from './activity-thread-cycle'
 import {
   findActivityThreadItemIndex,

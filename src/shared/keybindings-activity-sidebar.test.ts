@@ -1,10 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import {
-  findKeybindingConflicts,
-  getEffectiveKeybindingsForAction,
-  keybindingMatchesAction,
-  type KeybindingActionId
-} from './keybindings'
+import { getEffectiveKeybindingsForAction } from './keybindings/effective'
+import { findKeybindingConflicts } from './keybindings/formatting'
+import { keybindingMatchesAction } from './keybindings/matching'
+import type { KeybindingActionId } from './keybindings/types'
 
 const PLATFORMS = ['darwin', 'linux', 'win32'] as const
 

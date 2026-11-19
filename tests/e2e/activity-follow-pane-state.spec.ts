@@ -1,6 +1,10 @@
 import type { Locator, Page } from '@stablyai/playwright-test'
-import { test, expect } from './desktop/electron-fixtures/orca-app'
-import { emitCodexHookStatus, readHookEndpoint } from './agents/session-fixtures/agent-hook-endpoint'
+import { test } from './desktop/electron-fixtures/orca-app'
+import { expect } from '@stablyai/playwright-test'
+import {
+  emitCodexHookStatus,
+  readHookEndpoint
+} from './agents/session-fixtures/agent-hook-endpoint'
 import { getActiveTabId, getActiveWorktreeId } from './desktop/renderer-probes/store'
 import {
   activateTab,
@@ -97,7 +101,7 @@ async function startAgentInNewTab(
   await expect
     .poll(() =>
       page.evaluate(
-        (paneKey) => Boolean(window.__store?.getState().agentStatusByPaneKey[paneKey]),
+        (paneKey) => Boolean(window.__store?.getState().agentStatusByPaneKey.get(paneKey)),
         agent.paneKey
       )
     )

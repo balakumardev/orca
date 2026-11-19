@@ -1,14 +1,18 @@
 import type { Page } from '@stablyai/playwright-test'
-import { test, expect } from './desktop/electron-fixtures/orca-app'
-import { emitCodexHookStatus, readHookEndpoint } from './agents/session-fixtures/agent-hook-endpoint'
+import { test } from './desktop/electron-fixtures/orca-app'
+import { expect } from '@stablyai/playwright-test'
 import {
-  focusActiveTerminalInput,
+  emitCodexHookStatus,
+  readHookEndpoint
+} from './agents/session-fixtures/agent-hook-endpoint'
+import { focusActiveTerminalInput } from './terminal/input/terminal'
+import { waitForActivePaneHookDescriptor } from './terminal/input/terminal-active-pane'
+import {
   focusLastTerminalPane,
   splitActiveTerminalPane,
-  waitForActivePaneHookDescriptor,
   waitForActiveTerminalManager,
   waitForPaneCount
-} from './helpers/terminal'
+} from './terminal/layout/terminal-pane-operations'
 import {
   ensureTerminalVisible,
   getActiveTabId,
