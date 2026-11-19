@@ -158,8 +158,8 @@ export const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktr
     scrollOffsetRef,
     programmaticScrollMarks
   })
-  // oxfmt-ignore
-  const rowGeometry = useWorktreeRowGeometry({ rows: renderRows, projection, virtualization, scrollRef })
+  const geometryArgs = { rows: renderRows, projection, virtualization, scrollRef }
+  const rowGeometry = useWorktreeRowGeometry(geometryArgs)
 
   const session = useWorktreeDragSession({ rows, scrollRef, geometry: rowGeometry })
   const lineageDrop = useWorktreeLineageDropCommit({
