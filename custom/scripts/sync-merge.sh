@@ -109,8 +109,13 @@ parent is the previous BASE tag $old_tag. It exists only so that git uses $old_t
   # find-renames=30%: git pairs a moved file with its old path only above 50% similarity. A release that moves AND trims a
   # file we edited (v1.4.261: 46% and 48% on two of them) was merged as "deleted by them" plus a new file, a conflict kind
   # the model may not touch and our edit lost. 30% keeps those pairs; a wrong pair is only a content conflict that the gates judge.
+  # merge.directoryRenames=false: when upstream moves most of a directory, git relocates the files WE added there and raises a
+  # "file location" conflict (stage 2 only: kind `other`, a human step that also skipped every agent round and every gate;
+  # v1.4.263 and v1.4.264, three files of tests/e2e/helpers). The relocation is wrong anyway: upstream split that directory
+  # over several folders, and our importers still name the old path. Our files stay where our code imports them; what they
+  # import from moved files is repointed by (f) below.
   local merge_rc=0
-  git -c merge.conflictStyle=zdiff3 merge -X find-renames=30% --no-commit --no-ff "$link" > "$SYNC_OUT/merge.log" 2>&1 || merge_rc=$?
+  git -c merge.conflictStyle=zdiff3 -c merge.directoryRenames=false merge -X find-renames=30% --no-commit --no-ff "$link" > "$SYNC_OUT/merge.log" 2>&1 || merge_rc=$?
   [ "$merge_rc" -le 1 ] || { cat "$SYNC_OUT/merge.log" >&2; die "git merge failed with exit $merge_rc"; }
 
   # Initial conflict list (before any scripted resolution), as TSV: path, kind, hunks, resolution.
@@ -188,6 +193,20 @@ parent is the previous BASE tag $old_tag. It exists only so that git uses $old_t
     printf '%s\n' "$p" >> "$theirs_list"
   done < <(list_unmerged)
 
+  # (f) Imports of files upstream moved. A merge moves a file but never rewrites an import, so every file of ours that imports
+  # a moved file stops compiling (v1.4.263: 176 imports in 87 files, found only by typecheck, and a repair round sees at most
+  # 7000 bytes of that output). The script repoints what it can prove; the rest is left to the agent and the gates.
+  local repointed="$SYNC_OUT/repointed-imports.json" p_edit repoint_failed=false
+  if ! node "$(dirname "$0")/repoint-moved-imports.mjs" --ours "$BASE_SHA" --old "$old_commit" --new "$UPSTREAM_SHA" --apply > "$repointed" 2> "$SYNC_OUT/repoint.err"; then
+    # A convenience step must not end the sync: its half-written edits are unstaged, so the scope check of `finish` reverts them.
+    repoint_failed=true
+    printf '{"files":0,"repointed":0,"edited":[],"unresolved":[]}\n' > "$repointed"
+  fi
+  while IFS= read -r p_edit; do
+    [ -n "$p_edit" ] || continue
+    git add --sparse -- "$p_edit"
+  done < <(jq -r '.edited[].path' "$repointed")
+
   # Resolution labels for everything the scripts settled.
   local remaining kind label
   remaining="$(list_unmerged)"
@@ -231,6 +250,14 @@ parent is the previous BASE tag $old_tag. It exists only so that git uses $old_t
     '{upstream_ci_removed: $removed, upstream_ci_new: $new, our_wins_restored: $wins, lockfile: $lock}')"
   facts_set caveats '[]'
   [ "$lock_state" = null ] || caveat "pnpm-lock.yaml conflicted: took upstream's file and ran pnpm install --lockfile-only. Check the lockfile diff."
+  [ "$repoint_failed" = false ] || caveat "The import repoint script failed (repoint.err in the round-0 artifact); imports of files upstream moved were NOT repointed, so expect cannot-find-module errors."
+  facts_set repointed "$(jq -c '{imports: .repointed, files: (.edited | length), unresolved: (.unresolved | length)}' "$repointed")"
+  if [ "$(jq '.repointed' "$repointed")" -gt 0 ]; then
+    caveat "A script (no model) repointed $(jq '.repointed' "$repointed") import(s) in $(jq '.edited | length' "$repointed") of our file(s) at files upstream moved; the list is repointed-imports.json in the round-0 artifact."
+  fi
+  if [ "$(jq '.unresolved | length' "$repointed")" -gt 0 ]; then
+    caveat "$(jq '.unresolved | length' "$repointed") import(s) in our files name a file upstream moved or removed that the script could not follow (no exact rename, no single same-named new file); typecheck lists them. First: $(jq -r '[.unresolved[:5][] | "\(.path) imports \(.spec)"] | join("; ")' "$repointed")"
+  fi
   local g
   while IFS= read -r g; do
     generated_path "$g" && caveat "Generated file $g conflicted: upstream's version was taken. If a customization changes its inputs, regenerate it with the matching pnpm run generate:* script."
