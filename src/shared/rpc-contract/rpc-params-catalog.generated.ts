@@ -31,6 +31,7 @@ import {
   DesktopBrowserBridgeAttachParams,
   DesktopBrowserBridgeResultParams
 } from '../desktop-browser-bridge-protocol'
+import { FolderSearchResolveParams } from '../folder-search-types'
 import { MobileWebBundleChunkParamsSchema } from '../mobile-web-bundle/bundle-rpc-contract'
 import { MobileWebBundleLocaleCatalogParamsSchema } from '../mobile-web-bundle/locale-catalog-contract'
 import { OrcadMigrationBlobChunkRequestSchema } from '../orcad-migration/orcad-migration-blob-transfer'
@@ -1098,6 +1099,8 @@ export const RPC_PARAMS_BY_METHOD = {
   'files.writeBase64Chunk': FileWriteBase64Chunk,
   'files.writeIfUnchanged': FileWriteIfUnchanged,
   'files.writeTerminalArtifact': TerminalArtifactFileWrite,
+  'folderSearch.list': null,
+  'folderSearch.resolve': FolderSearchResolveParams,
   'folderWorkspace.create': FolderWorkspaceCreate,
   'folderWorkspace.delete': FolderWorkspaceDelete,
   'folderWorkspace.getPathStatus': FolderWorkspacePathStatus,

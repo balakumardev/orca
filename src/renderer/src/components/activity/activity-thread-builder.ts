@@ -179,7 +179,11 @@ export function buildAgentPaneThreads(
       liveAgent.entry.state,
       existing.responsePreview
     )
-    existing.latestTimestamp = liveAgent.timestamp
+    // Idle presence is not a new turn; Clear must still cover every later historical event.
+    existing.latestTimestamp =
+      liveAgent.state === 'idle'
+        ? Math.max(existing.latestTimestamp, liveAgent.timestamp)
+        : liveAgent.timestamp
   }
 
   const built = Array.from(byPaneKey.values())

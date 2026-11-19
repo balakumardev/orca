@@ -87,4 +87,17 @@ describe('waitUntilComposerTargetsRepo', () => {
     await vi.advanceTimersByTimeAsync(1000)
     await expect(pending).resolves.toBe(false)
   })
+
+  it('does not treat a local same-id repo as a ready remote creation target', async () => {
+    vi.useFakeTimers()
+    useAppStore.setState({ repos: [repo('notes')] })
+    const pending = waitUntilComposerTargetsRepo('repo-notes', 1000, {
+      projectId: 'repo:repo-notes',
+      hostId: 'runtime:server-a',
+      projectHostSetupId: 'setup-remote'
+    })
+    await vi.advanceTimersByTimeAsync(1000)
+
+    await expect(pending).resolves.toBe(false)
+  })
 })

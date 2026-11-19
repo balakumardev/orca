@@ -62,6 +62,10 @@ async function runCreateAttempt(
   target: RuntimeTarget,
   clientCreateSettings: ClientWorktreeCreateSettings = {}
 ): Promise<CreateAttemptOutcome> {
+  // Even a fallback route must name the computer chosen before background preparation.
+  request.options?.targetGuard?.assertCurrent(
+    target.kind === 'local' ? 'local' : toRuntimeExecutionHostId(target.environmentId)
+  )
   const provisionedRoot = request.options?.provisionedRoot
   const create = async (
     parentWorkspace: WorktreeCreateAttempt['parentWorkspace']
@@ -258,6 +262,8 @@ export function createCreateWorktree(
             target,
             pickClientWorktreeCreateSettings(get().settings)
           )
+          // A late response cannot publish the former host's workspace under a replacement pairing.
+          options?.targetGuard?.assertCurrent()
           if (lostRequestedParent(outcome, parent, target)) {
             warnParentDroppedOnce()
           }

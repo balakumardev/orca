@@ -23,11 +23,13 @@ export function PaletteSessionLeading({ agent }: { agent: AiVaultSearchHit['agen
 export function PaletteSessionLine({
   hit,
   title,
-  inertReason
+  inertReason,
+  hostLabel
 }: {
   hit: AiVaultSearchHit
   title: string
   inertReason: PaletteSessionInertReason | null
+  hostLabel?: string
 }): React.JSX.Element {
   const t = useTranslate()
   const folder = hit.cwd ? getRuntimePathBasename(hit.cwd) : ''
@@ -38,7 +40,10 @@ export function PaletteSessionLine({
         ? t('auto.components.WorktreeJumpPalette.sessionCannotResume', 'cannot be resumed here')
         : ''
   // The hint comes before the folder name: a long name is cut at the end of the line and would hide it.
-  const where = [agentLabel(hit.agent), hint, folder, hit.branch ?? ''].filter(Boolean).join(' · ')
+  // Host labels disambiguate identical folder and conversation names across computers.
+  const where = [hostLabel, agentLabel(hit.agent), hint, folder, hit.branch ?? '']
+    .filter(Boolean)
+    .join(' · ')
   return (
     <>
       <span

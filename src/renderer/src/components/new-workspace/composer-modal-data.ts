@@ -12,6 +12,7 @@ import type { WorkspaceStatus } from '../../../../shared/worktree/types'
 import type { TaskSourceContext } from '../../../../shared/work-items/task-source-context'
 import type { ProjectTodoComposerLink } from '../../../../shared/project-todos-types'
 import type { WorkspaceCreationTargetHint } from '@/lib/workspace/creation/project-host-workspace-target'
+import type { PaletteSearchHost } from '../cmd-j/palette-search-hosts'
 
 export type ComposerModalData = {
   recovery?: {
@@ -37,6 +38,8 @@ export type ComposerModalData = {
   enableIssueAutomation?: boolean
   /** Press Create once the form is ready, in a hidden non-modal dialog (the Cmd+J name step). Never reopened with. */
   autoSubmit?: boolean
+  /** The exact paired authority chosen for hidden creation; ordinary dialog creation ignores it. */
+  autoSubmitHost?: PaletteSearchHost
   /** Links the created workspace back to a sidebar project TODO item. */
   todoLink?: ProjectTodoComposerLink
   /** Creation-surface telemetry; each opener supplies it, otherwise use unknown. */

@@ -164,8 +164,12 @@ export type ActivityThreadStatusId = AgentDotState
 
 /** Keep grouping, labels and clear-completed on one verdict classifier. */
 export function activityThreadStatusId(thread: AgentPaneThread): ActivityThreadStatusId {
-  // Why: a failed main agent outranks the subagent work still holding its row live.
-  if (thread.currentAgentEntry && agentVerdictDisplayMark(thread.currentAgentEntry) === 'failed') {
+  // An idle process is separate from its previous verdict; a failed main still outranks live subagent work.
+  if (
+    thread.currentAgentState !== 'idle' &&
+    thread.currentAgentEntry &&
+    agentVerdictDisplayMark(thread.currentAgentEntry) === 'failed'
+  ) {
     return 'failed'
   }
   const state = threadCurrentState(thread) ?? 'done'
@@ -191,6 +195,14 @@ function paneActivityEntry(thread: AgentPaneThread): AgentStatusEntry | null {
 function threadCurrentState(
   thread: AgentPaneThread
 ): ActivityLiveAgentState | AgentStatusState | null {
+  const entryState = thread.currentAgentEntry?.state
+  // Process presence cannot answer an outstanding input request.
+  if (
+    thread.currentAgentState === 'idle' &&
+    (entryState === 'blocked' || entryState === 'waiting')
+  ) {
+    return entryState
+  }
   return (
     thread.currentAgentState ??
     paneActivityEntry(thread)?.state ??

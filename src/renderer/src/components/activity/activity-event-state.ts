@@ -39,9 +39,9 @@ export function freshActivityLiveAgentState(
   return activityLiveAgentState(entry, now, false)
 }
 
-/** Unverifiable rows stay listed but are not running work. */
+/** Presence and unverifiable rows stay listed without being counted as running work. */
 export function isRunningActivityState(state: ActivityLiveAgentState | null | undefined): boolean {
-  return state != null && state !== 'unverifiable'
+  return state != null && state !== 'unverifiable' && state !== 'idle'
 }
 
 export function isHistoricalActivityState(

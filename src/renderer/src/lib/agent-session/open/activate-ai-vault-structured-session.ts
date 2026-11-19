@@ -3,7 +3,10 @@ import type { StructuredSessionOpenAdapterDeps } from './open-existing-structure
 import { showAgentPaneUnavailable } from '@/components/terminal-pane/agent-status/stale-agent-row'
 import { translate } from '@/i18n/i18n'
 import { toast } from 'sonner'
-import { activateAndRevealWorktree } from '../../workspace/activation/worktree-activation'
+import {
+  activateAndRevealWorkspace,
+  activateAndRevealWorktree
+} from '../../workspace/activation/worktree-activation'
 import { activateWslMovedWorkspace } from '../../workspace/activation/wsl-moved-chat-activation'
 import { useAppStore } from '@/store/index'
 import type { AiVaultSession } from '../../../../../shared/ai-vault/contracts/ai-vault-types'
@@ -13,6 +16,8 @@ import type {
   StructuredSessionOpenDeps
 } from '../../../../../shared/open-structured-agent-session'
 import type { RuntimeClientTarget } from '../../../../../shared/runtime-client-target'
+import { executionHostIdForStructuredTarget } from '@/runtime/native-chat/session-ownership/structured-agent-session-owner'
+import type { RuntimeTargetGuard } from '@/runtime/rpc/targets/runtime-target-guard'
 
 type StructuredSessionActivationDeps = StructuredSessionOpenAdapterDeps & {
   unavailable: (agent?: string) => void
@@ -55,7 +60,10 @@ export const structuredSessionOpenFeedback: StructuredSessionOpenFeedback = {
 export async function activateAiVaultStructuredSession(
   session: Pick<AiVaultSession, 'structuredSession'> & { agent?: string },
   deps?: StructuredSessionActivationDeps,
-  target?: RuntimeClientTarget
+  target?: RuntimeClientTarget,
+  current?: () => boolean,
+  expectedEnvironmentRuntimeId?: string,
+  targetGuard?: RuntimeTargetGuard
 ): Promise<boolean> {
   if (!session.structuredSession) {
     return false
@@ -63,7 +71,12 @@ export async function activateAiVaultStructuredSession(
   await openDesktopStructuredSession(
     { kind: 'history', structuredSession: session.structuredSession, agent: session.agent },
     target,
-    deps
+    deps,
+    undefined,
+    undefined,
+    current,
+    expectedEnvironmentRuntimeId,
+    targetGuard
   )
   return true
 }
@@ -73,17 +86,25 @@ export function openDesktopStructuredSession(
   host?: RuntimeClientTarget,
   deps?: StructuredSessionActivationDeps,
   locate?: StructuredSessionOpenDeps['locate'],
-  feedback?: StructuredSessionOpenFeedback
+  feedback?: StructuredSessionOpenFeedback,
+  current?: () => boolean,
+  expectedEnvironmentRuntimeId?: string,
+  targetGuard?: RuntimeTargetGuard
 ): Promise<StructuredSessionOpenResult> {
   return openDesktopStructuredSessionInteraction(source, {
     target: host,
     deps,
     locate,
+    current,
+    // Keep the search-selected runtime through restoration and the main-process queue.
+    expectedEnvironmentRuntimeId,
     present: (result) =>
       presentDesktopStructuredSession(
         result,
         source,
-        feedback ?? deps ?? structuredSessionOpenFeedback
+        feedback ?? deps ?? structuredSessionOpenFeedback,
+        host,
+        targetGuard
       )
   })
 }
@@ -91,10 +112,28 @@ export function openDesktopStructuredSession(
 function presentDesktopStructuredSession(
   result: StructuredSessionOpenResult,
   source: StructuredSessionOpenSource,
-  deps: StructuredSessionOpenFeedback
+  deps: StructuredSessionOpenFeedback,
+  host?: RuntimeClientTarget,
+  targetGuard?: RuntimeTargetGuard
 ): void {
   if (result.kind === 'opened') {
     const workspace = result.target.worktreeId
+    // Explicit history owners select the right copy even when both hosts use the same workspace ID.
+    if (host) {
+      const executionHostId = executionHostIdForStructuredTarget(host)
+      const state = useAppStore.getState()
+      if (
+        state.activeWorktreeId !== workspace ||
+        state.activeWorkspaceExecutionHostId !== executionHostId
+      ) {
+        activateAndRevealWorkspace(workspace, {
+          executionHostId,
+          providesInitialSurface: true,
+          ...(targetGuard ? { targetGuard } : {})
+        })
+      }
+      return
+    }
     if (
       useAppStore.getState().activeWorktreeId !== workspace &&
       !activateWslMovedWorkspace(workspace)

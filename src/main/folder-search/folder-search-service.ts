@@ -29,11 +29,21 @@ import { FOLDER_SEARCH_CALL_TIMEOUT_MS, TIMED_OUT, withinMs } from './folder-sea
 /** A palette open older than this scans again; opens inside it share the last scan. */
 export const FOLDER_SEARCH_CACHE_TTL_MS = 10_000
 
+/** Both desktop and headless stores expose only host-owned discovery and workspace settings. */
+type FolderSearchSettings = Pick<
+  GlobalSettings,
+  | 'folderSearchLocations'
+  | 'workspaceDir'
+  | 'nestWorkspaces'
+  | 'workspaceDirHistory'
+  | 'hostSettingOverrides'
+>
+
 export type FolderSearchStore = {
   getRepos(): Repo[]
   getFolderWorkspaces(): FolderWorkspace[]
   getAllWorktreeMetaForHost(hostId: ExecutionHostId): Record<string, unknown>
-  getSettings(): GlobalSettings
+  getSettings(): FolderSearchSettings
 }
 
 type CachedScan = {
@@ -45,7 +55,7 @@ type CachedScan = {
 
 /** Directories Orca creates workspaces in: the global one, its history, and each project's own. */
 export function managedWorkspaceDirs(
-  settings: GlobalSettings,
+  settings: FolderSearchSettings,
   home: string,
   repos: readonly Repo[]
 ): string[] {

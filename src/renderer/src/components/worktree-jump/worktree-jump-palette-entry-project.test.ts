@@ -15,6 +15,14 @@ const repos: Repo[] = [
     badgeColor: '#000',
     addedAt: 0,
     kind: 'folder'
+  },
+  {
+    id: 'r-web',
+    path: '/code/acme-web',
+    displayName: 'acme-web',
+    badgeColor: '#000',
+    addedAt: 0,
+    connectionId: 'box'
   }
 ]
 const workspaces = [
@@ -67,7 +75,10 @@ describe('getPaletteEntryProjectRepoId', () => {
       makeWorktree('wt-same', 'a', { repoId: 'r-web', hostId: 'ssh:a' }),
       makeWorktree('wt-same', 'b', { repoId: 'r-docs', hostId: 'ssh:b' })
     ]
-    const withRepos = [repos[0], { ...repos[1], kind: 'git' as const }]
+    const withRepos = [
+      { ...repos[0], executionHostId: 'ssh:a' as const },
+      { ...repos[1], kind: 'git' as const, executionHostId: 'ssh:b' as const }
+    ]
     const tab = (executionHostId?: string): PaletteListEntry =>
       asEntry({
         id: 'tab',
@@ -82,13 +93,19 @@ describe('getPaletteEntryProjectRepoId', () => {
     ).toBeNull()
   })
 
-  it('reads the project of a new-worktree row from its row id, and no other extra row', () => {
+  it('reads the host-owned project of a new-worktree row, and no other extra row', () => {
     const extra = (sourceId: string): PaletteListEntry =>
       asEntry({
         id: encodePaletteIdentity(['extra', sourceId, 'r-web']),
         type: 'extra',
         sourceId,
-        result: { id: 'r-web' }
+        result: {
+          id: 'r-web',
+          projectCreateTarget: {
+            repoId: 'r-web',
+            workspaceTarget: { projectId: 'repo:r-web', hostId: 'local' }
+          }
+        }
       })
     expect(getPaletteEntryProjectRepoId(extra(PROJECT_CREATE_SOURCE_ID), context)).toBe('r-web')
     expect(getPaletteEntryProjectRepoId(extra('folders'), context)).toBeNull()

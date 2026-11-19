@@ -31,6 +31,7 @@ import type {
   FolderWorkspacePathStatusRequest
 } from '../../../../shared/folder-workspaces/folder-workspace-path-status'
 import type { ExecutionHostId } from '../../../../shared/execution-host'
+import type { RuntimeTargetGuard } from '@/runtime/rpc/targets/runtime-target-guard'
 import type { WslMovedProject } from '../../../../shared/wsl-move/wsl-moved-project'
 import type { ConfirmedUnsavedDiscards } from '../slices/worktrees/teardown/removed-workspace-unsaved-files'
 
@@ -155,6 +156,8 @@ export type FolderWorkspacePathStatusRouteOptions = { runtimeEnvironmentId: stri
 
 export type AddRepoPathOptions = {
   runtimeEnvironmentId?: string | null
+  /** Reject a queued or resumed add when the computer selected by its caller is no longer current. */
+  assertTargetCurrent?: () => void
   /** Overrides the host's basename naming for the new project. */
   displayName?: string
   /** The Add Project dialog shows a WSL host's Windows drive refusal inline; toasts above a modal cannot take clicks. */
@@ -310,7 +313,7 @@ export type RepoSlice = {
   updateRepo: (
     projectId: string,
     updates: RepoUpdate,
-    options?: { hostId?: ExecutionHostId }
+    options?: { hostId?: ExecutionHostId; targetGuard?: RuntimeTargetGuard }
   ) => Promise<boolean>
   setActiveRepo: (projectId: string | null) => void
   reorderRepos: (orderedIds: string[]) => Promise<void>

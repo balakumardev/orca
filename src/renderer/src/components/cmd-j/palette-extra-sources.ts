@@ -10,8 +10,13 @@ const NO_SOURCES: readonly PaletteExtraSource[] = []
 export function usePaletteExtraSources(args: {
   query: string
   visible: boolean
+  hostIds?: readonly string[]
+  repoIds?: readonly string[]
 }): readonly PaletteExtraSource[] {
-  const projectCreate = usePaletteProjectCreateSource(args)
+  const projectCreate = usePaletteProjectCreateSource({
+    ...args,
+    visible: args.visible && !args.hostIds?.length && !args.repoIds?.length
+  })
   const folders = usePaletteFolderSource(args)
   const sessions = usePaletteSessionSource(args)
   return useMemo(() => {

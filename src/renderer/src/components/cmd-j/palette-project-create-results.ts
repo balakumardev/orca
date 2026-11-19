@@ -1,5 +1,7 @@
 import type { PaletteExtraResult } from './palette-extra-results'
 import type { ProjectCreateTarget } from './palette-project-create-targets'
+import { LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host'
+import { encodePaletteIdentity } from '../../../../shared/palette-match/palette-ranking'
 
 /** The section previews the two best projects; more rows would bury Workspaces. */
 const PROJECT_CREATE_ROW_LIMIT = 2
@@ -17,7 +19,12 @@ export function buildProjectCreatePaletteResults(
   }
 ): PaletteExtraResult[] {
   return targets.slice(0, PROJECT_CREATE_ROW_LIMIT).map((target, order) => ({
-    id: target.repo.id,
+    // Local selection ids stay stable; remote copies cannot collide with the local repo row.
+    id:
+      target.workspaceTarget.hostId === LOCAL_EXECUTION_HOST_ID
+        ? target.repo.id
+        : encodePaletteIdentity(['project-create', target.workspaceTarget.hostId, target.repo.id]),
+    projectCreateTarget: { repoId: target.repo.id, workspaceTarget: target.workspaceTarget },
     title: actions.title(target.label),
     titleRanges: [],
     rank: null,

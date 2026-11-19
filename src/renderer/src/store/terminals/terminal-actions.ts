@@ -1,5 +1,6 @@
 import type { FreshWorkspaceAgentLaunch } from '@/lib/workspace/creation/worktree-startup-payload'
 import type { TerminalState } from './terminal-state'
+import type { ExecutionHostId } from '../../../../shared/execution-host'
 import type { Tab } from '../../../../shared/tab-types'
 import type { TabSplitTarget } from '../slices/tabs/tabs-slice-contract'
 import type {
@@ -72,6 +73,8 @@ export type TerminalActions = {
       pendingActivationSpawn?: boolean
       initialPtyId?: string
       executionFacts?: TerminalCreationExecutionFacts
+      /** A recording's owner pins its new tab even when workspace IDs repeat across hosts. */
+      executionHostId?: ExecutionHostId
       /** Stable leaf identity: an already-live pane's, or a host launch's pane before its process. */
       initialLeafId?: string
       /** Published atomically with the tab so its first mount cannot spawn a bare shell. */

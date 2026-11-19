@@ -12,7 +12,11 @@ import type { ExecutionHostId } from '../../../../shared/execution-host'
 import type { StructuredChatTabNames } from '@/runtime/native-chat/naming/structured-chat-tab-name'
 import type { Repo } from '../../../../shared/repo-types'
 import type { Tab } from '../../../../shared/tab-types'
-import type { TerminalTab } from '../../../../shared/workspace-layout/terminal-tab-types'
+import type {
+  TerminalLayoutSnapshot,
+  TerminalTab
+} from '../../../../shared/workspace-layout/terminal-tab-types'
+import type { PaneForegroundAgentEntry } from '@/store/slices/agent-status/pane-foreground-agent'
 import type { Worktree } from '../../../../shared/worktree/types'
 import type { ActivityEvent, ActivityLiveAgentSnapshot } from './activity-thread-types'
 import { capActivityEvents } from './activity-event-cap'
@@ -23,6 +27,7 @@ import {
   type ActivityEventBuildCache
 } from './activity-event-build-cache'
 import { appendUnsupportedAndRetainedEvents } from './activity-event-builder-sources'
+import { appendActivityAgentPresence } from './activity-agent-presence'
 import {
   attributedActivityTabContext,
   resolveActivityEventOwner,
@@ -38,6 +43,11 @@ export type BuildActivityEventsArgs = {
   retainedAgentsByPaneKey: Record<string, RetainedAgentEntry>
   tabsByWorktree: Record<string, TerminalTab[]>
   ptyIdsByTabId?: Record<string, string[]>
+  /** Presence needs live process evidence for the same pane, independent of its last turn. */
+  paneForegroundAgentByPaneKey?: Record<string, PaneForegroundAgentEntry>
+  terminalLayoutsByTabId?: Record<string, TerminalLayoutSnapshot>
+  runtimePaneTitlesByTabId?: Record<string, Record<number, string>>
+  nativeAgentPresenceByPaneKey?: Readonly<Record<string, AgentStatusEntry>>
   unifiedTabsByWorktree?: Record<string, Tab[]>
   worktreeMap: Map<string, Worktree>
   repoMap: Map<string, Repo>
@@ -145,6 +155,25 @@ export function buildActivityEvents(
     resolveOwner: (context, entry, terminalPtyId) =>
       resolveActivityEventOwner(args, context, entry, terminalPtyId, tabHostIndex, ownerCache),
     pushPaneEvents
+  })
+
+  // Clear/history caps retire events; confirmed agent presence keeps its own row.
+  appendActivityAgentPresence({
+    args,
+    cache,
+    seenCacheKeys,
+    tabContext,
+    liveAgentByPaneKey,
+    resolveOwner: (context, entry) =>
+      resolveActivityEventOwner(
+        args,
+        context,
+        entry,
+        context.tab.ptyId,
+        tabHostIndex,
+        ownerCache,
+        t
+      )
   })
 
   // Evict panes absent from every source so caches cannot outgrow live maps.

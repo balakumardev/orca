@@ -198,6 +198,8 @@ export function createTerminalTabCreationActions(
           worktreeId,
           contentType: 'terminal' as const,
           ...(facts || folder ? { executionHostId: facts?.hostId ?? folder?.hostId } : {}),
+          // Explicit recording ownership must survive later workspace selection changes.
+          ...(options?.executionHostId ? { executionHostId: options.executionHostId } : {}),
           label: tab.title,
           ...(tab.quickCommandLabel?.trim()
             ? { quickCommandLabel: tab.quickCommandLabel.trim() }

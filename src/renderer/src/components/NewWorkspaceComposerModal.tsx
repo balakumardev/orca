@@ -33,6 +33,8 @@ import {
   composerRecoverySnapshot
 } from './new-workspace/composer-auto-submit-open'
 import { useComposerAutoSubmit } from './new-workspace/use-composer-auto-submit'
+import { useComposerSubmissionCancellation } from './new-workspace/use-composer-submission-cancellation'
+import { paletteProjectCreateGuard } from './cmd-j/palette-project-create-composer'
 import {
   composerLaunchWorkspace,
   quickWorkspacePickerInputs,
@@ -86,12 +88,11 @@ function ComposerModalBody({
   onClose: () => void
 }): React.JSX.Element {
   const dialogRef = useRef<HTMLDivElement>(null)
-  const submitCancelledRef = useRef(false)
-  const handleDismiss = useCallback(() => {
-    submitCancelledRef.current = true
-    onClose()
-  }, [onClose])
-  const isSubmissionCancelled = useCallback(() => submitCancelledRef.current, [])
+  // The cancellation owner survives async handoff with the hidden form's original authority.
+  const { handleDismiss, isSubmissionCancelled } = useComposerSubmissionCancellation(
+    modalData,
+    onClose
+  )
   // The Cmd+J name step has this dialog press its own Create out of sight (see the props).
   const { dialog, content } = composerAutoSubmitDialogProps(modalData)
 
@@ -245,6 +246,10 @@ function QuickTabBody({
       // Blank Terminal is the setup-only create: no agent, and no extra shell beside setup.
       setupOnly: quickAgent === null,
       launchChoice: launchSelection.choice,
+      // Background creation and Retry keep the same authority as the palette selection.
+      targetGuard: modalData.autoSubmit
+        ? paletteProjectCreateGuard(modalData.autoSubmitHost)
+        : undefined,
       onLegacyPreparationFailure: (error) => {
         if (isSubmissionCancelled()) {
           return
@@ -292,7 +297,7 @@ function QuickTabBody({
     modalData,
     cardProps
   ])
-  useComposerAutoSubmit({ modalData, createDisabled, create: handleCreate, repo: cardProps.repoId })
+  useComposerAutoSubmit({ modalData, createDisabled, create: handleCreate, target: cardProps })
   const {
     addProjectOpen,
     addProjectMounted,

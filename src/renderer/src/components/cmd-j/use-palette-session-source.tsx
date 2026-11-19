@@ -6,7 +6,8 @@ import { useChatProgramFactsVersion } from '@/lib/agent-session/launch/inventory
 import { recomputeOn } from '@/lib/recompute-on'
 import {
   selectFolderWorkspaces,
-  selectWorktreesByRepo
+  selectWorktreesByRepo,
+  selectDetectedWorktreesByRepo
 } from '@/store/workspaces/catalog/workspace-record-fields'
 import type { PaletteExtraSource } from './palette-extra-results'
 import { resolvePaletteSessionAction } from './palette-session-action'
@@ -25,20 +26,27 @@ import { usePaletteSessionSearch } from './use-palette-session-search'
 const NO_STORE_INPUTS = null
 
 /**
- * Agent session transcripts that match the typed query, from the AI Vault index of this computer. The
- * section exists only when the user turned Agent Session History search on in Settings. Rows carry no
+ * Connected computers search their own opted-in history indexes. Rows carry no
  * rank, so they never lead the list, and they are never armed by a typed Enter (see palette-folder-selection).
  */
 export function usePaletteSessionSource({
   query,
-  visible
+  visible,
+  hostIds,
+  repoIds
 }: {
   query: string
   visible: boolean
+  hostIds?: readonly string[]
+  repoIds?: readonly string[]
 }): PaletteExtraSource | null {
   const t = useTranslate()
-  const { active, hits } = usePaletteSessionSearch({ query, visible })
-  usePaletteSessionResumeCatalogs(active)
+  const { active, hits } = usePaletteSessionSearch({ query, visible, hostIds, repoIds })
+  const hosts = useMemo(
+    () => [...new Map(hits.map((hit) => [hit.searchHost.key, hit.searchHost])).values()],
+    [hits]
+  )
+  const catalogVersion = usePaletteSessionResumeCatalogs(active, hosts)
   const hasHits = hits.length > 0
   // What a row's action depends on. Watched only while rows are on screen: agent status changes constantly.
   const storeInputs = useAppStore(
@@ -50,9 +58,12 @@ export function usePaletteSessionSource({
             sleepingAgentSessionsByPaneKey: state.sleepingAgentSessionsByPaneKey,
             tabsByWorktree: state.tabsByWorktree,
             terminalLayoutsByTabId: state.terminalLayoutsByTabId,
+            unifiedTabsByWorktree: state.unifiedTabsByWorktree,
             worktreesByRepo: selectWorktreesByRepo(state),
             folderWorkspaces: selectFolderWorkspaces(state),
             repos: state.repos,
+            projectGroups: state.projectGroups,
+            detectedWorktreesByRepo: selectDetectedWorktreesByRepo(state),
             settings: state.settings
           }
         : NO_STORE_INPUTS
@@ -65,7 +76,7 @@ export function usePaletteSessionSource({
     }
     // Eligibility reads the store and the host's agent catalog outside its arguments; these track them.
     const inertReasonByHit = recomputeOn(
-      [storeInputs, chatProgramFactsVersion],
+      [storeInputs, chatProgramFactsVersion, catalogVersion],
       () =>
         new Map(
           hits.map((hit) => {
@@ -84,13 +95,14 @@ export function usePaletteSessionSource({
     const untitled = t('auto.components.WorktreeJumpPalette.sessionUntitled', 'Untitled session')
     const results = buildSessionPaletteResults(hits, query, {
       untitled,
-      onOpen: (hit) => void openPaletteSession(hit),
+      onOpen: (hit) => void openPaletteSession(hit, hit.searchHost),
       isInert: (hit) => inertReasonOf(hit) !== null,
       decorate: (hit) => ({
         leading: <PaletteSessionLeading agent={hit.agent} />,
         line: (
           <PaletteSessionLine
             hit={hit}
+            hostLabel={hit.searchHost.label}
             title={paletteSessionTitle(hit, untitled)}
             inertReason={inertReasonOf(hit)}
           />
@@ -109,5 +121,5 @@ export function usePaletteSessionSource({
       leadsOnTie: false,
       results
     } satisfies PaletteExtraSource
-  }, [chatProgramFactsVersion, hits, query, storeInputs, t])
+  }, [catalogVersion, chatProgramFactsVersion, hits, query, storeInputs, t])
 }

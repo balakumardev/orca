@@ -27,16 +27,20 @@ import type { AiVaultResumeCommandSession } from '../../../../../../shared/ai-va
 import { agentForksThroughChat } from '../../../../../../shared/agent-launch/startup/agent-resume-argv'
 import { translate } from '@/i18n/i18n'
 
-export function prepareAiVaultSessionForResume(session: AiVaultSession): Promise<AiVaultSession> {
+export function prepareAiVaultSessionForResume(
+  session: AiVaultSession,
+  request?: SessionPreparationRequest
+): Promise<AiVaultSession> {
   return session.structuredSession || !aiVaultSessionNeedsResumePreparation(session)
     ? Promise.resolve(session)
-    : prepareAiVaultSessionHome(session, false)
+    : prepareAiVaultSessionHome(session, false, false, request)
 }
 
 export function prepareAiVaultSessionForTerminalResume(
-  session: AiVaultSession
+  session: AiVaultSession,
+  request?: SessionPreparationRequest
 ): Promise<AiVaultSession> {
-  return prepareAiVaultSessionHome(session, false, true)
+  return prepareAiVaultSessionHome(session, false, true, request)
 }
 
 export function prepareAiVaultSessionResumeRequest(
@@ -46,14 +50,13 @@ export function prepareAiVaultSessionResumeRequest(
 }
 
 export async function prepareAiVaultTerminalResumeRequest(
-  args: AiVaultPrepareSessionResumeArgs
+  args: AiVaultPrepareSessionResumeArgs,
+  request: SessionPreparationRequest = (args) => window.api.aiVault.prepareSessionResume(args)
 ): Promise<AiVaultPrepareSessionResumeResult> {
   const needsHomePreparation = aiVaultSessionNeedsResumePreparation(args)
   try {
     // Why: this request checks ownership; old desktop resumes kept the recorded home otherwise.
-    const result = await prepareAiVaultSessionResumeRequest(
-      needsHomePreparation ? args : { ...args, codexHome: null }
-    )
+    const result = await request(needsHomePreparation ? args : { ...args, codexHome: null })
     if (
       typeof result?.useRealCodexHome !== 'boolean' ||
       (result.substituteCodexHome !== undefined && typeof result.substituteCodexHome !== 'string')
@@ -91,21 +94,21 @@ function isMissingPairedResumePreparation(error: unknown): boolean {
 }
 
 /** Prepare Switch to Terminal under the chosen account. CLI-forking agents copy at launch (copied:false); chat-forking agents need a host-created independent copy first (copied:true). */
-type ForkPreparationRequest = (
+type SessionPreparationRequest = (
   args: AiVaultPrepareSessionResumeRequest
 ) => Promise<AiVaultPrepareSessionResumeResult>
 
 export function prepareAiVaultSessionForFork(
   session: AiVaultSession,
-  request?: ForkPreparationRequest
+  request?: SessionPreparationRequest
 ): Promise<{ session: AiVaultSession; copied: boolean }>
 export function prepareAiVaultSessionForFork(
   session: AiVaultPrepareChatForkArgs,
-  request?: ForkPreparationRequest
+  request?: SessionPreparationRequest
 ): Promise<{ session: AiVaultResumeCommandSession; copied: boolean; sourceAgent?: AiVaultAgent }>
 export async function prepareAiVaultSessionForFork(
   session: AiVaultSession | AiVaultPrepareChatForkArgs,
-  request: ForkPreparationRequest = (args) => window.api.aiVault.prepareSessionResume(args)
+  request: SessionPreparationRequest = (args) => window.api.aiVault.prepareSessionResume(args)
 ): Promise<{ session: AiVaultResumeCommandSession; copied: boolean; sourceAgent?: AiVaultAgent }> {
   if ('sourceChat' in session) {
     const result = await request(session)
@@ -158,7 +161,7 @@ async function prepareAiVaultSessionHome(
   session: AiVaultSession,
   fork: boolean,
   terminalResume = false,
-  request: ForkPreparationRequest = (args) => window.api.aiVault.prepareSessionResume(args)
+  request: SessionPreparationRequest = (args) => window.api.aiVault.prepareSessionResume(args)
 ): Promise<AiVaultSession> {
   if (fork && !aiVaultSessionNeedsResumePreparation(session)) {
     return session
@@ -171,7 +174,9 @@ async function prepareAiVaultSessionHome(
     executionHostId: session.executionHostId,
     ...(fork ? { fork: true } : {})
   }
-  const result = await (terminalResume ? prepareAiVaultTerminalResumeRequest(args) : request(args))
+  const result = await (terminalResume
+    ? prepareAiVaultTerminalResumeRequest(args, request)
+    : request(args))
   if (result.useRealCodexHome) {
     return { ...session, codexHome: null }
   }

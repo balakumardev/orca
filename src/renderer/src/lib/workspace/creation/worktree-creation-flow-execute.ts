@@ -46,6 +46,7 @@ export async function executeWorktreeCreation(
   const trustedRequest = request.hookPreparation
     ? await prepareWorktreeCreationHooks(creationId, request)
     : request
+  trustedRequest?.targetGuard?.assertCurrent()
   const preparedRequest =
     trustedRequest && (await prepareRequestForCreate(creationId, trustedRequest))
   if (!preparedRequest) {
@@ -96,6 +97,8 @@ export async function executeWorktreeCreation(
           ...(hostAgentLaunch ? { hostAgentLaunch } : {}),
           ...worktreeCreationAgentLaunchOptions(preparedRequest),
           executionHostId: creationHostId,
+          // Dispatch uses the saved pairing/runtime fence, not the host current after preparation.
+          ...(preparedRequest.targetGuard ? { targetGuard: preparedRequest.targetGuard } : {}),
           ...(preparedRequest.nameWasGenerated ? { nameWasGenerated: true } : {}),
           ...(preparedRequest.displayNameKind
             ? { displayNameKind: preparedRequest.displayNameKind }

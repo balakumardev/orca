@@ -52,7 +52,13 @@ function thread(minutesAgo: number, unread: boolean, project: Repo | null): Agen
   }
 }
 
-function ActivityCards({ compactMode = false }: { compactMode?: boolean }) {
+function ActivityCards({
+  compactMode = false,
+  idle = false
+}: {
+  compactMode?: boolean
+  idle?: boolean
+}) {
   return (
     <div className="space-y-2 bg-background p-2 text-foreground">
       {[
@@ -62,7 +68,7 @@ function ActivityCards({ compactMode = false }: { compactMode?: boolean }) {
       ].map((entry, index) => (
         <ActivityThreadRow
           key={entry.paneKey}
-          thread={entry}
+          thread={idle ? { ...entry, currentAgentState: 'idle', unread: false } : entry}
           selected={index === 1}
           compactMode={compactMode}
           canJump
@@ -86,4 +92,9 @@ export const full = defineFixture({
 export const narrowCompact = defineFixture({
   width: 240,
   render: () => <ActivityCards compactMode />
+})
+
+export const idlePresence = defineFixture({
+  width: 320,
+  render: () => <ActivityCards idle />
 })

@@ -86,6 +86,7 @@ describe('The Cmd+J name step', () => {
     expect(useAppStore.getState().activeModal).toBe('new-workspace-composer')
     expect(useAppStore.getState().modalData).toEqual({
       initialRepoId: 'repo-acme-web',
+      initialWorkspaceTarget: { projectId: 'repo:repo-acme-web', hostId: 'local' },
       prefilledName: 'login-fix',
       autoSubmit: true,
       telemetrySource: 'command_palette'

@@ -47,6 +47,15 @@ The two cycle keys walk the visible Activity rows, skip collapsed groups, wrap a
 
 The highlighted row in Activity follows the agent in the pane you are working in. It moves when an agent starts in a new tab, and when you switch tab, workspace or pane. The list scrolls to the row, and a collapsed group opens first. This only moves the highlight. It does not refocus a terminal or switch workspace. A row you clicked yourself wins over the follow. If the focused pane runs no agent (a plain shell, an editor), the highlight stays where it was.
 
+### Live agents stay in Activity (`activity-presence`)
+
+Activity keeps confirmed-live agents visible while they are idle, including a newly opened chat before its first turn. **Clear** removes completed history while leaving those live agents in the list. Idle presence adds no unread completion or working count; genuine unread turns and requests for input keep their usual behavior. The existing search, host and read filters still apply.
+
+<p>
+  <img src="readme/activity-idle-light.png" alt="Idle Activity cards in the light theme" width="320">
+  <img src="readme/activity-idle-dark.png" alt="Idle Activity cards in the dark theme" width="320">
+</p>
+
 ### Activity card titles (`activity-title`)
 
 An Activity card is titled with the agent session name instead of the last prompt you typed. When the session has no real name yet, the card keeps showing the prompt. In a split tab, each card uses the title of its own pane. This is a port of an upstream change (stablyai/orca#31802).
@@ -58,6 +67,14 @@ Each Activity card shows the project next to the workspace name, as a small colo
 <p>
   <img src="readme/activity-row-project.png" alt="Three Activity cards in dark and light theme, each with a project chip and the workspace name under the title" width="560">
 </p>
+
+### Cmd+J across computers (`remote-cmdj`)
+
+The desktop palette searches this computer and connected paired Orca servers. Folder and session results show their computer's name, and host filters narrow the search. Machines managed through SSH use their paired Orca server.
+
+Opening a folder, creating a worktree and resuming a session stay on the selected computer, even when two computers have the same path or project name. If that connection is replaced during the action, the saved selection is rejected. Folder discovery needs an updated server with `folderSearch.v1` support. Session search uses each computer's own indexing setting; leaving it off locally does not hide an enabled remote index.
+
+![Two folder results for the same path, labeled Local Mac and Folder search server](readme/palette-remote-folders.png)
 
 ### Cmd+J: a new worktree in a project (`project-jump`)
 
@@ -87,11 +104,11 @@ Enter does not create the worktree itself. It hands the name to Orca's New workt
 
 ### Cmd+J: folders (`folder-jump`)
 
-While you type, Cmd+J also lists folders on your computer that Orca does not track yet. It looks in the folders that hold your existing projects, not on the whole disk. Enter adds the folder as a project: a git folder as a git project, any other folder as a plain folder. A folder row is never the highlighted row until you move to it, so a typed Enter cannot add a folder by accident. On a git folder, Cmd+Enter adds it and then asks for a worktree name in it (see the table above). This works in the desktop app for local projects only.
+While you type, Cmd+J also lists folders that Orca does not track yet on each connected computer. Each computer scans its saved **Folder search locations** under Settings > General > Workspace folder, defaulting to its home directory. Enter adds the folder as a project on that computer: a git folder as a git project, any other folder as a plain folder. A folder row is never the highlighted row until you move to it, so a typed Enter cannot add a folder by accident. On a git folder, Cmd+Enter adds it and then asks for a worktree name in it (see the table above). Broad locations can return a partial list because scans have depth, entry and time limits.
 
 ### Cmd+J: sessions (`session-search`, opt-in)
 
-Cmd+J can list past agent conversations that match what you type. It reads the search index of Orca's Agent Session History. It does nothing until you turn on **Search inside sessions** in Settings (Agent Session Search). The fork never turns it on.
+Cmd+J can list past agent conversations that match what you type. It reads the search index of Orca's Agent Session History on each connected computer where **Search inside sessions** is enabled in Settings (Agent Session Search). Each computer opts in independently. The fork never turns it on.
 
 Read this before you turn it on. The index holds the text of your agent conversations on your disk, and Orca does not encrypt it. With it on, every search of two or more characters in Cmd+J can show excerpts of those conversations. A screen share can show them too. **Clear search data** in the same settings removes the index.
 
@@ -126,7 +143,7 @@ Release builds are signed with the fork owner's own Developer ID. Two build-time
 This list is short on purpose. It names only things that exist or are written down.
 
 - Every new upstream release is merged in. The open [pull requests](https://github.com/balakumardev/orca/pulls) show the one in progress.
-- Ideas, not promises. They come from the known gaps in the [patch index](../.claude/skills/fork-add-customization/SKILL.md): a branch and base preview in the name step, session search for SSH, WSL and paired hosts, and following the floating terminal in the Activity highlight. More Cmd+J and sidebar work is possible. There is no schedule.
+- Ideas, not promises. They come from the known gaps in the [patch index](../.claude/skills/fork-add-customization/SKILL.md): a branch and base preview in the name step, session search for direct SSH and WSL hosts without a paired server, and following the floating terminal in the Activity highlight. More Cmd+J and sidebar work is possible. There is no schedule.
 
 ## Install
 
@@ -163,9 +180,9 @@ You should see `TeamIdentifier=KHD36T7C97` and `source=Notarized Developer ID`. 
 
 ## Known limits
 
-- The patches were checked in a headless test harness on macOS and by the author's daily use. They were not checked on Windows, Linux, WSL or SSH hosts, and not with a paired remote host.
+- The patches were checked in a headless test harness on macOS and by the author's daily use. Cmd+J folder routing was also checked between two paired test instances on one Mac. Windows, Linux, WSL and a separately deployed SSH host were not driven end to end for these changes.
 - Apple Silicon only.
-- Session search is opt-in, it stores conversation text without encryption, and it works for the local computer only. It also waits for the first full index pass, which can take a while on a large history.
+- Session search is opt-in on each computer, stores conversation text without encryption, and waits for that computer's first full index pass, which can take a while on a large history. These custom folder and session sources are desktop-only.
 - The Activity keys do not fire while an embedded browser or a text input has focus. The Activity highlight does not follow the floating terminal or the full-page Activity view. It does not highlight an agent that a filter hides.
 - The name step in Cmd+J shows no branch or base preview.
 - Stay awake with the lid closed was checked with unit tests and an offline run of its installer, not yet with a real closed lid. macOS itself decides whether `pmset disablesleep` holds a closed lid on a given Mac, and sources disagree. Try it with the Mac plugged in first, and watch the first runs.

@@ -24,6 +24,7 @@ export type AllAgentPaneThreadsStoreData = Pick<
   | 'retainedAgentsByPaneKey'
   | 'tabsByWorktree'
   | 'ptyIdsByTabId'
+  | 'paneForegroundAgentByPaneKey'
   | 'repos'
   | 'worktreesByRepo'
   | 'folderWorkspaces'
@@ -67,6 +68,8 @@ export function useAllAgentPaneThreadStoreData(): AllAgentPaneThreadsStoreData {
       retainedAgentsByPaneKey: s.retainedAgentsByPaneKey,
       tabsByWorktree: s.tabsByWorktree,
       ptyIdsByTabId: s.ptyIdsByTabId,
+      // Presence-only agents need the same process evidence that Projects consumes.
+      paneForegroundAgentByPaneKey: s.paneForegroundAgentByPaneKey,
       activityTabs: (() => {
         const cache = tabProjectionRef.current
         if (cache.raw === s.unifiedTabsByWorktree && cache.projected) {

@@ -47,7 +47,8 @@ describe('what the plain Create row names', () => {
     expect(labelFor('notes')).toEqual({
       repoId: 'repo-acme-web',
       projectLabel: 'acme-web',
-      name: 'notes'
+      name: 'notes',
+      workspaceTarget: { projectId: 'repo:repo-acme-web', hostId: 'local' }
     })
   })
 
@@ -55,7 +56,8 @@ describe('what the plain Create row names', () => {
     expect(labelFor('acme')).toEqual({
       repoId: 'repo-acme-web',
       projectLabel: 'acme-web',
-      name: 'acme'
+      name: 'acme',
+      workspaceTarget: { projectId: 'repo:repo-acme-web', hostId: 'local' }
     })
   })
 
@@ -68,7 +70,8 @@ describe('what the plain Create row names', () => {
     expect(labelFor('notes/refactor')).toEqual({
       repoId: 'repo-notes',
       projectLabel: 'notes',
-      name: 'refactor'
+      name: 'refactor',
+      workspaceTarget: { projectId: 'repo:repo-notes', hostId: 'local' }
     })
   })
 
@@ -83,7 +86,8 @@ describe('what the plain Create row names', () => {
     expect(labelFor('42-app')).toEqual({
       repoId: 'repo-acme-web',
       projectLabel: 'acme-web',
-      name: '42-app'
+      name: '42-app',
+      workspaceTarget: { projectId: 'repo:repo-acme-web', hostId: 'local' }
     })
   })
 

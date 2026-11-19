@@ -18,6 +18,8 @@ import {
 } from './ai-vault-original-pane-index'
 import type { AgentDotState } from '@/components/AgentStateDot'
 import type { AiVaultSession } from '../../../../../../shared/ai-vault/contracts/ai-vault-types'
+import type { ExecutionHostId } from '../../../../../../shared/execution-host'
+import type { RuntimeTargetGuard } from '@/runtime/rpc/targets/runtime-target-guard'
 
 export function useAiVaultOriginalPaneActions(): {
   getOriginalPaneTarget: (
@@ -132,8 +134,18 @@ export function useAiVaultOriginalPaneActions(): {
   }
 }
 
-export function revealSessionWorkspace(workspaceId: string): boolean {
-  if (activateAndRevealWorkspace(workspaceId) !== false) {
+export function revealSessionWorkspace(
+  workspaceId: string,
+  executionHostId?: ExecutionHostId,
+  targetGuard?: RuntimeTargetGuard
+): boolean {
+  // A host-qualified result must reveal its own copy of a duplicated workspace ID.
+  if (
+    activateAndRevealWorkspace(
+      workspaceId,
+      executionHostId ? { executionHostId, ...(targetGuard ? { targetGuard } : {}) } : undefined
+    ) !== false
+  ) {
     return true
   }
   // Folder activation explains a refusal itself once it resolves the folder; anything else is gone.

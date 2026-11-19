@@ -44,6 +44,7 @@ import type {
 import type { StructuredAgentSessionCreateParams } from '../../../../../shared/agent-session/structured-agent-session-create'
 import type { StructuredAgentSessionLaunchIntent } from './structured-agent-session-launch-intent'
 import type { StructuredAgentLaunchReceipt } from './structured-agent-session-launch-recovery'
+import { structuredLaunchHostOptions } from './structured-agent-session-launch-host-guard'
 
 type LaunchSeed = Readonly<Record<string, string>> | undefined
 const DEFINITIVE_CREATE_FAILURE_CODES = [
@@ -193,12 +194,13 @@ export async function launchStructuredAgentSession(
     )
   }
   delete intent.beforeCreate
+  const callOptions = structuredLaunchHostOptions(intent, forkOptions)
   try {
     result = await callStructuredAgentSession<AgentSessionMutationResult<AgentSessionAttachResult>>(
       intent.target,
       'agentSession.create',
       params,
-      ...(forkOptions ? ([forkOptions] as const) : ([] as const))
+      ...(callOptions ? ([callOptions] as const) : ([] as const))
     )
   } catch (error) {
     if (
@@ -207,6 +209,19 @@ export async function launchStructuredAgentSession(
         (error instanceof RuntimeRpcCallError && error.code === 'runtime_environment_changed'))
     ) {
       refuseUnsentInheritedFork(intent, priorCreateOutcomeUnknown)
+    }
+    // A queue fence proves this attempt was unsent, but cannot settle an earlier lost reply.
+    if (
+      intent.targetGuard &&
+      !priorCreateOutcomeUnknown &&
+      (error instanceof RuntimeConnectionChangedBeforeSendError ||
+        (error instanceof RuntimeRpcCallError && error.code === 'runtime_environment_changed'))
+    ) {
+      abandonStructuredAgentSessionLaunchIntent(intent)
+      throw new StructuredAgentSessionCreateRefusalError(
+        error.message,
+        'runtime_environment_changed'
+      )
     }
     const code = definitiveStructuredAgentSessionCreateErrorCode(error)
     if (code) {
