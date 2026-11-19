@@ -1,0 +1,6 @@
+This branch contains UNRESOLVED merge conflicts.
+Do not merge it. Resolve the files below, delete this file, commit and push.
+
+tests/e2e/desktop/electron-fixtures/activity-follow-agents.ts
+tests/e2e/desktop/electron-fixtures/activity-sidebar.ts
+tests/e2e/desktop/electron-fixtures/composer-exposure.ts
