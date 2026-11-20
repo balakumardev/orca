@@ -52,7 +52,19 @@ fi
 [ "$1" = api ] || { echo "stub gh: unexpected call: $*" >&2; exit 2; }
 path="${2%%\?*}"
 case "$path" in
-  repos/*/actions/runs) [ ! -f "$FIX/list-fails" ] || { echo "HTTP 500" >&2; exit 1; }; emit "$FIX/runs.json" ;;
+  # The repository-wide list: newest first, ONE page of 100 (what the script used to ask for), with its `status` filter. Every other
+  # workflow's runs share it, which is how this workflow's own runs (every 15 minutes) crowd ours out of it.
+  repos/*/actions/runs)
+    [ ! -f "$FIX/list-fails" ] || { echo "HTTP 500" >&2; exit 1; }
+    case "$2" in *status=completed*) st=completed ;; *) st="" ;; esac
+    jq --arg st "$st" '.workflow_runs |= ([.[] | select($st == "" or .status == $st)] | sort_by(.created_at) | reverse | .[:100])' "$FIX/runs.json" > "$FIX/repo-wide.json"
+    emit "$FIX/repo-wide.json" ;;
+  # The per-workflow list: every run of that workflow, any status (the script follows the pages with --paginate).
+  repos/*/actions/workflows/*/runs)
+    [ ! -f "$FIX/list-fails" ] || { echo "HTTP 500" >&2; exit 1; }
+    wf="$(basename "$(dirname "$path")")"
+    jq --arg w ".github/workflows/$wf" '.workflow_runs |= [.[] | select(.path | startswith($w))]' "$FIX/runs.json" > "$FIX/per-workflow.json"
+    emit "$FIX/per-workflow.json" ;;
   repos/*/actions/runs/*/jobs) emit "$FIX/jobs-$(basename "$(dirname "$path")").json" ;;
   repos/*/check-runs/*/annotations)
     id="$(basename "$(dirname "$path")")"
@@ -67,12 +79,17 @@ chmod +x "$tmp/bin/gh"
 # ---- fixture builders ---------------------------------------------------------------------------------------------------------
 FIX="$tmp/fix"
 reset() { rm -rf "$FIX"; mkdir -p "$FIX"; echo '{"workflow_runs":[]}' > "$FIX/runs.json"; JOBSEQ=1000; }
-addrun() { # ID PATH CONCLUSION ATTEMPT AGE_HOURS [HEAD_REPO]. A pull-request gate run gets PR number == ID, head sha "sha-<ID>", and an open PR at that head.
+addrun() { # ID PATH CONCLUSION ATTEMPT AGE_HOURS [HEAD_REPO] [CREATED_AGE_HOURS]. CONCLUSION queued|in_progress makes a run that is not finished.
+  # A pull-request gate run gets PR number == ID, head sha "sha-<ID>", and an open PR at that head. A run was created 30 minutes before it ended.
   local prs='[]'
   case "$2" in "$PRG"*) prs="[{\"number\": $1}]"; echo "{\"state\":\"open\",\"head\":{\"sha\":\"sha-$1\"}}" > "$FIX/pull-$1.json" ;; esac
-  jq --argjson id "$1" --arg p "$2" --arg c "$3" --argjson a "$4" --argjson age "$5" --arg hr "${6:-balakumardev/orca}" --argjson now "$NOW" --argjson prs "$prs" \
-    '.workflow_runs += [{id: $id, name: ($p | sub(".*/"; "") | sub(".yml$"; "")), path: $p, conclusion: $c, run_attempt: $a, head_sha: ("sha-" + ($id | tostring)),
-       pull_requests: $prs, updated_at: (($now - ($age * 3600)) | todate), head_repository: {full_name: $hr}}]' "$FIX/runs.json" > "$FIX/r.tmp" && mv "$FIX/r.tmp" "$FIX/runs.json"
+  jq --argjson id "$1" --arg p "$2" --arg c "$3" --argjson a "$4" --argjson age "$5" --arg hr "${6:-balakumardev/orca}" --argjson cage "${7:-$(jq -n "$5 + 0.5")}" \
+    --argjson now "$NOW" --argjson prs "$prs" \
+    '.workflow_runs += [{id: $id, name: ($p | sub(".*/"; "") | sub(".yml$"; "")), path: $p, run_attempt: $a, head_sha: ("sha-" + ($id | tostring)),
+       status: (if $c == "queued" or $c == "in_progress" then $c else "completed" end),
+       conclusion: (if $c == "queued" or $c == "in_progress" then null else $c end),
+       pull_requests: $prs, created_at: (($now - ($cage * 3600)) | todate), updated_at: (($now - ($age * 3600)) | todate), head_repository: {full_name: $hr}}]' \
+    "$FIX/runs.json" > "$FIX/r.tmp" && mv "$FIX/r.tmp" "$FIX/runs.json"
   [ -f "$FIX/jobs-$1.json" ] || echo '{"jobs":[]}' > "$FIX/jobs-$1.json"
 }
 addjob() { # RUN_ID NAME CONCLUSION [ANNOTATION|UNREADABLE]
@@ -132,7 +149,7 @@ go; expect_rerun "a job cancelled with 'The operation was canceled.' does not bl
 reset; addrun 4 "$PRG" failure 1 1; addjob 4 "gates / static" cancelled; addjob 4 "gates / e2e" cancelled "$NOT_ACQUIRED"
 go; expect_rerun "a cancelled job with no annotation does not block either" 4
 reset; addrun 5 "$PRG" cancelled 1 1; addjob 5 "gates / static" cancelled "The run was canceled by @someone."; addjob 5 "gates / e2e" cancelled "The operation was canceled."
-go; expect_none "a run a person cancelled (no infrastructure annotation) is not re-run" "no failed job carries"
+go; expect_none "a run a person cancelled (no infrastructure annotation) is not re-run" "a person cancelled"
 reset; addrun 6 "$PRG" cancelled 1 1; addjob 6 "gates / e2e" cancelled "$NOT_ACQUIRED"; addjob 6 "gates / static" cancelled "Canceling since a higher priority waiting request for 'custom-pr-gates-5' exists"
 go; expect_none "a run cancelled by a newer run of its concurrency group is not re-run" "newer run"
 reset; addrun 7 "$PRG" failure 1 1; addjob 7 "gates / e2e" cancelled "$NOT_ACQUIRED"; addjob 7 "gates / static" cancelled UNREADABLE
@@ -187,6 +204,52 @@ for name in "agent (round 1, flash) / agent" "agent (round 3, pro) / agent" "gat
 done
 reset; addrun 42 "$SYNC" failure 1 1; addjob 42 "gates (round 0) / e2e" failure "$NOT_ACQUIRED"; addjob 42 "open-pr" failure "$EXIT1"
 go; expect_none "custom-sync: a real failure in open-pr next to an infrastructure fault: not re-run" "open-pr"
+
+# ---- a person who cancelled a run said stop: never re-run it ----------------------------------------------------------------
+# The reviewer's scenario: round 0's e2e job was "not acquired", then a person pressed "Cancel workflow" while open-pr was running.
+# Re-running would let open-pr and land merge and release what the person stopped.
+reset; addrun 70 "$SYNC" cancelled 1 1
+addjob 70 "gates (round 0) / static" success
+addjob 70 "gates (round 0) / e2e" cancelled "$NOT_ACQUIRED"
+addjob 70 "open-pr" cancelled "The run was canceled by @balakumardev."
+go; expect_none "custom-sync: round 0 e2e 'not acquired' plus open-pr cancelled by a person: NOT re-run" "a person cancelled"
+reset; addrun 71 "$PRG" cancelled 1 1; addjob 71 "gates / e2e" cancelled "$NOT_ACQUIRED"; addjob 71 "gates / static" cancelled "The run was canceled by @balakumardev."
+go; expect_none "pr-gates: the same, the person's cancel is on another job" "a person cancelled"
+reset; addrun 72 "$PRG" cancelled 1 1; addjob 72 "gates / e2e" cancelled "$NOT_ACQUIRED"; addjob 72 "gates / result" failure "The run was canceled by @balakumardev."
+go; expect_none "the person's cancel is written on the derived result job only: still read, still a stop" "a person cancelled"
+reset; addrun 73 "$PRG" cancelled 1 1; addjob 73 "gates / e2e" cancelled "$NOT_ACQUIRED The run was canceled by @balakumardev."
+go; expect_none "the infrastructure annotation and the person's cancel on the SAME job: the person wins" "a person cancelled"
+reset; addrun 74 "$PRG" cancelled 1 1; addjob 74 "gates / e2e" cancelled "$NOT_ACQUIRED"; addjob 74 "gates / static" cancelled "The run was cancelled by @someone-else."
+go; expect_none "the British spelling and any other person are the same" "a person cancelled"
+reset; addrun 75 "$PRG" cancelled 1 1; addjob 75 "gates / e2e" cancelled "$NOT_ACQUIRED"; addjob 75 "gates / static" cancelled "The run was canceled."
+go; expect_none "'The run was canceled' without saying by whom is not trusted as a sibling's cancel either" "gates / static"
+reset; addrun 76 "$PRG" failure 1 1; addjob 76 "gates / e2e" cancelled "$NOT_ACQUIRED"; addjob 76 "gates / static" cancelled "The operation was canceled."
+go; expect_rerun "control: 'The operation was canceled.' (a sibling failed, nobody pressed cancel) still lets the infrastructure re-run go ahead" 76
+
+# ---- custom-sync: a newer run exists -----------------------------------------------------------------------------------------
+# A re-run replays the old run's detect outputs (BASE_SHA, replace_pr), spends the paid agent rounds again and takes the pending slot
+# of the concurrency group from the newer run.
+reset; addrun 80 "$SYNC" failure 1 1; addjob 80 "open-pr" failure "$NOT_ACQUIRED"; addrun 81 "$SYNC" queued 1 0.1
+go; expect_none "custom-sync: a newer custom-sync run that is only queued blocks the re-run (it is not a completed run)" "newer custom-sync run"
+reset; addrun 82 "$SYNC" failure 1 1; addjob 82 "open-pr" failure "$NOT_ACQUIRED"; addrun 83 "$SYNC" in_progress 1 0.1
+go; expect_none "custom-sync: a newer run in progress blocks it" "newer custom-sync run"
+reset; addrun 84 "$SYNC" failure 1 1; addjob 84 "open-pr" failure "$NOT_ACQUIRED"; addrun 85 "$SYNC" success 1 0.2
+go; expect_none "custom-sync: a newer run that already succeeded (it synced the tag again, or had nothing to do) blocks it" "newer custom-sync run"
+reset; addrun 86 "$SYNC" failure 1 1; addjob 86 "open-pr" failure "$NOT_ACQUIRED"; addrun 87 "$SYNC" success 1 3 "balakumardev/orca" 3.5
+go; expect_rerun "custom-sync: an OLDER run does not block" 86
+reset; addrun 88 "$SYNC" failure 1 1; addjob 88 "open-pr" failure "$NOT_ACQUIRED"; addrun 89 "$PRG" success 1 0.1; addrun 90 "$REL" in_progress 1 0.1
+go; expect_rerun "custom-sync: newer runs of OTHER workflows do not block" 88
+reset; addrun 91 "$PRG" failure 1 1; addjob 91 "gates / e2e" cancelled "$NOT_ACQUIRED"; addrun 92 "$SYNC" success 1 0.1
+go; expect_rerun "pr-gates: a newer custom-sync run says nothing about a pull-request run" 91
+reset; addrun 93 "$SYNC" failure 1 1; addjob 93 "open-pr" failure "$NOT_ACQUIRED"; addrun 94 "$SYNC" failure 1 2; addjob 94 "open-pr" failure "$NOT_ACQUIRED"
+go
+if [ "$g_rc" = 0 ] && reran 93 && ! reran 94; then ok "custom-sync: of two failed runs only the NEWEST is re-run"; else bad "two sync runs: rc=$g_rc out=[$g_out] log=[$(tr '\n' ';' < "$tmp/gh.log")]"; fi
+
+# ---- the run list is per workflow: other runs must not crowd ours out ------------------------------------------------------------
+# 120 runs of this very workflow (every 15 minutes, all newer than the failed run) fill the repository-wide list's first page of 100.
+reset; addrun 95 "$SYNC" failure 1 5; addjob 95 "open-pr" failure "$NOT_ACQUIRED"
+for n in $(seq 2000 2119); do addrun "$n" ".github/workflows/custom-rerun-infra.yml" success 1 0.1; done
+go; expect_rerun "a failed run is found although 120 newer runs of other workflows come first in the repository-wide list" 95
 
 # ---- dry run, errors ----------------------------------------------------------------------------------------------------------
 reset; addrun 50 "$PRG" failure 1 1; addjob 50 "gates / e2e" cancelled "$NOT_ACQUIRED"

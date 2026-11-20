@@ -14,16 +14,23 @@
 # not ours to re-run), and passes ALL of these:
 #   - At least one failed job has an infrastructure annotation OF ITS OWN (INFRA_RE below). A run is never re-run on a hunch.
 #   - No other failed job is a real failure. A failed job counts as real unless its own annotations are infrastructure, or it was
-#     only cancelled (no annotation, or only "The operation was canceled"/"The run was canceled": cancelled because a sibling failed
-#     or a person cancelled) or it is the aggregating `result` job of custom-gates.yml, whose failure in a pull request is derived
-#     by design from `static` and `e2e` (it exits 1 whenever one of them did not succeed) and says nothing by itself. A job that was
-#     cancelled for exceeding `timeout-minutes` has an annotation of its own and counts as real. An annotation that cannot be read
-#     counts as real.
+#     only cancelled (no annotation, or only "The operation was canceled": cancelled because a sibling failed) or it is the
+#     aggregating `result` job of custom-gates.yml, whose failure in a pull request is derived by design from `static` and `e2e`
+#     (it exits 1 whenever one of them did not succeed) and says nothing by itself. A job that was cancelled for exceeding
+#     `timeout-minutes` has an annotation of its own and counts as real. An annotation that cannot be read counts as real.
+#   - NO PERSON cancelled the run: any annotation "... canceled by @<someone>" (on ANY failed job, the derived `result` job and a job
+#     that also carries an infrastructure annotation included) means somebody pressed "Cancel workflow" and said stop. Re-running it
+#     could let open-pr and land merge and release what that person stopped. The run is never re-run, however many of its other jobs
+#     were "not acquired". Any other "The run was canceled" wording that does not name who is not trusted as neutral either.
 #   - The run was not cancelled by a newer run of its concurrency group ("higher priority waiting request" in an annotation).
 #   - custom-pr-gates only: its pull request is still OPEN and its head is still the run's head_sha. A re-run attempt joins the
 #     concurrency group of its PR (custom-pr-gates-<PR>, cancel-in-progress: true), so re-running the run of an OLD head would CANCEL
 #     the run a newer push started, leaving the newer head with no `gates / result`. A run with no PR attached is skipped.
 #     (custom-sync's group has cancel-in-progress false: a re-run can only displace a pending scheduled run, which comes back in 3 hours.)
+#   - custom-sync only: no NEWER custom-sync run exists (created after this one, in any state: queued, running or done). A re-run
+#     replays the detect outputs of the old run (its BASE_SHA, its replace_pr), spends the three paid agent rounds again and can
+#     open a PR for a tag a newer run already synced or merged; it would also take the one pending slot of the concurrency group
+#     from the newer run. The newer run (every 3 hours at the latest) decides again from the current state of custom.
 #   - custom-sync only: every infrastructure job is one whose re-run is coherent: detect, merge, the gates of round 0 and round 3,
 #     open-pr, land. GitHub re-runs a failed job AND every job that depends on it, and the dependents of the gates of round 1 or 2
 #     (and of the agent rounds and pick3) are PAID model rounds that would produce another candidate than the one open-pr already
@@ -33,6 +40,9 @@
 # download), its `plan` job reserves the version number N once, and a later re-run of an old run could publish an old commit under
 # a number a newer run also planned. A failed release build is visible in Actions and one command re-dispatches it
 # (see the skill fork-release-and-sync).
+#
+# The runs are listed PER WORKFLOW (`actions/workflows/<file>/runs`, paginated), not repository-wide: the repository-wide list is
+# newest first and capped, and this workflow's own runs (every 15 minutes) and every other workflow would push ours out of it.
 #
 # Env: GH_TOKEN, REPO (owner/name). Optional: DRY_RUN=true (decide and print, re-run nothing), LOOKBACK_HOURS, MAX_ATTEMPTS,
 #      NOW_EPOCH (tests), GITHUB_STEP_SUMMARY. Exit 0 whatever it decided; non-zero only when the run list cannot be read.
@@ -50,7 +60,8 @@ for v in LOOKBACK_HOURS MAX_ATTEMPTS NOW_EPOCH; do [[ "${!v}" =~ ^[0-9]+$ ]] || 
 # Annotations that name a fault of the runner machinery. Matched case-insensitively against title and message of one annotation.
 INFRA_RE='not acquired by Runner|lost communication|received a shutdown signal|runner has received a shutdown|The self-hosted runner'
 SUPERSEDED_RE='higher priority waiting request'
-NEUTRAL_CANCEL_RE='^[[:space:]]*(the operation was canceled|the run was canceled)'
+PERSON_CANCEL_RE='(canceled|cancelled) by @'
+NEUTRAL_CANCEL_RE='^[[:space:]]*the operation was canceled'
 DERIVED_JOB_RE='(^|/ )result$'
 
 # Workflows we re-run and, for each, which infrastructure jobs may be re-run (a regex on the job name; the API names a job of a
@@ -67,16 +78,23 @@ PATHS_JSON='[".github/workflows/custom-pr-gates.yml", ".github/workflows/custom-
 summary() { printf '%s\n' "$*" >&2; if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then printf '%s\n' "$*" >>"$GITHUB_STEP_SUMMARY"; fi; }
 
 since="$(jq -nr --argjson t "$((NOW_EPOCH - RUN_WINDOW_HOURS * 3600))" '$t | todate')"
-runs="$(gh api "repos/$REPO/actions/runs?status=completed&per_page=100&created=%3E%3D$since" --jq '.workflow_runs')" \
-  || die "could not list the workflow runs of $REPO"
-candidates="$(jq -c --argjson now "$NOW_EPOCH" --argjson hours "$LOOKBACK_HOURS" --argjson max "$MAX_ATTEMPTS" --argjson paths "$PATHS_JSON" --arg repo "$REPO" '
-  [.[] | (.path | sub("@.*$"; "")) as $p
-       | select(.conclusion == "failure" or .conclusion == "cancelled")
-       | select($paths | index($p))
-       | select((.head_repository.full_name // $repo) == $repo)
+# Every run (any status: a NEWER run that is still queued or running matters) of each workflow we re-run, one small object per line.
+runs=""
+for wf in $(jq -r '.[]' <<<"$PATHS_JSON"); do
+  one="$(gh api "repos/$REPO/actions/workflows/${wf##*/}/runs?per_page=100&created=%3E%3D$since" --paginate \
+    --jq '.workflow_runs[] | {id, name, path: (.path | sub("@.*$"; "")), status, conclusion, run_attempt, head_sha, created_at, updated_at, repo: (.head_repository.full_name // null), pr: (.pull_requests[0].number // null)}')" \
+    || die "could not list the runs of $wf in $REPO"
+  runs="$runs$one"$'\n'
+done
+candidates="$(jq -c -s --argjson now "$NOW_EPOCH" --argjson hours "$LOOKBACK_HOURS" --argjson max "$MAX_ATTEMPTS" --arg repo "$REPO" '
+  . as $all
+  | [.[] | select(.status == "completed" and (.conclusion == "failure" or .conclusion == "cancelled"))
+       | select((.repo // $repo) == $repo)
        | select((.updated_at | fromdateiso8601) >= ($now - $hours * 3600))
        | select(.run_attempt < $max)
-       | {id, name, path: $p, attempt: .run_attempt, conclusion, head_sha, pr: (.pull_requests[0].number // null)}]' <<<"$runs")"
+       | . as $r
+       | {id, name, path, attempt: .run_attempt, conclusion, head_sha, pr,
+          newer: ([$all[] | select(.path == $r.path and .id != $r.id and ((.created_at | fromdateiso8601) > ($r.created_at | fromdateiso8601)))] | length)}]' <<<"$runs")"
 
 n_runs="$(jq 'length' <<<"$candidates")"
 log "$n_runs failed or cancelled run(s) of our workflows finished in the last ${LOOKBACK_HOURS}h below attempt $MAX_ATTEMPTS"
@@ -90,20 +108,30 @@ annotation_text() {
 
 # judge_run RUN_JSON: sets verdict (rerun|skip) and why.
 judge_run() {
-  local run="$1" id path jobs failed allowed name concl jid text kind pr sha cur
+  local run="$1" id path jobs failed allowed name concl jid text kind pr sha cur newer derived
   local -a infra_names=() blockers=()
   id="$(jq -r '.id' <<<"$run")"; path="$(jq -r '.path' <<<"$run")"
   verdict=skip why=""
   allowed="$(allowed_jobs_re "$path")" || { why="not a workflow this script re-runs"; return 0; }
+  newer="$(jq -r '.newer // 0' <<<"$run")"
+  if [ "$path" = .github/workflows/custom-sync.yml ] && [ "$newer" -gt 0 ]; then
+    why="$newer newer custom-sync run(s) exist: a re-run would replay this run's old detect outputs and take the place of the newer one"; return 0
+  fi
   jobs="$(gh api "repos/$REPO/actions/runs/$id/jobs?filter=latest&per_page=100" --paginate --jq '.jobs[] | {id, name, conclusion}' | jq -s '.')" \
     || { why="could not list its jobs"; return 0; }
   failed="$(jq -c '.[] | select(.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out")' <<<"$jobs")"
   [ -n "$failed" ] || { why="no failed job in the latest attempt"; return 0; }
   while IFS= read -r job; do
     name="$(jq -r '.name' <<<"$job")"; concl="$(jq -r '.conclusion' <<<"$job")"; jid="$(jq -r '.id' <<<"$job")"
-    if [[ "$name" =~ $DERIVED_JOB_RE ]]; then continue; fi
-    if ! text="$(annotation_text "$jid")"; then blockers+=("$name (annotations unreadable)"); continue; fi
+    derived=false; if [[ "$name" =~ $DERIVED_JOB_RE ]]; then derived=true; fi
+    if ! text="$(annotation_text "$jid")"; then
+      if [ "$derived" = false ]; then blockers+=("$name (annotations unreadable)"); fi
+      continue
+    fi
+    # Read for every failed job, the derived `result` job too: where a person's cancel is written is not ours to choose.
+    if grep -qiE "$PERSON_CANCEL_RE" <<<"$text"; then why="a person cancelled the run ($name): it is theirs to restart"; return 0; fi
     if grep -qiE "$SUPERSEDED_RE" <<<"$text"; then why="cancelled by a newer run of its concurrency group ($name)"; return 0; fi
+    if [ "$derived" = true ]; then continue; fi
     if grep -qiE "$INFRA_RE" <<<"$text"; then infra_names+=("$name"); continue; fi
     kind=real
     if [ "$concl" = cancelled ] && [ -z "$(grep -viE "$NEUTRAL_CANCEL_RE" <<<"$text" | tr -d '[:space:]' || true)" ]; then kind=neutral; fi
