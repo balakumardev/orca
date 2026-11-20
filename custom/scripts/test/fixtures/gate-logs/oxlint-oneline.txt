@@ -1,0 +1,4 @@
+/home/runner/work/orca/orca/repo/lint/a.ts:1:7: error eslint(no-unused-vars): Variable 'unused' is declared but never used. Unused variables should start with a '_'. help: Consider removing this declaration.
+/home/runner/work/orca/orca/repo/lint/a.ts:2:1: error eslint(no-debugger): `debugger` statement is not allowed help: Remove the debugger statement
+/home/runner/work/orca/orca/repo/lint/a.ts:4:15: error eslint(curly): Expected { after 'if' condition. help: Replace `return 1` with `{return 1}`.
+/home/runner/work/orca/orca/repo/lint/a.ts:4:9: error eslint(eqeqeq): Expected === and instead saw == help: Prefer === operator

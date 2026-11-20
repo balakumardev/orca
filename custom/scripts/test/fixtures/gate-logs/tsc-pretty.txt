@@ -1,0 +1,46 @@
+[96mtc/a.ts[0m:[93m1[0m:[93m22[0m - [91merror[0m[90m TS2307: [0mCannot find module './moved/gone' or its corresponding type declarations.
+
+[7m1[0m import { gone } from './moved/gone'
+[7m [0m [91m                     ~~~~~~~~~~~~~~[0m
+
+[96mtc/a.ts[0m:[93m4[0m:[93m14[0m - [91merror[0m[90m TS2322: [0mType 'string' is not assignable to type 'number'.
+
+[7m4[0m export const x: number = 'not a number'
+[7m [0m [91m             ~[0m
+
+[96mtc/a.ts[0m:[93m8[0m:[93m3[0m - [91merror[0m[90m TS2345: [0mArgument of type 'number' is not assignable to parameter of type 'string'.
+
+[7m8[0m f(1, 2)
+[7m [0m [91m  ~[0m
+
+[96mtc/a.ts[0m:[93m9[0m:[93m1[0m - [91merror[0m[90m TS2554: [0mExpected 2 arguments, but got 1.
+
+[7m9[0m f('a')
+[7m [0m [91m~[0m
+
+  [96mtc/a.ts[0m:[93m5[0m:[93m30[0m - An argument for 'b' was not provided.
+    [7m5[0m export function f(a: string, b: number): string {
+    [7m [0m [96m                             ~~~~~~~~~[0m
+
+[96mtc/a.ts[0m:[93m10[0m:[93m37[0m - [91merror[0m[90m TS2353: [0mObject literal may only specify known properties, and 'extra' does not exist in type '{ id: number; name: string; }'.
+
+[7m10[0m const s = shape({ id: 1, name: 'n', extra: true })
+[7m  [0m [91m                                    ~~~~~[0m
+
+[96mtc/a.ts[0m:[93m11[0m:[93m15[0m - [91merror[0m[90m TS2339: [0mProperty 'nope' does not exist on type '{ id: number; }'.
+
+[7m11[0m console.log(s.nope)
+[7m  [0m [91m              ~~~~[0m
+
+[96mtc/shape.ts[0m:[93m2[0m:[93m22[0m - [91merror[0m[90m TS2353: [0mObject literal may only specify known properties, and 'name' does not exist in type '{ id: number; }'.
+
+[7m2[0m   return { id: v.id, name: v.name }
+[7m [0m [91m                     ~~~~[0m
+
+
+Found 7 errors in 2 files.
+
+Errors  Files
+     6  tc/a.ts[90m:1[0m
+     1  tc/shape.ts[90m:2[0m
+

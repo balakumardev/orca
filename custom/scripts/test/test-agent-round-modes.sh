@@ -5,7 +5,7 @@
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-scripts="$(cd "$here/.." && pwd)"
+scripts="${SCRIPTS_DIR:-$(cd "$here/.." && pwd)}" # the scripts under test; a copy with an older sync-merge.sh shows the test bites
 for tool in git jq node awk base64 od rev openssl; do command -v "$tool" >/dev/null 2>&1 || { echo "missing tool: $tool"; exit 2; }; done
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
@@ -79,6 +79,9 @@ case "$mode" in
   resolve) # resolves the three conflicted files
     for f in alpha beta gamma; do resolve "$f"; done
     printf '{"type":"result","subtype":"success","is_error":false,"num_turns":5,"result":"resolved","usage":{"input_tokens":10,"output_tokens":5}}\n' ;;
+  repair-moved) # restores a lost hunk of ours in a file that only upstream changed (the new path of a file upstream moved)
+    echo "our restored hunk" >> src/delta.ts
+    printf '{"type":"result","subtype":"success","is_error":false,"num_turns":6,"result":"restored","usage":{"input_tokens":10,"output_tokens":5}}\n' ;;
   repair-max-turns) # edits two files that were not conflicted, then runs out of turns (exit 1, like the real CLI)
     echo "epsilon repaired" >> src/epsilon.ts
     echo 'test("weakened", () => {})' > src/epsilon.test.ts
@@ -89,14 +92,15 @@ STUB
 chmod +x "$tmp/bin/claude"
 export PATH="$tmp/bin:$PATH"
 
-# round NAME MODE STUB ROUND TIER [PREV_NAME]
+# round NAME MODE STUB ROUND TIER [PREV_NAME [GATES_DIR]]
 round() {
-  local name="$1" mode="$2" stub="$3" n="$4" tier="$5" prev="${6:-}" repo="$tmp/$1.repo"
+  local name="$1" mode="$2" stub="$3" n="$4" tier="$5" prev="${6:-}" gates="${7:-}" repo="$tmp/$1.repo"
   git clone -q --no-hardlinks "$src" "$repo"; git -C "$repo" checkout -q custom
   printf '%s' "$stub" > "$tmp/bin/mode"
   local env_=(SYNC_OUT="$tmp/$name.out" TOOLS_DIR="$scripts" ROUND="$n" MODE="$mode" TIER="$tier" RUNNER_TEMP="$tmp/$name.runner"
     UPSTREAM_SHA="$UPSTREAM_SHA" BASE_SHA="$BASE_SHA" BASE_BRANCH=custom BRANCH="sync/test-$name" LABEL=test TAG=v1.0.1 IS_TEST=true TAG_IS_RELEASE=false)
   [ -z "$prev" ] || env_+=(PREV_DIR="$tmp/$prev.out")
+  [ -z "$gates" ] || env_+=(PREV_GATES="$gates")
   mkdir -p "$tmp/$name.runner"; : > "$tmp/$name.summary"
   # An && chain: this subshell sits in an `||` list, where `set -e` is off, so a step that died would not stop the next one.
   ( cd "$repo" \
@@ -153,6 +157,20 @@ check "its edits were kept (not reverted)" grep -q 'epsilon repaired' <(git -C "
 check "the job summary explains the stop" grep -q 'Agent round 2 (repair, pro): 81 turns, exit code 1.*Result: ran out of turns; edits kept; gates decide\.' "$tmp/r2.summary"
 check "facts.repair_edits lists the non-conflicted files the repair changed" test "$(facts r2 '.repair_edits | join(",")')" = "src/epsilon.test.ts,src/epsilon.ts"
 check "the earlier round's record is still in the facts" test "$(facts r2 '.agent.rounds | map(.round) | join(",")')" = "1,2"
+
+echo "round 2 (repair): the hunk-survival findings widen the edit scope to the NEW path of a moved file, and only to that"
+mkdir -p "$tmp/hs-gates/gates-1-static"
+jq -n '{schema: 1, mode: "sync", gates: [{id: "hunk-survival", name: "Our lines survive the merge (advisory)", status: "pass", exit_code: 0, seconds: 1, note: "", output_tail: "", warnings: ["`src/old-delta.ts` -> `src/delta.ts`: 1 of 1 significant lines we added are missing from the merged file, e.g. `x`"]}]}' > "$tmp/hs-gates/gates-1-static/gates.json"
+jq -n '{checked: 1, affected: 1, files: [{old: "src/old-delta.ts", mapped: "src/delta.ts", missing: 1, total: 1, removed: false, samples: ["x"]}]}' > "$tmp/hs-gates/gates-1-static/hunk-survival.json"
+round r2h repair repair-moved 2 pro r1 "$tmp/hs-gates"
+check "the repair prompt offers the new path of the moved file" grep -q '^- src/delta.ts (a file of ours that lost lines in the merge' "$tmp/r2h.out/agent-prompt.txt"
+check "the repair prompt shows the advisory block" grep -q 'Advisory, not a failing check: lines of ours that vanished' "$tmp/r2h.out/agent-prompt.txt"
+check "allowed-edit-files names it, once" test "$(grep -c -x 'src/delta.ts' "$tmp/r2h.out/allowed-edit-files.txt")" = 1
+check "its edit was kept (not reverted as out of scope)" grep -q 'our restored hunk' <(git -C "$tmp/r2h.repo" show "$(facts r2h .merge_sha):src/delta.ts")
+check "nothing is recorded as out of scope" test "$(facts r2h '.out_of_scope // [] | length')" = 0
+round r2n repair repair-moved 2 pro r1
+check "without the finding, the same edit to a file upstream owns is reverted as out of scope" test "$(facts r2n '.out_of_scope // [] | join(",")')" = "src/delta.ts"
+check "...and is not in the merge" test -z "$(git -C "$tmp/r2n.repo" show "$(facts r2n .merge_sha):src/delta.ts" | grep -F 'our restored hunk' || true)"
 
 echo "every mode and tier gets the same wall clock and no turn count"
 round r2f repair repair-max-turns 2 flash r1

@@ -1,0 +1,7 @@
+::error file=/home/runner/work/orca/orca/repo/lint/a.ts,line=1,endLine=1,col=7,endColumn=13,title=eslint(no-unused-vars)::/home/runner/work/orca/orca/repo/lint/a.ts:1:7: Variable 'unused' is declared but never used. Unused variables should start with a '_'.
+::error file=/home/runner/work/orca/orca/repo/lint/a.ts,line=2,endLine=2,col=1,endColumn=9,title=eslint(no-debugger)::/home/runner/work/orca/orca/repo/lint/a.ts:2:1: `debugger` statement is not allowed
+::error file=/home/runner/work/orca/orca/repo/lint/a.ts,line=4,endLine=4,col=15,endColumn=23,title=eslint(curly)::/home/runner/work/orca/orca/repo/lint/a.ts:4:15: Expected { after 'if' condition.
+::error file=/home/runner/work/orca/orca/repo/lint/a.ts,line=4,endLine=4,col=9,endColumn=11,title=eslint(eqeqeq)::/home/runner/work/orca/orca/repo/lint/a.ts:4:9: Expected === and instead saw ==
+
+Found 0 warnings and 4 errors.
+Finished in 5ms on 1 file with 178 rules using 12 threads.

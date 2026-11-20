@@ -150,6 +150,32 @@ round_score() {
   printf '%s\n' "$score"
 }
 
+# failing_gates_block TOTAL_BYTES GATES_JSON...: the text of the failing gates for a repair prompt, one "### <gate> (exit N)" section each.
+# A gate's text is its `details` (the failure excerpt run-gates.sh records; cut from the START when too long) or, for a gates.json that has
+# none, its `output_tail` (cut from the END, where the failure is). The budget is shared FAIRLY: gates are served shortest first and each
+# may take at most an equal share of what is left, so a gate with little to say frees room for the others and one huge gate cannot starve
+# the rest (with one shared budget the first gates filled it, and the e2e ratchet output never reached round 3 of v1.4.265). Every gate gets
+# at least 400 characters; 100 characters per gate are kept back for its header and cut marker, and the caller still caps the whole block
+# in bytes. Characters are counted here, not bytes (the text is almost all ASCII).
+failing_gates_block() {
+  local total="$1"; shift
+  jq -r -s --argjson total "$total" '
+    [.[].gates[]? | select(.status == "fail")] as $g
+    | ($g | length) as $n
+    | if $n == 0 then empty else
+        ($g | to_entries | map(.key as $i | .value as $v
+          | {i: $i, name: $v.name, rc: $v.exit_code, detailed: (($v.details // "") != ""), text: (($v.details // "") as $d | if $d != "" then $d else ($v.output_tail // "") end)})) as $e
+        | (reduce ($e | sort_by(.text | length))[] as $x ({rem: ($total - $n * 100), left: $n, out: []};
+            ([($x.text | length), ([((.rem / .left) | floor), 400] | max)] | min) as $a
+            | .out += [$x + {allow: $a}] | .rem -= $a | .left -= 1)).out
+        | sort_by(.i)[]
+        | "### \(.name) (exit \(.rc))\(if .detailed then " - failure excerpt" else " - end of the log" end)\n"
+          + (if (.text | length) <= .allow then .text
+             elif .detailed then (.text[:.allow] + "\n[... cut to fit; the rest is in the gates artifact]")
+             else ("[... start cut ...]\n" + .text[-(.allow):]) end)
+      end' "$@"
+}
+
 # Generated files are never merged by hand or by a model: upstream's version wins and the reviewer is told.
 generated_path() {
   case "$1" in
