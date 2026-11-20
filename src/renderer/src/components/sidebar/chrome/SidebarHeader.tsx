@@ -8,7 +8,7 @@ import { PROJECTS_SECTION_GROUP_KEY } from '../../../../../shared/sidebar-list/s
 
 type SidebarHeaderProps = {
   onWorkspaceBoardMenuOpenChange: (open: boolean) => void
-  /** Only with Bots above it, so the sidebar never folds down to nothing. */
+  /** Only with Bots present, so the sidebar never folds down to nothing. */
   collapsible?: boolean
   projectsCollapseTarget?: React.Ref<HTMLDivElement>
 }
@@ -47,6 +47,7 @@ const SidebarHeader = React.memo(function SidebarHeader({
     <SidebarSectionHeader
       title={sidebarTitle}
       sectionId={groupBy === 'repo' ? 'projects' : 'workspaces'}
+      reorderable={collapsible}
       fold={fold}
       tourTarget={groupBy === 'repo' ? 'projects-collapse-all' : undefined}
       // WorktreeList portals the collapse-all toggle here; it owns the rendered project rows.
