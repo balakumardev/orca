@@ -30,6 +30,7 @@ function fixture(preflight: Preflight, loginShellEnv: NodeJS.ProcessEnv = {}) {
     const args = { cols: 80, rows: 24, cwd: f.root, worktreeId, command, shellOverride: '/bin/zsh' }
     if (preflight === 'runtime') {
       const ctx = createRuntimePtySpawnState(
+        // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the preflight reads only getRepos from the store.
         { ...makeRuntimePtySpawnTestDeps('/bin/zsh'), store: store as never, prepareClaudeAuth },
         args
       )

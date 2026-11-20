@@ -49,9 +49,7 @@ function readPinsFile(filePath: string): Record<string, ProjectAgentAccounts> {
     ) {
       return {}
     }
-    return normalizeProjectAgentAccountsByRepo(
-      (parsed.hosts as Record<string, unknown>)[LOCAL_HOST_KEY]
-    )
+    return normalizeProjectAgentAccountsByRepo(Reflect.get(parsed.hosts, LOCAL_HOST_KEY))
   } catch {
     return {}
   }
