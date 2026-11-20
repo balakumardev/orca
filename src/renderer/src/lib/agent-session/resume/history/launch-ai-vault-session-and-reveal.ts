@@ -15,6 +15,9 @@ export async function launchAiVaultSessionAndReveal(
   const launch = launchAiVaultSessionInNewTab(args)
   if (launch.tabId === null) {
     const outcome = await launch.runtimeLaunch
+    if (args.isCurrent?.() === false) {
+      return null
+    }
     if (outcome.status === 'failed') {
       toast.error(
         describeFailure(outcome.message) ||
@@ -27,8 +30,12 @@ export async function launchAiVaultSessionAndReveal(
       return null
     }
   }
-  if (useAppStore.getState().activeWorktreeId !== args.worktreeId) {
-    activateAiVaultResumeWorkspace(args.worktreeId)
+  if (
+    useAppStore.getState().activeWorktreeId !== args.worktreeId ||
+    (args.executionHostId &&
+      useAppStore.getState().activeWorkspaceExecutionHostId !== args.executionHostId)
+  ) {
+    activateAiVaultResumeWorkspace(args.worktreeId, args.executionHostId, args.targetGuard)
   }
   notifyAiVaultSessionQueued(args.agent)
   return launch.tabId

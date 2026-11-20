@@ -1,6 +1,6 @@
 import { toast } from 'sonner'
 import type { FolderSearchEntry } from '../../../../shared/folder-search-types'
-import { LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host'
+import { getRepoExecutionHostId, LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host'
 import { translate } from '@/i18n/i18n'
 import { useAppStore } from '@/store/index'
 import { selectWorktreesByRepo } from '@/store/workspaces/catalog/workspace-record-fields'
@@ -8,6 +8,14 @@ import { activateAndRevealWorkspace } from '@/lib/workspace/activation/worktree-
 import { queueWorkspaceActivationTerminalFocus } from '@/lib/workspace/activation/workspace-activation-terminal-focus'
 import { markOnboardingProjectAdded } from '@/components/onboarding/onboarding-project-checklist'
 import { openProjectDefaultCheckout } from '@/components/sidebar/project-admission/completion/project-added-default-checkout'
+import { getPaletteWorktreeExecutionHostId } from '@/lib/workspace/search/palette-repo-resolution'
+import { getRepoWorkspaceCreationTargetHint } from '@/lib/workspace/creation/project-host-workspace-target'
+import {
+  getPaletteSearchHosts,
+  isPaletteSearchHostCurrent,
+  paletteSearchHostGuard,
+  type PaletteSearchHost
+} from './palette-search-hosts'
 import {
   addFolderEntryProject,
   openFolderEntry,
@@ -33,47 +41,99 @@ const PROBLEM_MESSAGES: Record<FolderOpenProblem, [key: string, fallback: string
   ]
 }
 
-/** The picked path lives on this machine, whatever host new projects default to. */
-const LOCAL_ADD = { runtimeEnvironmentId: null }
+function assertFolderHostCurrent(
+  host: PaletteSearchHost | undefined
+): asserts host is PaletteSearchHost {
+  if (!host || !isPaletteSearchHostCurrent(host)) {
+    throw new Error(
+      translate(
+        'auto.components.WorktreeJumpPalette.folderHostChanged',
+        'The computer for this folder changed or disconnected. Search again.'
+      )
+    )
+  }
+}
 
-function folderOpenDeps(): FolderOpenDeps {
+function folderHost(entry: FolderSearchEntry, offeredHost?: PaletteSearchHost): PaletteSearchHost {
+  const hostId = entry.executionHostId ?? LOCAL_EXECUTION_HOST_ID
+  const candidate = offeredHost ?? getPaletteSearchHosts(useAppStore.getState(), [hostId])[0]
+  const host = candidate?.executionHostId === hostId ? candidate : undefined
+  assertFolderHostCurrent(host)
+  return host
+}
+
+function folderOpenDeps(host: PaletteSearchHost): FolderOpenDeps {
   const state = () => useAppStore.getState()
+  // Local opens have no pairing lifetime; only a remote action needs a queued authority guard.
+  const remoteGuard = host.runtimeEnvironmentId ? { targetGuard: paletteSearchHostGuard(host) } : {}
+  const target = {
+    runtimeEnvironmentId: host.runtimeEnvironmentId,
+    // The main-process queue needs the original runtime identity as well as the renderer check.
+    ...remoteGuard
+  }
+  const onCurrentHost = <T>(action: () => T): T => {
+    assertFolderHostCurrent(host)
+    return action()
+  }
   return {
-    resolve: (path) => window.api.folderSearch.resolve(path),
-    addFolderProject: (path) => state().addNonGitFolder(path, LOCAL_ADD),
-    addGitProject: (path) => state().addRepoPath(path, 'git', LOCAL_ADD),
+    resolve: async (path) => {
+      assertFolderHostCurrent(host)
+      const entry = await window.api.folderSearch.resolve(path, host.executionHostId)
+      // Selection owns the authority across the await, including a replacement pairing on the same host id.
+      assertFolderHostCurrent(host)
+      return entry
+    },
+    addFolderProject: (path) => onCurrentHost(() => state().addNonGitFolder(path, target)),
+    addGitProject: (path) => onCurrentHost(() => state().addRepoPath(path, 'git', target)),
     refreshWorktrees: (repoId) =>
-      state().fetchWorktrees(repoId, {
-        requireAuthoritative: true,
-        executionHostId: LOCAL_EXECUTION_HOST_ID
-      }),
+      onCurrentHost(() =>
+        state().fetchWorktrees(repoId, {
+          requireAuthoritative: true,
+          executionHostId: host.executionHostId
+        })
+      ),
     markGitProjectAdded: () => void markOnboardingProjectAdded('addedRepo'),
     openDefaultCheckout: (repoId) =>
-      openProjectDefaultCheckout({
-        repoId,
-        source: 'local_folder_picker',
-        setHideDefaultBranchWorkspace: state().setHideDefaultBranchWorkspace,
-        executionHostId: LOCAL_EXECUTION_HOST_ID
-      }),
+      onCurrentHost(() =>
+        openProjectDefaultCheckout({
+          repoId,
+          source: 'local_folder_picker',
+          setHideDefaultBranchWorkspace: state().setHideDefaultBranchWorkspace,
+          executionHostId: host.executionHostId,
+          ...remoteGuard
+        })
+      ),
     listWorktrees: (repoId) =>
       (selectWorktreesByRepo(state())[repoId] ?? []).filter(
         (worktree) =>
-          !worktree.runtimeOwnerEnvironmentId &&
-          (!worktree.hostId || worktree.hostId === LOCAL_EXECUTION_HOST_ID)
+          (getPaletteWorktreeExecutionHostId(worktree) ?? LOCAL_EXECUTION_HOST_ID) ===
+          host.executionHostId
       ),
     activate: (worktree) =>
-      activateAndRevealWorkspace(worktree.id, {
-        navigationIntent: 'user-open',
-        executionHostId: LOCAL_EXECUTION_HOST_ID
-      }),
+      onCurrentHost(() =>
+        activateAndRevealWorkspace(worktree.id, {
+          navigationIntent: 'user-open',
+          executionHostId: host.executionHostId,
+          ...remoteGuard
+        })
+      ),
     focusTerminal: queueWorkspaceActivationTerminalFocus,
     notify: (problem) => toast.error(translate(...PROBLEM_MESSAGES[problem]))
   }
 }
 
-/** Wires the open flow to the app store and the local folder search bridge. */
-export async function openFolderEntryInApp(entry: FolderSearchEntry): Promise<void> {
-  await openFolderEntry(entry, folderOpenDeps())
+/** The selected computer owns every add, catalog refresh, and workspace activation. */
+export async function openFolderEntryInApp(
+  entry: FolderSearchEntry,
+  host?: PaletteSearchHost
+): Promise<void> {
+  try {
+    await openFolderEntry(entry, folderOpenDeps(folderHost(entry, host)))
+  } catch (error) {
+    toast.error(
+      error instanceof Error ? error.message : translate(...PROBLEM_MESSAGES['not-opened'])
+    )
+  }
 }
 
 /** An add that has not settled after this long is treated as over, so one that never settles cannot block later presses. */
@@ -98,7 +158,10 @@ function reportNameStepNotStarted(): void {
  * the project stays added and a toast says so; when the add itself fails, nothing is added. A second press while
  * an add runs is ignored.
  */
-export async function addFolderAndBeginNameStepInApp(entry: FolderSearchEntry): Promise<boolean> {
+export async function addFolderAndBeginNameStepInApp(
+  entry: FolderSearchEntry,
+  offeredHost?: PaletteSearchHost
+): Promise<boolean> {
   const startedAt = Date.now()
   if (
     newWorktreeStartedAt !== null &&
@@ -109,7 +172,8 @@ export async function addFolderAndBeginNameStepInApp(entry: FolderSearchEntry): 
   newWorktreeStartedAt = startedAt
   let projectAdded = false
   try {
-    const base = folderOpenDeps()
+    const host = folderHost(entry, offeredHost)
+    const base = folderOpenDeps(host)
     const added = await addFolderEntryProject(entry, {
       ...base,
       addGitProject: async (path) => {
@@ -122,14 +186,24 @@ export async function addFolderAndBeginNameStepInApp(entry: FolderSearchEntry): 
       return false
     }
     const repoId = added.repo.id
-    const ready = await waitUntilComposerTargetsRepo(repoId)
+    const workspaceTarget = getRepoWorkspaceCreationTargetHint(
+      added.repo,
+      useAppStore.getState().projectHostSetups
+    )
+    const ready = await waitUntilComposerTargetsRepo(repoId, undefined, workspaceTarget)
+    assertFolderHostCurrent(host)
     const live = useAppStore.getState()
-    const repo = live.repos.find((candidate) => candidate.id === repoId)
+    const repo = live.repos.find(
+      (candidate) =>
+        candidate.id === repoId && getRepoExecutionHostId(candidate) === host.executionHostId
+    )
     const started =
       ready &&
       repo !== undefined &&
       beginProjectNameStep({
         repoId,
+        workspaceTarget,
+        host,
         projectLabel: getProjectCreateLabel(repo, selectPaletteProjectCatalog(live))
       })
     if (!started) {

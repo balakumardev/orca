@@ -16,10 +16,6 @@ import { WorkspaceAttachmentOrigins } from '@/components/sidebar/workspace-card/
 import { useAppStore } from '@/store/index'
 import { readStructuredChatTabName } from './structured-chat-tab-name'
 import '@/store/slices/tabs/closing/pinned-tab-close-guard'
-import {
-  subscribeStructuredChatTabNames,
-  getStructuredChatTabNames
-} from './structured-chat-name-observation'
 import { useLiveDashboardSnapshot } from '@/components/dashboard/useLiveDashboardSnapshot'
 import { useAgentPaneThreads } from '@/components/activity/use-agent-pane-threads'
 import { makePaneKey } from '../../../../../shared/workspace-layout/stable-pane-id'
@@ -37,8 +33,6 @@ const mock = vi.hoisted(() => ({
   listeners: new Set<() => void>(),
   snapshot: new Map<string, AgentSessionStatusSummary>(),
   paired: new Map<string, AgentSessionStatusSummary>(),
-  activates: vi.fn(),
-  deactivates: vi.fn(),
   send: vi.fn()
 }))
 vi.mock(
@@ -70,20 +64,25 @@ vi.mock('../../hosts/connections/runtime-host-contact-regained', () => ({
     return () => mock.contacts.delete(listener)
   }
 }))
-vi.mock('../status/structured-agent-session-status-feed', () => ({
-  getStructuredAgentSessionStatusFeed: (target: RuntimeClientTarget) => ({
-    getSnapshot: () => (target.kind === 'local' ? mock.snapshot : mock.paired),
-    getNamingSnapshot: () => (target.kind === 'local' ? mock.snapshot : mock.paired),
-    activate: () => {
-      mock.activates()
-      return mock.deactivates
-    },
+vi.mock('../status/structured-agent-session-status-feed', () => {
+  const feed = (local: boolean) => ({
+    getSnapshot: () => (local ? mock.snapshot : mock.paired),
+    getNamingSnapshot: () => (local ? mock.snapshot : mock.paired),
+    getSessionObservation: () => 'live' as const,
+    activate: () => () => {},
     subscribe: (listener: () => void) => {
       mock.listeners.add(listener)
       return () => mock.listeners.delete(listener)
     }
   })
-}))
+  // Production shares one feed per host across naming and presence observers.
+  const local = feed(true)
+  const paired = feed(false)
+  return {
+    getStructuredAgentSessionStatusFeed: (target: RuntimeClientTarget) =>
+      target.kind === 'local' ? local : paired
+  }
+})
 
 const workspace = makeWorktree({ id: 'repo::/tmp/rename-migration', repoId: 'repo' })
 const chat = (extra: Partial<Tab> = {}): Tab =>
@@ -105,19 +104,15 @@ function seed(tab: Tab) {
     unifiedTabsByWorktree: { [tab.worktreeId]: [tab] }
   })
 }
-const stops: (() => void)[] = []
 beforeEach(() => {
   vi.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000)
   useAppStore.setState(useAppStore.getInitialState(), true)
-  mock.activates.mockClear()
-  mock.deactivates.mockClear()
   mock.rpc.mockReset()
   mock.layout.mockReset()
   mock.layout.mockReturnValue(false)
 })
 afterEach(() => {
   cleanup()
-  stops.splice(0).forEach((stop) => stop())
   mock.snapshot.clear()
   mock.paired.clear()
   vi.restoreAllMocks()
@@ -161,22 +156,23 @@ function name(tab: Tab, conversationName: string): AgentSessionStatusSummary {
   }
 }
 
-it('shares qualified current names with live dashboard and attachments without activating plain reads', () => {
+it('keeps host-qualified names on dashboard, Activity and attachments while an idle chat is present', () => {
   const tab = chat({ worktreeId: 'folder:twin' })
   seedTwin(tab)
-  mock.snapshot = new Map([[tab.entityId, name(tab, 'Same')]])
+  const idle = chat({
+    id: 'idle-chat-tab',
+    entityId: 'idle-session',
+    executionHostId: 'local'
+  })
+  mock.snapshot = new Map([
+    [tab.entityId, name(tab, 'Same')],
+    [idle.entityId, { ...name(idle, 'New idle conversation'), hostExecutionOwned: true }]
+  ])
   mock.paired = new Map([[tab.entityId, name(tab, 'Same')]])
   const attached = chat({ id: 'attached-tab', executionHostId: 'runtime:paired' })
   useAppStore.setState((state) => ({
-    unifiedTabsByWorktree: { ...state.unifiedTabsByWorktree, [workspace.id]: [attached] }
+    unifiedTabsByWorktree: { ...state.unifiedTabsByWorktree, [workspace.id]: [attached, idle] }
   }))
-  const before = getStructuredChatTabNames()
-  expect(getStructuredChatTabNames()).toBe(before)
-  expect(before.get(tab)).toMatchObject({ owner: 'runtime:paired', savedName: 'Same' })
-  expect(mock.activates).not.toHaveBeenCalled()
-  stops.push(useAppStore.subscribe(() => getStructuredChatTabNames()))
-  const changed = vi.fn()
-  const stop = subscribeStructuredChatTabNames(changed)
   const view = render(
     <WorkspaceAttachmentOrigins
       workspace={{ ...workspace, hostId: 'runtime:paired' }}
@@ -204,12 +200,10 @@ it('shares qualified current names with live dashboard and attachments without a
   expect(shown()).toBe('Same')
   expect(activityTitle()).toBe('Same')
   expect(view.container.textContent).toContain('Same')
-  expect(mock.activates).toHaveBeenCalledTimes(1)
-  act(() => useAppStore.setState({ agentStatusEpoch: 1 }))
-  expect(getStructuredChatTabNames()).toBe(before)
+  expect(activity.result.current.allThreads.find((row) => row.tab.id === idle.id)?.paneTitle).toBe(
+    'New idle conversation'
+  )
   act(() => useAppStore.setState({ activeWorkspaceExecutionHostId: 'local' }))
-  expect(getStructuredChatTabNames()).not.toBe(before)
-  expect(getStructuredChatTabNames().get(tab)?.owner).toBe('local')
   expect(activityTitle()).toBe('Same')
   act(() => {
     mock.snapshot = new Map([[tab.entityId, name(tab, 'Local renamed')]])
@@ -217,34 +211,25 @@ it('shares qualified current names with live dashboard and attachments without a
   })
   expect(shown()).toBe('Local renamed')
   expect(activityTitle()).toBe('Local renamed')
-  const local = getStructuredChatTabNames()
   act(() => {
     mock.paired = new Map([[tab.entityId, name(tab, 'Unrelated')]])
     mock.listeners.forEach((notify) => notify())
   })
-  expect(getStructuredChatTabNames().get(tab)).toEqual(local.get(tab))
   expect(view.container.textContent).toContain('Unrelated')
   expect(shown()).toBe('Local renamed')
   expect(activityTitle()).toBe('Local renamed')
   act(() => useAppStore.setState({ activeWorktreeId: 'elsewhere' }))
-  expect(getStructuredChatTabNames().get(tab)?.owner).toBeNull()
   expect(shown()).toBe('Codex Chat')
   expect(activityTitle()).toBe('Codex Chat')
   const replacement = { ...tab }
   act(() => useAppStore.setState({ unifiedTabsByWorktree: { [tab.worktreeId]: [replacement] } }))
-  expect(getStructuredChatTabNames().has(tab)).toBe(false)
-  expect(getStructuredChatTabNames().has(replacement)).toBe(true)
   dashboard.unmount()
   activity.unmount()
   view.unmount()
-  expect(mock.deactivates).toHaveBeenCalledTimes(2)
-  stop()
   mock.paired = new Map([[tab.entityId, name(tab, 'Dormant rename')]])
   useAppStore.setState({
     activeWorktreeId: tab.worktreeId,
     activeWorkspaceExecutionHostId: 'runtime:paired'
   })
-  expect(getStructuredChatTabNames().get(replacement)?.savedName).toBe('Dormant rename')
   expect(readStructuredChatTabName(replacement, useAppStore.getState())).toBe('Dormant rename')
-  expect(mock.activates).toHaveBeenCalledTimes(2)
 })

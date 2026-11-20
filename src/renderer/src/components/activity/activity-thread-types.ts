@@ -14,7 +14,12 @@ export type ActivityHookLiveAgentState = Extract<
   AgentStatusState,
   'working' | 'blocked' | 'waiting'
 >
-export type ActivityLiveAgentState = ActivityHookLiveAgentState | 'monitoring' | 'unverifiable'
+// Idle means confirmed agent presence without a live turn, not a completed event.
+export type ActivityLiveAgentState =
+  | ActivityHookLiveAgentState
+  | 'monitoring'
+  | 'unverifiable'
+  | 'idle'
 export type ActivityEvent = {
   id: string
   state: ActivityEventState

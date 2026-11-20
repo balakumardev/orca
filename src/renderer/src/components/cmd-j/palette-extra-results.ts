@@ -9,6 +9,7 @@ import {
 } from '../../../../shared/palette-match/palette-document'
 import { matchPaletteDocument } from '../../../../shared/palette-match/match-document'
 import { preparePaletteQuery } from '../../../../shared/palette-match/palette-query'
+import type { WorkspaceCreationTargetHint } from '@/lib/workspace/creation/project-host-workspace-target'
 
 /** One row a non-workspace source contributes to Cmd+J. */
 export type PaletteExtraResult = {
@@ -30,6 +31,8 @@ export type PaletteExtraResult = {
   onSelect: () => void
   /** Cmd/Ctrl+Enter on the row, for a row that can start a new worktree (a folder adds its project first). */
   onModEnter?: () => void
+  /** A create row's execution target is independent of its host-qualified selection id. */
+  projectCreateTarget?: { repoId: string; workspaceTarget: WorkspaceCreationTargetHint }
 }
 
 /** One section a source contributes, with its rows for the current query. */

@@ -4,11 +4,17 @@ import { act, cleanup, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAppStore } from '@/store/index'
 import type { ComposerModalData } from './composer-modal-data'
+import type { WorkspaceCreationTargetHint } from '@/lib/workspace/creation/project-host-workspace-target'
 import { useComposerAutoSubmit } from './use-composer-auto-submit'
 
 const initialAppState = useAppStore.getInitialState()
 
-type Props = { createDisabled: boolean; create?: () => Promise<void>; repo?: string }
+type Props = {
+  createDisabled: boolean
+  create?: () => Promise<void>
+  repo?: string
+  workspaceTarget?: WorkspaceCreationTargetHint
+}
 
 function openAutoSubmitDialog(extra: Partial<ComposerModalData> = {}): ComposerModalData {
   const data: ComposerModalData = {
@@ -28,7 +34,12 @@ function setup(data: ComposerModalData, initial: Props, create: () => Promise<vo
         modalData: data,
         createDisabled: props.createDisabled,
         create: props.create ?? create,
-        repo: props.repo ?? 'repo-1'
+        target: {
+          repoId: props.repo ?? 'repo-1',
+          selectedProjectId: props.workspaceTarget?.projectId ?? null,
+          selectedRepoExecutionHostId: props.workspaceTarget?.hostId ?? null,
+          selectedProjectHostSetupId: props.workspaceTarget?.projectHostSetupId ?? null
+        }
       }),
     { initialProps: initial }
   )
@@ -181,4 +192,44 @@ describe('useComposerAutoSubmit', () => {
 
     expect(useAppStore.getState().modalData).toBe(other)
   })
+
+  it.each([
+    { projectId: 'project-web', hostId: 'local' as const, projectHostSetupId: 'setup-remote' },
+    {
+      projectId: 'project-other',
+      hostId: 'runtime:server-a' as const,
+      projectHostSetupId: 'setup-remote'
+    },
+    {
+      projectId: 'project-web',
+      hostId: 'runtime:server-a' as const,
+      projectHostSetupId: 'setup-replaced'
+    }
+  ])(
+    'reveals the dialog instead of creating on a mismatched target $hostId/$projectId/$projectHostSetupId',
+    async (workspaceTarget) => {
+      const data = openAutoSubmitDialog({
+        initialWorkspaceTarget: {
+          projectId: 'project-web',
+          hostId: 'runtime:server-a',
+          projectHostSetupId: 'setup-remote'
+        }
+      })
+      setup(data, { createDisabled: false, workspaceTarget }, async () => {
+        useAppStore.getState().closeModal()
+      })
+      await act(async () => {})
+
+      expect(useAppStore.getState().activeModal).toBe('new-workspace-composer')
+      expect(useAppStore.getState().modalData).toEqual({
+        initialRepoId: 'repo-1',
+        initialWorkspaceTarget: {
+          projectId: 'project-web',
+          hostId: 'runtime:server-a',
+          projectHostSetupId: 'setup-remote'
+        },
+        prefilledName: 'login-fix'
+      })
+    }
+  )
 })

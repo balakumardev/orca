@@ -177,7 +177,8 @@ export function beginStructuredAgentSessionProvisionalLaunch(
             beforeOpen: undefined
           })
         ),
-      onHostDeclined: (target) => openDeclinedTerminal(args, worktreeId, target),
+      // Carry the resolved owner through admission instead of resolving it again on decline.
+      onHostDeclined: () => openDeclinedTerminal(args, worktreeId, owner),
       ...(args.declinedOpensCallerSurface ? { declinedOpensCallerSurface: true as const } : {}),
       ...(args.resumeWritersChecked ? { resumeWritersChecked: true as const } : {})
     })

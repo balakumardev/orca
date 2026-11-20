@@ -1,7 +1,7 @@
 import type React from 'react'
 import type { ProjectNameStep } from '@/components/cmd-j/palette-project-name-step-store'
 import { useTranslate } from '@/i18n/use-translate'
-import { FooterKey } from './worktree-jump-palette-primitives'
+import { FooterKey, PaletteHostBadgeChip } from './worktree-jump-palette-primitives'
 
 /** What the palette shows under the input while a worktree name is being typed. */
 export function WorktreeJumpPaletteNameStepPanel({
@@ -18,7 +18,17 @@ export function WorktreeJumpPaletteNameStepPanel({
             value0: step.projectLabel
           })}
         </div>
-        <div className="mt-1 truncate text-xs text-muted-foreground/82">{step.projectPath}</div>
+        {/* The chosen host distinguishes otherwise identical project paths. */}
+        <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground/82">
+          <PaletteHostBadgeChip
+            badge={
+              step.host && step.host.executionHostId !== 'local'
+                ? { hostId: step.host.executionHostId, label: step.host.label }
+                : null
+            }
+          />
+          <span className="truncate">{step.projectPath}</span>
+        </div>
         <div className="mt-1 text-xs text-muted-foreground/82">
           {t(
             'worktreeJumpPalette.projectCreate.nameNote',

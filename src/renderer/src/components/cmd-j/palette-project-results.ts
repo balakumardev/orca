@@ -10,6 +10,12 @@ import type { PaletteResultQualityClass } from '../../../../shared/palette-match
 import type { ProjectGroup } from '../../../../shared/project-group-types'
 import type { Project, ProjectHostSetup } from '../../../../shared/project-types'
 import type { Repo } from '../../../../shared/repo-types'
+import { getRepoExecutionHostId, LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host'
+import { encodePaletteIdentity } from '../../../../shared/palette-match/palette-ranking'
+import {
+  getRepoWorkspaceCreationTargetHint,
+  type WorkspaceCreationTargetHint
+} from '@/lib/workspace/creation/project-host-workspace-target'
 import { translate } from '@/i18n/i18n'
 import type { Translate } from '@/i18n/use-translate'
 import { getProjectGroupHeaderKey } from '../../../../shared/sidebar-list/group-keys'
@@ -34,6 +40,7 @@ export type CmdJProjectResult = {
   description: string
   rowKey: string
   repo: Repo
+  workspaceTarget?: WorkspaceCreationTargetHint
   order: number
   keywords: string[]
 }
@@ -78,8 +85,23 @@ function buildCmdJProjectSearchCandidates(
   },
   t: Translate = translate
 ): CmdJProjectSearchResult[] {
-  const projectGrouping: ProjectGroupingModel = { projects, projectHostSetups }
-  const repoMap = new Map(repos.map((repo) => [repo.id, repo]))
+  // Group within each authority so identical repo ids never replace another host's row.
+  const hostCatalogs = new Map<
+    string,
+    { repoMap: Map<string, Repo>; grouping: ProjectGroupingModel }
+  >()
+  for (const repo of repos) {
+    const hostId = getRepoExecutionHostId(repo)
+    const catalog = hostCatalogs.get(hostId) ?? {
+      repoMap: new Map<string, Repo>(),
+      grouping: {
+        projects,
+        projectHostSetups: projectHostSetups.filter((setup) => setup.hostId === hostId)
+      }
+    }
+    catalog.repoMap.set(repo.id, repo)
+    hostCatalogs.set(hostId, catalog)
+  }
   const candidates: CmdJProjectSearchResult[] = []
 
   getDistinctProjectGroups(projectGroups).forEach((group, order) => {
@@ -99,18 +121,25 @@ function buildCmdJProjectSearchCandidates(
     if (renderableRepoIds && !renderableRepoIds.has(repo.id)) {
       return
     }
-    const target = getProjectHeaderRevealTarget(repo.id, repoMap, projectGrouping)
-    if (!target.repo || seenRowKeys.has(target.key)) {
+    const hostId = getRepoExecutionHostId(repo)
+    const catalog = hostCatalogs.get(hostId)!
+    const target = getProjectHeaderRevealTarget(repo.id, catalog.repoMap, catalog.grouping)
+    const id =
+      hostId === LOCAL_EXECUTION_HOST_ID
+        ? `project:${target.key}`
+        : encodePaletteIdentity(['project', hostId, target.key])
+    if (!target.repo || seenRowKeys.has(id)) {
       return
     }
-    seenRowKeys.add(target.key)
+    seenRowKeys.add(id)
     candidates.push({
-      id: `project:${target.key}`,
+      id,
       kind: 'project',
       title: target.label,
       description: t('auto.components.cmd.j.palette.project.results.project', 'Project'),
       rowKey: target.key,
       repo: target.repo,
+      workspaceTarget: getRepoWorkspaceCreationTargetHint(target.repo, projectHostSetups),
       order: projectGroups.length + repoIndex,
       keywords: uniqueNormalizedCmdJPaletteKeywords([
         target.label,

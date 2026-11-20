@@ -12,6 +12,7 @@ import {
 } from './use-agent-pane-thread-store-data'
 import { buildAgentPaneThreads, createAgentPaneThreadReuseCache } from './activity-thread-builder'
 import { collectHiddenChildAgentPaneKeys } from './activity-thread-child-agent'
+import { useActivityNativeAgentPresence } from './use-activity-native-agent-presence'
 import {
   EMPTY_PAIRED_DEVICE_IDS_BY_ENVIRONMENT,
   getPairedDeviceIdsByEnvironment
@@ -46,6 +47,10 @@ export function useAllAgentPaneThreads({ badgeOnly = false }: { badgeOnly?: bool
   // Why: agentStatusEpoch is a dep (not used in the body) so the memo recomputes when freshness boundaries expire even without new PTY data.
   const agentStatusEpoch = useAppStore((s) => s.agentStatusEpoch)
   const chatNames = useStructuredChatTabNames()
+  const nativeAgentPresenceByPaneKey = useActivityNativeAgentPresence(chatNames)
+  // Presence uses pane-local titles and live layout bindings to reject stale shell identities.
+  const terminalLayoutsByTabId = useAppStore((s) => s.terminalLayoutsByTabId)
+  const runtimePaneTitlesByTabId = useAppStore((s) => s.runtimePaneTitlesByTabId)
 
   // Per-hook caches preserve unchanged pane/event/thread identities across status writes, including repeated StrictMode/deferred builds.
   const eventBuildCacheRef = useRef<ReturnType<typeof createActivityEventBuildCache>>(undefined!)
@@ -81,6 +86,10 @@ export function useAllAgentPaneThreads({ badgeOnly = false }: { badgeOnly?: bool
           retainedAgentsByPaneKey: storeData.retainedAgentsByPaneKey,
           tabsByWorktree: storeData.tabsByWorktree,
           ptyIdsByTabId: storeData.ptyIdsByTabId,
+          paneForegroundAgentByPaneKey: storeData.paneForegroundAgentByPaneKey,
+          nativeAgentPresenceByPaneKey,
+          terminalLayoutsByTabId,
+          runtimePaneTitlesByTabId,
           unifiedTabsByWorktree: storeData.activityTabs,
           worktreeMap: storeData.worktreeMap,
           repoMap: storeData.repoMap,
@@ -95,12 +104,16 @@ export function useAllAgentPaneThreads({ badgeOnly = false }: { badgeOnly?: bool
       )
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [storeData, agentStatusEpoch, chatNames, badgeOnly]
+    [
+      storeData,
+      agentStatusEpoch,
+      chatNames,
+      badgeOnly,
+      terminalLayoutsByTabId,
+      runtimePaneTitlesByTabId,
+      nativeAgentPresenceByPaneKey
+    ]
   )
-
-  // Why: selected outside storeData so a pane title change rebuilds threads, not events.
-  const terminalLayoutsByTabId = useAppStore((s) => s.terminalLayoutsByTabId)
-  const runtimePaneTitlesByTabId = useAppStore((s) => s.runtimePaneTitlesByTabId)
 
   const allThreads = useMemo(
     () =>

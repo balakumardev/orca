@@ -37,6 +37,7 @@ export function createRepoAddActions(
   return {
     addRepoPath: async (path, kind = 'git', options) => {
       try {
+        options?.targetGuard?.assertCurrent()
         // Why: a new project has no row yet; without a picked host it goes to the default host.
         const target =
           options && 'runtimeEnvironmentId' in options
@@ -64,20 +65,36 @@ export function createRepoAddActions(
                   target,
                   'repo.add',
                   { path, kind, ...(displayName ? { displayName } : {}) },
-                  { timeoutMs: 15_000 }
+                  {
+                    timeoutMs: 15_000,
+                    // Main rechecks the captured runtime after this request leaves its queue.
+                    ...(options?.targetGuard
+                      ? {
+                          beforeSend: options.targetGuard.assertCurrent,
+                          expectedEnvironmentPairingRevision:
+                            options.targetGuard.expectedEnvironmentPairingRevision,
+                          expectedEnvironmentRuntimeId:
+                            options.targetGuard.expectedEnvironmentRuntimeId
+                        }
+                      : {})
+                  }
                 )
               ).repo
+              // A queued add must keep the selected authority through dispatch and catalog adoption.
+              options?.targetGuard?.assertCurrent()
               clearPendingRuntimeRepoRemoval(environmentId, added.id)
               return added
             })
           }
         } catch (err) {
+          options?.targetGuard?.assertCurrent()
           const message = err instanceof Error ? err.message : String(err)
           if (kind !== 'git' || !message.includes('Not a valid git repository')) {
             throw err
           }
           if (target.kind !== 'local') {
             const status = await fetchRuntimeAddProjectPathStatus({ target, path })
+            options?.targetGuard?.assertCurrent()
             if (status?.exists !== true) {
               const hostName = getRuntimeEnvironmentDisplayName(get(), target.environmentId)
               toast.error(
@@ -106,6 +123,7 @@ export function createRepoAddActions(
           })
           return null
         }
+        options?.targetGuard?.assertCurrent()
         repo = adoptFromEndpoint(target, { kind: 'repo', row: repo })
         const repoIdentity = getRepoHostIdentity(repo)
         const alreadyAdded = get().repos.some((r) => getRepoHostIdentity(r) === repoIdentity)
@@ -199,6 +217,8 @@ export function createRepoAddActions(
           return null
         }
         const onboardingBeforeAdd = await markOnboardingProjectAdded('addedFolder')
+        // Folder activation is a second handoff after the add and must keep the same authority.
+        options?.targetGuard?.assertCurrent()
         // Why: focus the new folder so the add is visible; lazy-import worktree-activation to avoid a circular module load (it imports the store root).
         const executionHostId =
           options?.runtimeEnvironmentId === undefined
@@ -207,6 +227,7 @@ export function createRepoAddActions(
               ? toRuntimeExecutionHostId(options.runtimeEnvironmentId)
               : LOCAL_EXECUTION_HOST_ID
         await get().fetchWorktrees(repo.id, executionHostId ? { executionHostId } : undefined)
+        options?.targetGuard?.assertCurrent()
         const folderWorktree = selectWorktreesByRepo(get())[repo.id]?.find(
           (worktree) => executionHostId === undefined || worktree.hostId === executionHostId
         )
@@ -224,10 +245,13 @@ export function createRepoAddActions(
             hasExistingProject: hadProjectBeforeAdd,
             executionHostId: executionHostId ?? LOCAL_EXECUTION_HOST_ID
           })
+          options?.targetGuard?.assertCurrent()
           await revealOnboardingFolderWithAgentLaunch({
             worktreeId: folderWorktree.id,
             executionHostId,
-            launch
+            launch,
+            // Reveal can enqueue activation and agent startup after the add has returned.
+            ...(options?.targetGuard ? { targetGuard: options.targetGuard } : {})
           })
         }
         return repo

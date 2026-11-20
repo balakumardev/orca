@@ -4,6 +4,8 @@ import { GitBranchPlus } from 'lucide-react'
 import { toast } from 'sonner'
 import type { CommandInput } from '@/components/ui/command'
 import { openProjectComposer } from '@/components/cmd-j/palette-project-create-composer'
+import { resolvePaletteProjectCreateRepo } from '@/components/cmd-j/palette-project-create-targets'
+import { isPaletteSearchHostCurrent } from '@/components/cmd-j/palette-search-hosts'
 import {
   endProjectNameStep,
   getProjectNameStep,
@@ -81,8 +83,17 @@ export function useWorktreeJumpPaletteNameStep({
     if (!live || !name) {
       return
     }
-    const repo = useAppStore.getState().repos.find((candidate) => candidate.id === live.repoId)
-    if (!repo) {
+    // The same id and path on another host cannot take over a name already being entered.
+    const repo = resolvePaletteProjectCreateRepo(
+      live.repoId,
+      useAppStore.getState(),
+      live.workspaceTarget
+    )
+    if (
+      !repo ||
+      repo.path !== live.projectPath ||
+      (live.host && !isPaletteSearchHostCurrent(live.host))
+    ) {
       toast.error(
         translate(
           'worktreeJumpPalette.projectCreate.projectGone',
@@ -98,7 +109,8 @@ export function useWorktreeJumpPaletteNameStep({
     skipPaletteExitAnimation()
     closeModal()
     setSelectedItemId('')
-    openProjectComposer(repo.id, name, true)
+    // Carry the validated authority through the hidden composer's readiness wait.
+    openProjectComposer(repo.id, name, true, live.workspaceTarget, live.host)
   }, [closeModal, returnToSearch, setSelectedItemId, skipRestoreFocusRef])
 
   const handleKeyDown = useCallback(

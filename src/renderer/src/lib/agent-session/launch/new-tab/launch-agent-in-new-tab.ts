@@ -61,6 +61,8 @@ function openAgentInNewTab(
   notifyFailure: boolean,
   notify: () => void
 ): AgentTabLaunchOutcome {
+  // Declined-chat recovery can resume after its captured host has already changed.
+  args.targetGuard?.assertCurrent(args.workspaceExecutionHostId)
   args = snapshotAgentTabLaunchArgs(args)
   const {
     agent,
@@ -188,6 +190,8 @@ function openAgentInNewTab(
       worktreeId,
       environmentId: runtimeEnvironmentId,
       workspaceExecutionHostId: args.workspaceExecutionHostId,
+      // Main must recheck this identity after the queued terminal request is released.
+      targetGuard: args.targetGuard,
       groupId,
       cwd: initialCwd,
       ...(trustWorktreeId ? { trustWorktreeId } : {}),

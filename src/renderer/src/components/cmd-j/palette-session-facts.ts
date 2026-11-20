@@ -1,6 +1,9 @@
 import type { AppState } from '@/store/types'
 import type { AiVaultSearchHit } from '../../../../shared/ai-vault/search/ai-vault-search-types'
-import { LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host'
+import {
+  LOCAL_EXECUTION_HOST_ID,
+  normalizeExecutionHostId
+} from '../../../../shared/execution-host'
 import {
   adoptsCliConversations,
   CLI_CONVERSATION_ADOPTING_AGENTS
@@ -25,10 +28,15 @@ import {
 } from '@/components/right-sidebar/ai-vault/search/ai-vault-search-session'
 import { aiVaultSessionOwnerWorkspaces } from '@/components/right-sidebar/ai-vault/session-list/ai-vault-session-worktree'
 import type { PaletteSessionFacts } from './palette-session-action'
+import { paletteSessionOwnerState } from './palette-session-owner-state'
 
 /** The hit as the Agent Session History panel models it, so the panel's own resolvers can answer for it. */
 export function paletteSessionOfHit(hit: AiVaultSearchHit) {
-  return aiVaultSearchHitToSession(hit, LOCAL_EXECUTION_HOST_ID)
+  // The recorded owner, never the focused computer, resolves paths and resume eligibility.
+  return aiVaultSearchHitToSession(
+    hit,
+    normalizeExecutionHostId(hit.executionHostId) ?? LOCAL_EXECUTION_HOST_ID
+  )
 }
 
 /** Agents whose chat could take a conversation of `agent` over: an OpenCode chat can take an OpenCode 2 one. */
@@ -46,13 +54,14 @@ export function readPaletteSessionFacts(
   hit: AiVaultSearchHit
 ): PaletteSessionFacts {
   const session = paletteSessionOfHit(hit)
+  const ownerState = paletteSessionOwnerState(state, session.executionHostId)
   const worktrees = aiVaultSessionOwnerWorkspaces(
-    getIndexedAllWorktrees(selectWorktreesByRepo(state)),
-    selectFolderWorkspaces(state)
+    getIndexedAllWorktrees(selectWorktreesByRepo(ownerState)),
+    selectFolderWorkspaces(ownerState)
   )
   const worktreeInfo = resolveAiVaultSessionWorktreeInfo({
     session,
-    repos: state.repos,
+    repos: ownerState.repos,
     worktrees,
     activeWorktreeId: null
   })
@@ -61,9 +70,9 @@ export function readPaletteSessionFacts(
     worktreeInfo,
     activeWorktreeId: null,
     worktrees,
-    repos: state.repos,
-    targetState: state,
-    settings: selectAgentLaunchRouteView(state).settings
+    repos: ownerState.repos,
+    targetState: ownerState,
+    settings: selectAgentLaunchRouteView(ownerState).settings
   })
   const originalPane = findOriginalAiVaultSessionPane(state, session)
   return {
@@ -75,7 +84,7 @@ export function readPaletteSessionFacts(
       : null,
     // A chat keeps what it takes over, so one CLI choice among the chats that could take it keeps it in a terminal.
     opensAsChat: chatAgentsThatCouldTakeOver(session.agent).every((agent) =>
-      nativeChatPreferenceFor(state.settings, agent)
+      nativeChatPreferenceFor(ownerState.settings, agent)
     ),
     // The panel's own target for its resume button; only a native chat transcript has a chat that can be open.
     terminalResumeWorkspaceId: resolveAiVaultSessionRowChatActions({

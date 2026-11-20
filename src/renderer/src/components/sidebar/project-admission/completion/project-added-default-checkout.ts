@@ -10,6 +10,7 @@ import { relativePathInsideRoot } from '../../../../../../shared/cross-platform-
 import { markOnboardingProjectAdded } from '@/components/onboarding/onboarding-project-checklist'
 import { finalizeImportedRepoAfterSkip } from './add-repo-skip-finalization'
 import { parseExecutionHostId, type ExecutionHostId } from '../../../../../../shared/execution-host'
+import type { RuntimeTargetGuard } from '@/runtime/rpc/targets/runtime-target-guard'
 import {
   selectDetectedWorktreesByRepo,
   selectWorktreesByRepo
@@ -73,7 +74,8 @@ function getDetectedProjectDefaultCheckout(
 
 async function findDetectedDefaultCheckout(
   repoId: string,
-  executionHostId?: ExecutionHostId
+  executionHostId?: ExecutionHostId,
+  targetGuard?: RuntimeTargetGuard
 ): Promise<{
   worktree: Worktree | null
   reason: DefaultCheckoutHandoffReason
@@ -91,13 +93,19 @@ async function findDetectedDefaultCheckout(
   if (!detectedDefaultCheckout.visible) {
     // Projects saved through a symlinked path by older builds or hosts don't recognise their own
     // checkout; show the project as before so the add still opens it.
-    const updated = executionHostId
-      ? await state.updateRepo(
-          repoId,
-          { externalWorktreeVisibility: 'show' },
-          { hostId: executionHostId }
-        )
-      : await state.updateRepo(repoId, { externalWorktreeVisibility: 'show' })
+    targetGuard?.assertCurrent(executionHostId)
+    // The visibility write can wait in both the repo serializer and the main-process RPC queue.
+    const updated =
+      executionHostId || targetGuard
+        ? await state.updateRepo(
+            repoId,
+            { externalWorktreeVisibility: 'show' },
+            {
+              ...(executionHostId ? { hostId: executionHostId } : {}),
+              ...(targetGuard ? { targetGuard } : {})
+            }
+          )
+        : await state.updateRepo(repoId, { externalWorktreeVisibility: 'show' })
     if (!updated) {
       return { worktree: null, reason: 'show_detected_default_failed' }
     }
@@ -135,13 +143,15 @@ export async function openProjectDefaultCheckout({
   source,
   selectedPath,
   setHideDefaultBranchWorkspace,
-  executionHostId
+  executionHostId,
+  targetGuard
 }: {
   repoId: string
   source: AddRepoDefaultCheckoutHandoffSource
   selectedPath?: string
   setHideDefaultBranchWorkspace: (value: boolean) => void
   executionHostId?: ExecutionHostId
+  targetGuard?: RuntimeTargetGuard
 }): Promise<void> {
   let defaultCheckout = getProjectDefaultCheckout(
     getProjectWorktreesForHost(
@@ -151,11 +161,17 @@ export async function openProjectDefaultCheckout({
   )
   let reason: DefaultCheckoutHandoffReason = 'loaded_default_checkout'
   if (!defaultCheckout) {
-    const detectedDefaultCheckout = await findDetectedDefaultCheckout(repoId, executionHostId)
+    const detectedDefaultCheckout = await findDetectedDefaultCheckout(
+      repoId,
+      executionHostId,
+      targetGuard
+    )
     defaultCheckout = detectedDefaultCheckout.worktree
     reason = detectedDefaultCheckout.reason
   }
 
+  // The default checkout lookup may await a host refresh before publishing its selection.
+  targetGuard?.assertCurrent(executionHostId)
   if (defaultCheckout) {
     // Onboarding must reveal its default checkout even when the normal sidebar preference hides it.
     const state = useAppStore.getState()
@@ -172,7 +188,8 @@ export async function openProjectDefaultCheckout({
     activateAndRevealWorktree(defaultCheckout.id, {
       navigationIntent: 'user-open',
       ...(initialCwd ? { initialCwd } : {}),
-      ...(executionHostId ? { executionHostId } : {})
+      ...(executionHostId ? { executionHostId } : {}),
+      ...(targetGuard ? { targetGuard } : {})
     })
     return
   }

@@ -56,6 +56,7 @@ export function activateAndRevealFolderWorkspaceWithOutcome(
   folderWorkspaceId: string,
   opts?: FolderWorkspaceActivationOptions
 ): WorkspaceActivationOutcome {
+  opts?.targetGuard?.assertCurrent(opts.executionHostId)
   const state = useAppStore.getState()
   const folderWorkspaceOwner = findFolderWorkspaceOwner(
     state,
@@ -136,7 +137,8 @@ export function activateAndRevealFolderWorkspaceWithOutcome(
     ensureWebRuntimeWorktreeTerminalAfterWake(workspaceKey, {
       runtimeEnvironmentId,
       startup: opts?.startup,
-      agent: opts?.agent
+      agent: opts?.agent,
+      ...(opts?.targetGuard ? { targetGuard: opts.targetGuard } : {})
     })
   }
   recordShownTabFocus(useAppStore.getState(), workspaceKey)
@@ -148,6 +150,7 @@ export function activateAndRevealWorktreeWithOutcome(
   worktreeId: string,
   opts?: WorktreeActivationOptions
 ): WorkspaceActivationOutcome {
+  opts?.targetGuard?.assertCurrent(opts.executionHostId)
   const state = useAppStore.getState()
   // The floating workspace owns a separate panel, never the main window's selection.
   if (isFloatingWorkspaceId(worktreeId)) {
@@ -203,7 +206,8 @@ export function activateAndRevealWorktreeWithOutcome(
     // Why: paired web clients own only local selection, so the desktop host publishes session surfaces without treating it as a nav command.
     void activateWebRuntimeSessionWorktree({
       worktreeId,
-      environmentId: ownerRuntimeEnvironmentId
+      environmentId: ownerRuntimeEnvironmentId,
+      targetGuard: opts?.targetGuard
     })
   }
 
@@ -278,7 +282,8 @@ export function activateAndRevealWorktreeWithOutcome(
         ? { runtimeEnvironmentId: ownerRuntimeEnvironmentId }
         : {}),
       startup: opts?.startup,
-      agent: opts?.agent
+      agent: opts?.agent,
+      ...(opts?.targetGuard ? { targetGuard: opts.targetGuard } : {})
     })
   recordShownTabFocus(useAppStore.getState(), worktreeId)
 

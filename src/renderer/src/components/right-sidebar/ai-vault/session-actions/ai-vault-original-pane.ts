@@ -3,6 +3,8 @@ import type { AppState } from '@/store/types'
 import { resolveRuntimePaneTitleLeafId } from '../../../../../../shared/runtime-pane-title-leaf-id'
 import type { AgentDotState } from '@/components/AgentStateDot'
 import type { AiVaultSession } from '../../../../../../shared/ai-vault/contracts/ai-vault-types'
+import type { ExecutionHostId } from '../../../../../../shared/execution-host'
+import { aiVaultPaneBelongsToHost, type AiVaultPaneHostState } from './ai-vault-original-pane-host'
 import {
   parseLegacyNumericPaneKey,
   parsePaneKey
@@ -26,7 +28,8 @@ export type OriginalPaneState = Pick<
   | 'sleepingAgentSessionsByPaneKey'
   | 'tabsByWorktree'
   | 'terminalLayoutsByTabId'
->
+> &
+  AiVaultPaneHostState
 
 function agentMatches(session: AiVaultSession, agent: string | undefined): boolean {
   return agent === session.agent
@@ -146,8 +149,9 @@ export function resolveOriginalPaneTarget(args: {
   paneKey: string
   worktreeIdHint?: string
   tabIdHint?: string
+  executionHostId?: ExecutionHostId
 }): AiVaultOriginalPaneTarget | null {
-  const { state, paneKey, worktreeIdHint, tabIdHint } = args
+  const { state, paneKey, worktreeIdHint, tabIdHint, executionHostId } = args
   const stable = parsePaneKey(paneKey)
   if (stable) {
     if (tabIdHint && tabIdHint !== stable.tabId) {
@@ -156,6 +160,8 @@ export function resolveOriginalPaneTarget(args: {
     const worktreeId = getTabOwnerWorktreeId(state, stable.tabId, worktreeIdHint)
     if (
       !worktreeId ||
+      (executionHostId &&
+        !aiVaultPaneBelongsToHost(state, worktreeId, stable.tabId, executionHostId)) ||
       !hasAvailableLeaf(state.terminalLayoutsByTabId[stable.tabId], stable.leafId)
     ) {
       return null
@@ -168,7 +174,10 @@ export function resolveOriginalPaneTarget(args: {
     return null
   }
   const worktreeId = getTabOwnerWorktreeId(state, legacy.tabId, worktreeIdHint)
-  if (!worktreeId) {
+  if (
+    !worktreeId ||
+    (executionHostId && !aiVaultPaneBelongsToHost(state, worktreeId, legacy.tabId, executionHostId))
+  ) {
     return null
   }
   const layout = state.terminalLayoutsByTabId[legacy.tabId]
@@ -214,6 +223,7 @@ export function findOriginalAiVaultSessionPane(
     ) {
       const target = resolveOriginalPaneTarget({
         state,
+        executionHostId: session.executionHostId,
         paneKey: entry.paneKey,
         worktreeIdHint: entry.worktreeId,
         tabIdHint: entry.tabId
@@ -229,6 +239,7 @@ export function findOriginalAiVaultSessionPane(
     ) {
       const target = resolveOriginalPaneTarget({
         state,
+        executionHostId: session.executionHostId,
         paneKey: entry.paneKey,
         worktreeIdHint: entry.worktreeId,
         tabIdHint: entry.tabId
@@ -246,6 +257,7 @@ export function findOriginalAiVaultSessionPane(
     ) {
       const target = resolveOriginalPaneTarget({
         state,
+        executionHostId: session.executionHostId,
         paneKey: retained.entry.paneKey,
         worktreeIdHint: retained.worktreeId,
         tabIdHint: retained.entry.tabId ?? retained.tab.id
@@ -261,6 +273,7 @@ export function findOriginalAiVaultSessionPane(
     ) {
       const target = resolveOriginalPaneTarget({
         state,
+        executionHostId: session.executionHostId,
         paneKey: retained.entry.paneKey,
         worktreeIdHint: retained.worktreeId,
         tabIdHint: retained.entry.tabId ?? retained.tab.id
@@ -278,6 +291,7 @@ export function findOriginalAiVaultSessionPane(
     ) {
       const target = resolveOriginalPaneTarget({
         state,
+        executionHostId: session.executionHostId,
         paneKey: record.paneKey,
         worktreeIdHint: record.worktreeId,
         tabIdHint: record.tabId

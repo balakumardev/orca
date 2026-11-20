@@ -16,6 +16,11 @@ import { toast } from 'sonner'
 import { shouldSeedDefaultSurface } from '@/lib/workspace/activation/initial-surface/automatic-default-surface'
 import { runtimeEnvironmentSupportsCapability } from '@/runtime/rpc/compatibility/runtime-capability-proof'
 import { SESSION_TABS_EMPTY_WORKTREE_ANSWER_RUNTIME_CAPABILITY } from '../../../../../shared/session-tabs-runtime-capabilities'
+import { toRuntimeExecutionHostId } from '../../../../../shared/execution-host'
+import {
+  isRuntimeTargetCurrent,
+  type RuntimeTargetGuard
+} from '@/runtime/rpc/targets/runtime-target-guard'
 
 export function ensureWebRuntimeWorktreeTerminalAfterWake(
   worktreeId: string,
@@ -26,6 +31,7 @@ export function ensureWebRuntimeWorktreeTerminalAfterWake(
     activate?: boolean
     /** The caller knows an unlisted workspace is empty: it just created it, or the host never answers. */
     unknownHostCountIsEmpty?: boolean
+    targetGuard?: RuntimeTargetGuard
   }
 ): boolean {
   const state = useAppStore.getState()
@@ -38,6 +44,12 @@ export function ensureWebRuntimeWorktreeTerminalAfterWake(
       ? (opts.runtimeEnvironmentId ?? null)
       : runtimeEnvironmentIdOrLocalUnlessTwin(state, worktreeId)
   if (!runtimeEnvironmentId || !isWebRuntimeSessionActive(runtimeEnvironmentId)) {
+    return false
+  }
+  // The capability fallback re-enters here with the original selection, even after reconnecting.
+  const isCurrent = () =>
+    isRuntimeTargetCurrent(opts?.targetGuard, toRuntimeExecutionHostId(runtimeEnvironmentId))
+  if (!isCurrent()) {
     return false
   }
 
@@ -126,6 +138,7 @@ export function ensureWebRuntimeWorktreeTerminalAfterWake(
           worktreeId,
           activate: opts?.activate !== false,
           selectWorktree: false,
+          ...(opts?.targetGuard ? { targetGuard: opts.targetGuard } : {}),
           buildStartup: () =>
             startup.freshAgentLaunch?.legacy?.() ?? {
               startupPlan: null,
@@ -137,6 +150,14 @@ export function ensureWebRuntimeWorktreeTerminalAfterWake(
           {
             worktreeId,
             environmentId: runtimeEnvironmentId,
+            ...(opts?.targetGuard
+              ? {
+                  isCurrent,
+                  expectedEnvironmentPairingRevision:
+                    opts.targetGuard.expectedEnvironmentPairingRevision,
+                  expectedEnvironmentRuntimeId: opts.targetGuard.expectedEnvironmentRuntimeId
+                }
+              : {}),
             ...(startup
               ? {
                   command: startup.command,

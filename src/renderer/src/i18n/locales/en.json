@@ -3913,7 +3913,8 @@
         "sessionUntitled": "Untitled session",
         "sessionsHeader": "Sessions",
         "folderNewWorktreeNotReady": "The project was added, but a new worktree could not be started in it",
-        "folderNewWorktreeFailed": "Could not add the folder and start a new worktree"
+        "folderNewWorktreeFailed": "Could not add the folder and start a new worktree",
+        "folderHostChanged": "The computer for this folder changed or disconnected. Search again."
       },
       "github": {
         "pr": {

@@ -11,18 +11,26 @@ export function isWebRuntimeSessionActive(
 
 export function captureRuntimeEnvironmentCall(
   environmentId: string,
-  expectedEnvironmentPairingRevision = getRuntimeEnvironmentRevision(environmentId)
+  expectedEnvironmentPairingRevision = getRuntimeEnvironmentRevision(environmentId),
+  isCurrent?: () => boolean,
+  expectedEnvironmentRuntimeId?: string
 ): (args: {
   method: string
   params?: unknown
   timeoutMs?: number
 }) => Promise<RuntimeRpcResponse<unknown>> {
-  return (args) =>
-    window.api.runtimeEnvironments.call({
+  return (args) => {
+    if (isCurrent?.() === false) {
+      throw new Error('session_search_host_changed')
+    }
+    return window.api.runtimeEnvironments.call({
       selector: environmentId,
       ...args,
-      expectedEnvironmentPairingRevision
+      expectedEnvironmentPairingRevision,
+      // Search callers retain the selected runtime through preparation and main-process queuing.
+      ...(expectedEnvironmentRuntimeId ? { expectedEnvironmentRuntimeId } : {})
     })
+  }
 }
 
 export function captureWebSessionIntentOwner(environmentId: string): WebSessionIntentOwner {

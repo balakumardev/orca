@@ -5,6 +5,7 @@ import type { PendingSidebarWorktreeReveal } from '@/store/slices/ui/ui-slice-co
 import type { WorktreeStartupPayload } from '../creation/worktree-startup-payload'
 import type { WorktreeActivationSurfaceSelection } from './worktree-activation-surface-selection'
 import { agentLaunchPaneNoticeText } from '@/components/terminal-pane/launch-outcome/agent-launch-pane-notice-text'
+import type { RuntimeTargetGuard } from '@/runtime/rpc/targets/runtime-target-guard'
 
 export type ActivateAndRevealResult = {
   primaryTabId: string | null
@@ -20,6 +21,7 @@ export type WorkspaceActivationOutcome =
     }
 
 export type WorkspaceRevealOptions = WorktreeActivationSurfaceSelection & {
+  targetGuard?: RuntimeTargetGuard
   executionHostId?: ExecutionHostId
   sidebarRevealBehavior?: PendingSidebarWorktreeReveal['behavior']
   revealInSidebar?: boolean

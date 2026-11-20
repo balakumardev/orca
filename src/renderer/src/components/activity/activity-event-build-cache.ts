@@ -39,6 +39,7 @@ type PaneActivityCacheEntry = {
   worktree: Worktree
   repo: Repo | null
   tab: TerminalTab
+  agentType: AgentType
   events: ActivityEvent[]
   live: ActivityLiveAgentSnapshot | null
   rowEntry: AgentStatusEntry
@@ -117,7 +118,9 @@ export function resolvePaneBuild(
     cached.clearedAt === request.clearedAt &&
     cached.worktree === request.worktree &&
     cached.repo === request.repo &&
-    cached.tab === request.tab
+    cached.tab === request.tab &&
+    // Process presence can identify a new agent while the pane still holds an older turn.
+    cached.agentType === request.agentType
   const rowEntry = inputsUnchanged
     ? cached.rowEntry
     : entryWithRuntimeOrchestration(
@@ -173,6 +176,7 @@ export function resolvePaneBuild(
     worktree: request.worktree,
     repo: request.repo,
     tab: request.tab,
+    agentType: request.agentType,
     events,
     live,
     rowEntry

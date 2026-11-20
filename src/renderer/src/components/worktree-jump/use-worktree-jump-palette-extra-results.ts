@@ -17,17 +17,21 @@ export function useWorktreeJumpPaletteExtraResults({
   paletteSearchQuery,
   paletteSearchContext,
   visible,
-  filterActive,
+  filter,
   taskSourceUrl
-}: Pick<WorktreeJumpPaletteLocalState, 'paletteSearchQuery' | 'taskSourceUrl'> & {
+}: Pick<WorktreeJumpPaletteLocalState, 'paletteSearchQuery' | 'taskSourceUrl' | 'filter'> & {
   paletteSearchContext: PaletteSearchContext
   visible: boolean
-  filterActive: boolean
 }) {
-  const sources = usePaletteExtraSources({ query: paletteSearchQuery, visible })
+  // Scope before fetching: a URL is a task action; host and repository filters belong to each source.
+  const suppressed = Boolean(taskSourceUrl)
+  const sources = usePaletteExtraSources({
+    query: paletteSearchQuery,
+    visible: visible && !suppressed,
+    hostIds: filter.hostIds,
+    repoIds: filter.repoIds
+  })
   const hasQuery = paletteSearchQuery.length > 0
-  // Filters and issue/PR URLs scope the palette to workspaces.
-  const suppressed = filterActive || Boolean(taskSourceUrl)
   const extraSections = useMemo<PaletteExtraSection[]>(() => {
     if (suppressed) {
       return []

@@ -152,6 +152,8 @@ export function useQuickSubmitAction(input: QuickSubmitActionInput) {
       const handoff = scheduleComposerCreateHandoff({
         stagingRequest: {
           repoId,
+          // A slow preparation keeps the same authority when its sidebar row takes over.
+          ...(options?.targetGuard ? { targetGuard: options.targetGuard } : {}),
           workspaceRunContext,
           name: workspaceNameSeed,
           ...(parsedLinkedIssueNumber != null ? { linkedIssue: parsedLinkedIssueNumber } : {}),

@@ -74,6 +74,9 @@ export const EXECUTION_HOST_METHODS = [
   'files.statTerminalArtifact',
   'files.writeTerminalArtifact',
   'folderWorkspace.list',
+  // Folder discovery follows the host whose filesystem will open the result.
+  'folderSearch.list',
+  'folderSearch.resolve',
   'git.abortMerge',
   'git.abortRebase',
   'git.branchCompare',

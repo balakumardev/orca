@@ -62,12 +62,14 @@ describe('resolveProjectScopedCreate', () => {
     expect(resolveProjectScopedCreate('notes/weekly review', acme)).toEqual({
       repoId: 'r-notes',
       projectLabel: 'notes',
-      name: 'weekly review'
+      name: 'weekly review',
+      workspaceTarget: { projectId: 'repo:r-notes', hostId: 'local' }
     })
     expect(resolveProjectScopedCreate('  acme-web / fix-login ', acme)).toEqual({
       repoId: 'r-web',
       projectLabel: 'acme-web',
-      name: 'fix-login'
+      name: 'fix-login',
+      workspaceTarget: { projectId: 'repo:r-web', hostId: 'local' }
     })
   })
 
@@ -96,7 +98,8 @@ describe('resolveProjectScopedCreate', () => {
     expect(resolveProjectScopedCreate('NOTES/x', acme)).toEqual({
       repoId: 'r-notes',
       projectLabel: 'notes',
-      name: 'x'
+      name: 'x',
+      workspaceTarget: { projectId: 'repo:r-notes', hostId: 'local' }
     })
   })
 

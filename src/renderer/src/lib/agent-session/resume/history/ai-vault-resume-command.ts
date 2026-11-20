@@ -13,6 +13,7 @@ import {
 import {
   buildAiVaultLocalResumeStartup,
   type AiVaultResumeCommandSession,
+  type AiVaultResumeLaunchSettings,
   type AiVaultResumeHostShell,
   type AiVaultResumeStartup
 } from '../../../../../../shared/ai-vault/resume/ai-vault-resume-startup'
@@ -27,6 +28,8 @@ export type AiVaultResumeWorktreeArgs = {
   session: AiVaultResumeCommandSession
   commandOverride?: string | null
   agentArgs?: string
+  /** Supplied host defaults are complete for that owner; null never borrows desktop defaults. */
+  launchSettings?: AiVaultResumeLaunchSettings | null
 }
 
 export function buildAiVaultResumeCopyCommandForWorktree(args: AiVaultResumeWorktreeArgs): string {
@@ -83,6 +86,8 @@ function buildAiVaultResumeForWorktree(
   if (remote) {
     return remote
   }
+  // The shared launch composer accepts partial host settings without manufacturing GlobalSettings.
+  const settings = args.launchSettings === undefined ? args.state.settings : args.launchSettings
   const host = resolveAiVaultResumeHost(args)
   if (isAntigravityReferenceSession(args.session)) {
     const reference = buildAntigravityReferenceStartup({
@@ -94,7 +99,7 @@ function buildAiVaultResumeForWorktree(
       platform: host.platform,
       shell: host.liveShell,
       commandOverride: args.commandOverride,
-      settings: args.state.settings
+      settings
     })
     if (reference) {
       return { ...reference, ...(!embedCwd && args.session.cwd ? { cwd: args.session.cwd } : {}) }
@@ -103,7 +108,7 @@ function buildAiVaultResumeForWorktree(
   return buildAiVaultLocalResumeStartup({
     session: args.session,
     host,
-    settings: args.state.settings,
+    settings,
     commandOverride: args.commandOverride,
     agentArgs: args.agentArgs,
     embedCwd,

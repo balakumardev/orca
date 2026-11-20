@@ -6,6 +6,7 @@ import { SESSION_TERMINAL_SCROLLBACK_METHODS } from './terminal/session-terminal
 import { AI_VAULT_METHODS } from './history/ai-vault'
 import { AUTOMATION_METHODS } from './automations/automations'
 import { REPO_METHODS } from './projects/repo'
+import { FOLDER_SEARCH_METHODS } from './projects/folder-search'
 import { WORKTREE_METHODS } from './workspaces/worktree'
 import { AGENT_ACTIVITY_METHODS } from './workspaces/agent-activity-methods'
 import { REFERENCE_METHODS } from './reference/reference'
@@ -93,6 +94,7 @@ export const ALL_RPC_METHODS = [
   ...ARTIFACT_METHODS,
   ...AUTOMATION_METHODS,
   ...REPO_METHODS,
+  ...FOLDER_SEARCH_METHODS,
   ...WORKTREE_METHODS,
   ...AGENT_ACTIVITY_METHODS,
   ...REFERENCE_METHODS,
