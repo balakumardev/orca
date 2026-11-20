@@ -107,9 +107,26 @@ round() {
   ok "round $name ran to the end"
 }
 facts() { jq -r "$2" "$tmp/$1.out/sync-facts.json"; }
+# prepare_only NAME MODE ROUND TIER [ENV=VALUE...]: only the prompt step of a fresh round, to read the prompt a given setting produces.
+prepare_only() {
+  local name="$1" mode="$2" n="$3" tier="$4" repo="$tmp/$1.repo"; shift 4
+  git clone -q --no-hardlinks "$src" "$repo"; git -C "$repo" checkout -q custom
+  mkdir -p "$tmp/$name.runner"
+  ( cd "$repo" && env "$@" SYNC_OUT="$tmp/$name.out" TOOLS_DIR="$scripts" ROUND="$n" MODE="$mode" TIER="$tier" RUNNER_TEMP="$tmp/$name.runner" \
+      UPSTREAM_SHA="$UPSTREAM_SHA" BASE_SHA="$BASE_SHA" BASE_BRANCH=custom BRANCH="sync/test-$name" LABEL=test TAG=v1.0.1 IS_TEST=true TAG_IS_RELEASE=false \
+      bash "$scripts/agent-round.sh" prepare > "$tmp/$name.prepare.log" 2>&1 )
+}
 
 echo "round 1 (first, flash): the hunk counts are hunks, not marker lines"
 round r1 first resolve 1 flash
+check "read-only shell: the prompt keeps the read-only command rule" grep -q 'Read-only git is allowed' "$tmp/r1.out/agent-prompt.txt"
+check "read-only shell: no sandbox text" test -z "$(grep -F 'scratch copy' "$tmp/r1.out/agent-prompt.txt" || true)"
+prepare_only r1sb first 1 flash AGENT_SANDBOX=1
+check "sandbox shell: the prompt tells the agent it may run checks" grep -q 'scratch copy of the checkout' "$tmp/r1sb.out/agent-prompt.txt"
+check "sandbox shell: and which ones" grep -q 'pnpm check:e2e-typecheck-ratchet' "$tmp/r1sb.out/agent-prompt.txt"
+check "sandbox shell: the read-only rule is gone" test -z "$(grep -F 'You cannot and must not run installs' "$tmp/r1sb.out/agent-prompt.txt" || true)"
+check "sandbox shell: the upstream sha is filled in" bash -c "grep -q 'git grep -n \"export .*<name>\" $UPSTREAM_SHA' '$tmp/r1sb.out/agent-prompt.txt'"
+check "sandbox shell: no placeholder is left" test -z "$(grep -F '{{' "$tmp/r1sb.out/agent-prompt.txt" || true)"
 check "conflicts.tsv: alpha 1 hunk" grep -E -q "^src/alpha.ts[[:space:]]content[[:space:]]1[[:space:]]" "$tmp/r1.out/conflicts.tsv"
 check "conflicts.tsv: beta 3 hunks" grep -E -q "^src/beta.ts[[:space:]]content[[:space:]]3[[:space:]]" "$tmp/r1.out/conflicts.tsv"
 check "conflicts.tsv: gamma 1 hunk" grep -E -q "^src/gamma.ts[[:space:]]content[[:space:]]1[[:space:]]" "$tmp/r1.out/conflicts.tsv"

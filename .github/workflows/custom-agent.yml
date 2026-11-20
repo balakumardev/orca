@@ -5,9 +5,14 @@ name: custom-agent
 #   - The job has a read-only token and `persist-credentials: false`: the model can write nothing to GitHub.
 #   - It runs ONLY from the `custom` branch (the `agent` environment's branch policy), because the environment holds
 #     DEEPINFRA_API_KEY. A rehearsal from a feature branch skips this job; see the PR description for how to exercise it.
-#   - No repository code runs before the key-bearing step: no install, no build, no test, no pnpm script. The key is in
-#     the environment of exactly one step (`Run the agent`), which is `agent-round.sh run`: it starts the CLI with a
-#     scrubbed environment, a restricted tool list and hard caps on turns and wall time. When the CLI has exited, that
+#   - No repository code runs as the runner user before the key-bearing step. The agent's own shell (pnpm, vitest, tsc, oxfmt)
+#     runs in a COPY of the tree as another OS user without sudo, set up by `agent-sandbox.sh setup` in a step that holds no
+#     key (the dependency install runs there, as that user). The key is in the environment of exactly one step (`Run the
+#     agent`), which is `agent-round.sh run`: the key goes to a small proxy (agent-key-proxy.mjs) on stdin, the agent gets a
+#     dummy token and the proxy's address, so nothing it runs can read the key. After the run a key-less step copies only the
+#     CONTENTS of the changed files back into the real tree (`agent-sandbox.sh collect`); the real tree and its .git are never
+#     exposed to the agent. Without a working sandbox the agent keeps read-only git, grep and ls. The CLI starts with a
+#     scrubbed environment and a wall time cap. When the CLI has exited, that
 #     same step scans the whole work tree (and everything uploaded) for the key in its plain, base64, hex, reversed and
 #     partial forms; a hit discards the round's edits and stops the later agent rounds (see `key_leaks` below).
 #   - The model's output is untrusted text. The state it hands back is a set of edited files; scripts (never the model)
@@ -86,7 +91,7 @@ jobs:
     name: agent
     runs-on: ubuntu-latest
     environment: agent
-    timeout-minutes: 80 # the model's hour (agent-round.sh wall) plus checkout, the CLI install, prepare and finish
+    timeout-minutes: 90 # the model's hour (agent-round.sh wall) plus checkout, the CLI install, prepare, the sandbox install and finish
     outputs:
       unresolved: ${{ steps.finish.outputs.unresolved }}
       # Set by the `run` step, so it survives a crash in `finish`. No value when the model step never ran (no key was used).
@@ -156,7 +161,16 @@ jobs:
           TAG: ${{ inputs.tag }}
           IS_TEST: ${{ inputs.is_test }}
           TAG_IS_RELEASE: ${{ inputs.tag_is_release }}
+          AGENT_SANDBOX: '1' # the prompt for the shell the agent gets when the sandbox step below succeeds
         run: bash "$TOOLS_DIR/agent-round.sh" prepare
+      - name: Set up the sandbox for the agent's shell (no key in this step)
+        id: sandbox
+        continue-on-error: true
+        working-directory: repo
+        env:
+          SYNC_OUT: ${{ runner.temp }}/out/round-${{ inputs.round }}
+          TOOLS_DIR: ${{ github.workspace }}/tools/custom/scripts
+        run: bash "$TOOLS_DIR/agent-sandbox.sh" setup
       - name: Run the agent
         id: run
         working-directory: repo
@@ -166,8 +180,18 @@ jobs:
           ROUND: ${{ inputs.round }}
           MODE: ${{ inputs.mode }}
           TIER: ${{ inputs.tier }}
+          # 1 only when the sandbox step succeeded: then the agent's commands run as another user, in a copy, with no key.
+          # Otherwise the agent keeps its old read-only tools; it never gets a shell outside the sandbox.
+          AGENT_SANDBOX: ${{ steps.sandbox.outputs.ready == 'true' && '1' || '0' }}
           DEEPINFRA_API_KEY: ${{ secrets.DEEPINFRA_API_KEY }}
         run: bash "$TOOLS_DIR/agent-round.sh" run
+      - name: Copy back what the agent changed (no key in this step)
+        if: always() && steps.sandbox.outputs.ready == 'true' && steps.run.outputs.key_leaks == '0'
+        working-directory: repo
+        env:
+          SYNC_OUT: ${{ runner.temp }}/out/round-${{ inputs.round }}
+          TOOLS_DIR: ${{ github.workspace }}/tools/custom/scripts
+        run: bash "$TOOLS_DIR/agent-sandbox.sh" collect
       - name: Install the formatter (no key in this step)
         id: oxfmt
         continue-on-error: true
