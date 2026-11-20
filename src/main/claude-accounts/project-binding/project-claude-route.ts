@@ -30,7 +30,8 @@ export function projectClaudePreparation(
         CLAUDE_CONFIG_DIR: route.home,
         [CLAUDE_INJECTED_CONFIG_DIR_ENV]: route.home
       },
-      provenance: `profile:${route.accountId}`
+      provenance: `profile:${route.accountId}`,
+      readingAccount: { accountId: route.accountId, runtime: 'host', wslDistro: null }
     }
   }
   return {

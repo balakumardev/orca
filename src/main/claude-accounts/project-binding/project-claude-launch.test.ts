@@ -96,7 +96,8 @@ describe.each<Preflight>(['renderer', 'runtime'])(
         wslDistro: null,
         wslLinuxConfigDir: null,
         envPatch: routed,
-        provenance: 'profile:b'
+        provenance: 'profile:b',
+        readingAccount: { accountId: 'b', runtime: 'host', wslDistro: null }
       })
       expect(readFileSync(f.pointer('accounts', 'b'), 'utf8')).toBe(f.home('b'))
       expect(f.prepareClaudeAuth).not.toHaveBeenCalled()
