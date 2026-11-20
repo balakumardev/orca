@@ -4,7 +4,7 @@ import { subscribeToActivityThreadReveal } from './activity-thread-reveal-reques
 import {
   findActivityThreadItemIndex,
   type ActivityVirtualItemDescriptor
-} from './activity-thread-virtual-items'
+} from './thread-list/activity-thread-virtual-items'
 
 /**
  * Scrolls a requested row into view once the render that shows it has committed. The request is a

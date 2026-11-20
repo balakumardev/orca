@@ -1,5 +1,5 @@
 import type { BrowserWindow } from 'electron'
-import type { UpdateCheckOptions } from '../../../shared/update-status-types'
+import type { UpdateCheckOptions } from '../../../shared/updater/update-status-types'
 import { isAutoUpdateDisabledForBuild } from '../lifecycle/updater-state'
 import { UpdaterSetup, type UpdaterSetupOptions } from '../lifecycle/updater-setup'
 import { isMacInstallRequested } from '../mac-install/updater-mac-install'

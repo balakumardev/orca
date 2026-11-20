@@ -3,14 +3,15 @@ import {
   getClaudeSubagentNavigationTitle,
   getClaudeSubagentNavigationDescription
 } from './behavior/claude-subagent-navigation-copy'
-import type { GlobalSettings } from '../../../../../shared/global-settings-types'
-import { translateLocalExecutionHostLabel } from '../../sidebar/execution-host-label'
+import type { GlobalSettings } from '../../../../../shared/settings/global-settings-types'
+import { translateLocalExecutionHostLabel } from '../../../runtime/hosts/display/execution-host-label'
 import { AgentAwakeSetting } from './behavior/AgentAwakeSetting'
 import { LidClosedAwakeSetting } from '../../lid-awake/LidClosedAwakeSetting'
 import { AgentCacheTimerSection } from './behavior/AgentCacheTimerSection'
 import { AgentRuntimeSetting } from './runtime/AgentRuntimeSetting'
 import { CodexTerminalServerIsolationSetting } from './runtime/CodexTerminalServerIsolationSetting'
 import { CodexHistorySharingSetting } from './behavior/CodexHistorySharingSetting'
+import { DeleteAgentHistoryWithWorkspaceSetting } from './behavior/DeleteAgentHistoryWithWorkspaceSetting'
 import {
   getAgentGeneratedTabTitlesDescription,
   getAgentGeneratedTabTitlesTitle
@@ -39,6 +40,8 @@ type AgentSettingProps = {
 type AgentsPaneProps = AgentSettingProps & {
   /** Host whose agent launch settings and detected agents the pane shows. */
   hostScope: SettingsHostScope
+  /** Settings > Agents only; the New Workspace composer's Agents dialog leaves out this destructive switch. */
+  showDeleteAgentHistory?: boolean
   wslSupportedPlatform?: boolean
   wslAvailable?: boolean
   wslDistros?: string[]
@@ -49,6 +52,7 @@ export function AgentsPane({
   settings,
   updateSettings,
   hostScope,
+  showDeleteAgentHistory = false,
   wslSupportedPlatform,
   wslAvailable,
   wslDistros,
@@ -69,13 +73,18 @@ export function AgentsPane({
           updateSettings={updateSettings}
           hostScope={hostScope}
         />
+        {showDeleteAgentHistory && !isPairedWebClientWindow() ? (
+          <DeleteAgentHistoryWithWorkspaceSetting settings={settings} hostScope={hostScope} />
+        ) : null}
       </SettingsGroup>
       <SettingsGroup title={translateLocalExecutionHostLabel()}>
         <AgentRuntimeSetting
           settings={settings}
           updateSettings={updateSettings}
           refresh={() =>
-            useAppStore.getState().refreshDetectedAgents(undefined, { wakeWslDistro: true })
+            useAppStore
+              .getState()
+              .refreshDetectedAgents(undefined, { wakeWslDistro: true, userInitiated: true })
           }
           wslSupportedPlatform={wslSupportedPlatform}
           wslAvailable={wslAvailable}

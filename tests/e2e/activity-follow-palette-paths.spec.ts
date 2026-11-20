@@ -1,20 +1,20 @@
 import type { ElectronApplication, Locator, Page } from '@stablyai/playwright-test'
-import { test, expect } from './helpers/orca-app'
-import { readHookEndpoint } from './helpers/agent-hook-endpoint'
+import { test, expect } from './desktop/electron-fixtures/orca-app'
+import { readHookEndpoint } from './agents/session-fixtures/agent-hook-endpoint'
 import {
   splitActiveTerminalPane,
   waitForActivePaneHookDescriptor,
   waitForActiveTerminalManager,
   waitForPaneCount,
   waitForPaneIdentitySnapshot
-} from './helpers/terminal'
+} from './terminal/input/terminal'
 import {
   ensureTerminalVisible,
   getActiveTabId,
   getActiveWorktreeId,
   switchToOtherWorktree,
   switchToWorktree
-} from './helpers/store'
+} from './desktop/renderer-probes/store'
 import {
   activateTab,
   focusTerminalPaneAtIndex,

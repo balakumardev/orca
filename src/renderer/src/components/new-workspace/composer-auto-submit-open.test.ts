@@ -7,7 +7,7 @@ import {
   stillNeedsUser,
   withoutAutoSubmit
 } from './composer-auto-submit-open'
-import type { ComposerModalData } from './composer-modal-data'
+import type { ComposerModalData } from './composer/composer-modal-data'
 
 describe('composerBodyKey', () => {
   it('is one shared key for every dialog opened by hand', () => {

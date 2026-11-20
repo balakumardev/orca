@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import {
   getWorktreeExecutionHostId,
   type ExecutionHostId
-} from '../../../../../shared/execution-host'
+} from '../../../../../shared/execution-host/execution-host'
 import { getFolderWorkspaceHostId } from '../../../../../shared/folder-workspaces/folder-workspace-host-id'
 import {
   slugifyTodoWorktreeName,
@@ -13,7 +13,7 @@ import {
   isSingleHostProjectHeader,
   type GroupHeaderRow
 } from '../../../../../shared/sidebar-list/row-types'
-import { folderWorkspaceKey } from '../../../../../shared/workspace-scope'
+import { folderWorkspaceKey } from '../../../../../shared/workspace/identity/workspace-scope'
 import { branchName } from '@/lib/source-control/branches/branch-name'
 import { activateWorktreeFromSidebar } from '@/lib/workspace/activation/sidebar-worktree-activation'
 import { useAppStore } from '@/store'

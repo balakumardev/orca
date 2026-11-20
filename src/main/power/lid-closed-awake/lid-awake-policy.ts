@@ -1,4 +1,4 @@
-import type { ComputerAwakeMode } from '../../../shared/computer-awake-mode'
+import type { ComputerAwakeMode } from '../../../shared/app-lifecycle/computer-awake-mode'
 
 export type BatteryReading = {
   hasBattery: boolean

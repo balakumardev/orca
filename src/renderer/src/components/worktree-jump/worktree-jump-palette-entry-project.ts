@@ -1,8 +1,8 @@
 import { PROJECT_CREATE_SOURCE_ID } from '@/components/cmd-j/palette-project-create-source-id'
 import { getPaletteWorktreeExecutionHostId } from '@/lib/workspace/search/palette-repo-resolution'
-import { getNewWorkspaceDialogEligibleRepos } from '../../../../shared/new-workspace-dialog-repo'
-import { isGitRepoKind } from '../../../../shared/repo-kind'
-import type { Repo } from '../../../../shared/repo-types'
+import { getNewWorkspaceDialogEligibleRepos } from '../../../../shared/new-workspace/new-workspace-dialog-repo'
+import { isGitRepoKind } from '../../../../shared/repository/repo-kind'
+import type { Repo } from '../../../../shared/repository/repo-types'
 import type { Worktree } from '../../../../shared/worktree/types'
 import type { PaletteListEntry } from './worktree-jump-palette-model'
 

@@ -15,7 +15,7 @@ import { translate } from '@/i18n/i18n'
 import { useTranslate } from '@/i18n/use-translate'
 import { useAppStore } from '@/store/index'
 import type { WorktreeJumpPaletteController } from './use-worktree-jump-palette-controller'
-import { skipPaletteExitAnimation } from './worktree-jump-palette-exit-animation'
+import { skipPaletteExitAnimation } from './selection/worktree-jump-palette-exit-animation'
 
 type NameStepInput = Pick<
   WorktreeJumpPaletteController,

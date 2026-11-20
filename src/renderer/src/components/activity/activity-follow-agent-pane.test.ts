@@ -1,14 +1,27 @@
 import { describe, expect, it } from 'vitest'
 import type { FocusedAgentRowHighlightState } from '@/components/sidebar/workspace-card/activity/focused-agent-row-highlight'
+import { acceptedAgentStatuses } from '@/store/slices/agent-status/status-ownership/accepted-agent-statuses'
 import type { AgentStatusEntry } from '../../../../shared/agent-status/contracts/agent-status-types'
 import { makePaneKey } from '../../../../shared/workspace-layout/stable-pane-id'
+import type { TerminalTab } from '../../../../shared/workspace-layout/terminal-tab-types'
 import { getFollowedAgentPaneKey } from './activity-follow-agent-pane'
-import {
-  LEAF_ID,
-  LEAF_ID_2,
-  LEAF_ID_3,
-  makeTabWithIds
-} from './ActivityPrototypePage-test-fixtures'
+
+const LEAF_ID = '11111111-1111-4111-8111-111111111111'
+const LEAF_ID_2 = '22222222-2222-4222-8222-222222222222'
+const LEAF_ID_3 = '33333333-3333-4333-8333-333333333333'
+
+function makeTabWithIds(id: string, worktreeId: string): TerminalTab {
+  return {
+    id,
+    ptyId: `pty-${id}`,
+    worktreeId,
+    title: id,
+    customTitle: null,
+    color: null,
+    sortOrder: 0,
+    createdAt: 1
+  }
+}
 
 const PANE_A = makePaneKey('tab-1', LEAF_ID)
 const PANE_B = makePaneKey('tab-1', LEAF_ID_2)
@@ -62,13 +75,12 @@ function makeState(options: {
         expandedLeafId: null
       }
     },
-    agentStatusByPaneKey: Object.fromEntries(
+    agentStatusByPaneKey: acceptedAgentStatuses(
       Object.entries(options.agents).map(([paneKey, state]) => [
         paneKey,
         statusEntry(paneKey, state)
       ])
     ),
-    retainedAgentsByPaneKey: {},
     migrationUnsupportedByPtyId: {}
   }
 }

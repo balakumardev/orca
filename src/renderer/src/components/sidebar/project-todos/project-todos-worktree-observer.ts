@@ -3,16 +3,16 @@ import {
   getWorktreeExecutionHostId,
   LOCAL_EXECUTION_HOST_ID,
   type ExecutionHostId
-} from '../../../../../shared/execution-host'
+} from '../../../../../shared/execution-host/execution-host'
 import { getFolderWorkspaceHostId } from '../../../../../shared/folder-workspaces/folder-workspace-host-id'
 import type { ProjectTodoComposerLink } from '../../../../../shared/project-todos-types'
-import { folderWorkspaceKey, parseWorkspaceKey } from '../../../../../shared/workspace-scope'
+import { folderWorkspaceKey, parseWorkspaceKey } from '../../../../../shared/workspace/identity/workspace-scope'
 import { branchName } from '@/lib/source-control/branches/branch-name'
 import type { WorktreeCreationRequest } from '@/lib/workspace/creation/pending-worktree-creation'
 import type { StoreObserverHost } from '@/store/store-observer-installers'
 import type { AppState } from '@/store/types'
 import { selectFolderWorkspaces } from '@/store/workspaces/catalog/workspace-record-fields'
-import type { ComposerModalData } from '@/components/new-workspace/composer-modal-data'
+import type { ComposerModalData } from '@/components/new-workspace/composer/composer-modal-data'
 import {
   completeProjectTodosForRemovedWorktrees,
   useProjectTodosStore

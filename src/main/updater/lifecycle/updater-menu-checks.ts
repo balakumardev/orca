@@ -1,7 +1,7 @@
 import { app } from 'electron'
 import { isMacInstallRequested } from '../mac-install/updater-mac-install'
-import type { UpdateCheckOptions } from '../../../shared/update-status-types'
-import type { ReleaseChannel } from '../../../shared/release-channel'
+import type { UpdateCheckOptions } from '../../../shared/updater/update-status-types'
+import type { ReleaseChannel } from '../../../shared/updater/release-channel'
 import { UpdaterScheduling } from './updater-scheduling'
 import { isAutoUpdateDisabledForBuild } from './updater-state'
 
@@ -10,7 +10,9 @@ export abstract class UpdaterMenuChecks extends UpdaterScheduling {
     if (
       this.pendingQuitAndInstallTimer ||
       this.quitAndInstallInProgress ||
-      isMacInstallRequested()
+      isMacInstallRequested() ||
+      this.macInstallerStagingVersion !== null ||
+      this.currentStatus.state === 'downloading'
     ) {
       return
     }
@@ -29,10 +31,7 @@ export abstract class UpdaterMenuChecks extends UpdaterScheduling {
     if (this.localBuildSelectionInProgress || this.pinnedBuildSelectionInProgress) {
       return
     }
-    if (
-      this.activeUpdateSource !== 'release' &&
-      (this.currentStatus.state === 'checking' || this.currentStatus.state === 'downloading')
-    ) {
+    if (this.activeUpdateSource !== 'release' && this.currentStatus.state === 'checking') {
       return
     }
     this.restoreReleaseUpdateSource()

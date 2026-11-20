@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
-import { expect, test } from './helpers/orca-app'
-import { waitForSessionReady } from './helpers/store'
+import { expect, test } from './desktop/electron-fixtures/orca-app'
+import { waitForSessionReady } from './desktop/renderer-probes/store'
 
 test.use({ seedTestRepo: false })
 

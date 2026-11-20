@@ -2,47 +2,61 @@ import React, { useEffect, useMemo } from 'react'
 import { useAppStore } from '@/store/index'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { useSidebarResize } from '@/hooks/useSidebarResize'
-import SidebarHeader from './SidebarHeader'
+import SidebarHeader from './chrome/SidebarHeader'
 import { SidebarActivityHeader } from './sidebar-activity-header'
 import { SidebarStackedBody } from './sidebar-stacked-body'
-import { setSidebarLiveWidth } from './sidebar-live-width'
-import SetupScriptPromptCard from './SetupScriptPromptCard'
+import { setSidebarLiveWidth } from './chrome/sidebar-live-width'
+import SetupScriptPromptCard from './setup-script-prompts/SetupScriptPromptCard'
 import WorktreeList from './worktree-list/listing/WorktreeList'
-import WslMovedProjectsSection from './WslMovedProjectsSection'
-import SidebarToolbar from './SidebarToolbar'
+import WslMovedProjectsSection from '../wsl-move/WslMovedProjectsSection'
+import HiddenProjectsSection from './hidden-projects/HiddenProjectsSection'
+import SidebarToolbar from './chrome/SidebarToolbar'
 import WorkspaceKanbanDrawer from './workspace-board/surface/WorkspaceKanbanDrawer'
-import type { VirtualizedScrollAnchor } from '@/hooks/useVirtualizedScrollAnchor'
+import type { VirtualizedScrollAnchor } from '@/lib/list-interaction/virtualized-scrolling/useVirtualizedScrollAnchor'
 import { cn } from '@/lib/class-names'
 import { FolderPlus, Loader2 } from 'lucide-react'
-import { ActivityThreadCollapseContext } from '@/components/activity/activity-thread-collapse-context'
+import { ActivityThreadCollapseContext } from '@/components/activity/thread-list/activity-thread-collapse-context'
 import { useSidebarProjectDrop } from './project-admission/drop/useSidebarProjectDrop'
 import { useWorkspaceBoardPanel } from './workspace-board/surface/useWorkspaceBoardPanel'
 import { useWorkspaceRevealBodyRedirect } from './worktree-list/navigation/use-workspace-reveal-body-redirect'
 import { resolveLeftSidebarStyleVariables } from '@/app-shell/appearance/left-sidebar-appearance'
 import { lazyWithRetry } from '@/app-shell/startup/lazy-with-retry'
-import { LocalGitToolchainScanBanner } from './LocalGitToolchainScanBanner'
-import { SeveredTerminalDaemonBanner } from './SeveredTerminalDaemonBanner'
-import { StalledTerminalDaemonBanner } from './StalledTerminalDaemonBanner'
-import { StartupWorktreeRefreshStatus } from './StartupWorktreeRefreshStatus'
+import { LocalGitToolchainScanBanner } from '../repo/toolchain/LocalGitToolchainScanBanner'
+import { SeveredTerminalDaemonBanner } from '../maintenance/terminal-daemon/SeveredTerminalDaemonBanner'
+import { StalledTerminalDaemonBanner } from '../maintenance/terminal-daemon/StalledTerminalDaemonBanner'
+import { SidebarBotsSection } from '@/components/bots/SidebarBotsSection'
+import { SidebarBotsSplit, SidebarProjectsListSlot } from './SidebarBotsSplit'
+import { SidebarContentViewport } from './SidebarContentViewport'
+import { PROJECTS_SECTION_GROUP_KEY } from '../../../../shared/sidebar-list/sections/group-keys'
+import { useBotsEnabled } from '@/lib/bot-catalog'
+import { StartupWorktreeRefreshStatus } from './worktree-list/listing/StartupWorktreeRefreshStatus'
+import { WorktreeCardsIntroNotice } from './workspace-card/template/WorktreeCardsIntroNotice'
+import { WorktreeCardsUpdateNotice } from './workspace-card/template/WorktreeCardsUpdateNotice'
 
 // Load the shared Activity badge/list pipeline after the sidebar shell.
-const SidebarAgentsList = lazyWithRetry(() => import('./SidebarAgentsList'))
+const SidebarAgentsList = lazyWithRetry(() => import('../activity/sidebar/SidebarAgentsList'))
 
 const WorktreeMetaDialog = lazyWithRetry(
   () => import('./workspace-card/metadata/WorktreeMetaDialog')
 )
-const RemoveFolderDialog = lazyWithRetry(() => import('./RemoveFolderDialog'))
+const RemoveFolderDialog = lazyWithRetry(
+  () => import('./workspace-actions/deletion/RemoveFolderDialog')
+)
 const SleepTwinWorkspaceDialog = lazyWithRetry(
   () => import('./workspace-actions/sleep/SleepTwinWorkspaceDialog')
 )
 const WorktreeVisibilityDialog = lazyWithRetry(
   () => import('./workspace-visibility/dialog/WorktreeVisibilityDialog')
 )
-const OrcaYamlTrustDialog = lazyWithRetry(() => import('./OrcaYamlTrustDialog'))
+const OrcaYamlTrustDialog = lazyWithRetry(
+  () => import('./workspace-creation/hook-trust/OrcaYamlTrustDialog')
+)
 const ForgetSshWorkspaceDialog = lazyWithRetry(
   () => import('./workspace-actions/deletion/ForgetSshWorkspaceDialog')
 )
-const AgentDashboardSidebarHost = lazyWithRetry(() => import('./AgentDashboardSidebarHost'))
+const AgentDashboardSidebarHost = lazyWithRetry(
+  () => import('../dashboard/sidebar/AgentDashboardSidebarHost')
+)
 
 const MIN_WIDTH = 220
 const MAX_WIDTH = 500
@@ -67,6 +81,7 @@ function Sidebar({
   const sidebarWidth = useAppStore((s) => s.sidebarWidth)
   const setSidebarWidth = useAppStore((s) => s.setSidebarWidth)
   const repos = useAppStore((s) => s.repos)
+  const botsEnabled = useBotsEnabled()
   const startupWorktreeRefreshCompleted = useAppStore((s) => s.startupWorktreeRefreshCompleted)
   const settings = useAppStore((s) => s.settings)
   const sidebarBody = useAppStore((s) => s.sidebarBody ?? 'workspaces')
@@ -163,6 +178,11 @@ function Sidebar({
 
   useWorkspaceRevealBodyRedirect(sidebarOpen && sidebarBody === 'agents')
   // A collapsed sidebar takes no drops.
+  const botsShown = sidebarBody !== 'agents' && botsEnabled
+  // Projects folds only under Bots, so turning bots off always brings the list back.
+  const projectsCollapsed = useAppStore(
+    (s) => botsShown && s.collapsedGroups.has(PROJECTS_SECTION_GROUP_KEY)
+  )
   const sidebarRef = React.useCallback(
     (node: HTMLDivElement | null) => {
       containerRef.current = node
@@ -186,27 +206,43 @@ function Sidebar({
               <SidebarStackedBody
                 activityOpen={activityPaneOpen}
                 workspaces={
-                  <>
+                  <SidebarContentViewport>
+                    {/* This computer's bots and each paired server's; a web window lists its server's. */}
+                    {!botsShown ? null : (
+                      <SidebarBotsSplit projectsCollapsed={projectsCollapsed}>
+                        <SidebarBotsSection onOpenBot={closeWorkspaceBoard} />
+                      </SidebarBotsSplit>
+                    )}
                     <SidebarHeader
                       onWorkspaceBoardMenuOpenChange={setWorkspaceBoardMenuOpen}
+                      collapsible={botsShown}
                       projectsCollapseTarget={setProjectsCollapseTarget}
                     />
                     <SeveredTerminalDaemonBanner />
                     <StalledTerminalDaemonBanner />
-                    <LocalGitToolchainScanBanner />
-                    <StartupWorktreeRefreshStatus />
-                    <WorktreeList
-                      scrollOffsetRef={worktreeScrollOffsetRef}
-                      scrollAnchorRef={worktreeScrollAnchorRef}
-                      workspaceBoardOpen={workspaceBoardOpen}
-                      onWorktreeCardClick={closeWorkspaceBoard}
-                      onWorkspaceBoardDragPreviewStart={previewWorkspaceBoardFromDrag}
-                      onWorkspaceBoardDragPreviewCommit={solidifyWorkspaceBoardFromDrag}
-                      onWorkspaceBoardDragPreviewCancel={cancelWorkspaceBoardDragPreview}
-                      projectsCollapseTarget={projectsCollapseTarget}
-                    />
-                    <WslMovedProjectsSection />
-                  </>
+                    {projectsCollapsed ? null : (
+                      <>
+                        <LocalGitToolchainScanBanner />
+                        <StartupWorktreeRefreshStatus />
+                        <WorktreeCardsUpdateNotice />
+                        <WorktreeCardsIntroNotice />
+                      </>
+                    )}
+                    <SidebarProjectsListSlot botsShown={botsShown} collapsed={projectsCollapsed}>
+                      <WorktreeList
+                        scrollOffsetRef={worktreeScrollOffsetRef}
+                        scrollAnchorRef={worktreeScrollAnchorRef}
+                        workspaceBoardOpen={workspaceBoardOpen}
+                        onWorktreeCardClick={closeWorkspaceBoard}
+                        onWorkspaceBoardDragPreviewStart={previewWorkspaceBoardFromDrag}
+                        onWorkspaceBoardDragPreviewCommit={solidifyWorkspaceBoardFromDrag}
+                        onWorkspaceBoardDragPreviewCancel={cancelWorkspaceBoardDragPreview}
+                        projectsCollapseTarget={projectsCollapseTarget}
+                      />
+                    </SidebarProjectsListSlot>
+                    {projectsCollapsed ? null : <WslMovedProjectsSection />}
+                    {projectsCollapsed ? null : <HiddenProjectsSection />}
+                  </SidebarContentViewport>
                 }
                 activityHeader={
                   <SidebarActivityHeader
@@ -238,7 +274,8 @@ function Sidebar({
                 }
               />
 
-              <div className="relative shrink-0">
+              {/* mt-auto keeps the toolbar at the bottom when both sections are folded and nothing grows. */}
+              <div className="relative mt-auto shrink-0">
                 <SetupScriptPromptCard />
 
                 <SidebarToolbar
