@@ -109,7 +109,10 @@ $(jq -r '.gates[] | select(.status == "fail") | "### \(.name) (exit \(.exit_code
   customizations="$(customization_log "$(facts_get .base_sha)" | trunc_bytes 6000)"
 
   local prompt="$SYNC_OUT/agent-prompt.txt" sections
-  if [ "$resume" -eq 1 ]; then sections="all resume"; elif [ "$MODE" = repair ]; then sections="all repair"; else sections="all merge"; fi
+  # The shell the agent gets decides which tool rules it reads: a sandbox (agent-sandbox.sh) with every command, or read-only git, grep and ls.
+  local tools_section=tools_readonly
+  [ "${AGENT_SANDBOX:-0}" != 1 ] || tools_section=tools_sandbox
+  if [ "$resume" -eq 1 ]; then sections="all $tools_section resume"; elif [ "$MODE" = repair ]; then sections="all $tools_section repair"; else sections="all $tools_section merge"; fi
   # Pass values through the environment so they are never re-parsed as code or as awk/sed patterns.
   # shellcheck disable=SC2086
   section_text "$TOOLS_DIR/../agent/prompt.txt" $sections | P_TAG="$(facts_get .tag)" P_OLD_TAG="$old_tag" P_BASE_BRANCH="$(facts_get .base_branch)" \
@@ -192,8 +195,19 @@ cmd_run() {
     gh_out key_leaks 0
     exit 0
   fi
+  # AGENT_SANDBOX=1 (set by the workflow only after agent-sandbox.sh setup succeeded): the agent gets a shell, but it runs as another OS
+  # user in a copy of the tree, and the key stays here, behind a proxy (agent-key-proxy.mjs). Never run commands outside the sandbox:
+  # when it is asked for and was not set up, stop.
+  local sandbox=0 sb_repo="" sb_user="" sb_path="" proxy_pid="" port=""
+  if [ "${AGENT_SANDBOX:-0}" = 1 ]; then
+    [ -s "$SYNC_OUT/sandbox.json" ] || die "AGENT_SANDBOX=1 but the sandbox was not set up (no sandbox.json): refusing to run commands outside it"
+    sandbox=1
+    sb_repo="$(jq -r .repo "$SYNC_OUT/sandbox.json")"; sb_user="$(jq -r .user "$SYNC_OUT/sandbox.json")"; sb_path="$(jq -r .path "$SYNC_OUT/sandbox.json")"
+    [ -d "$sb_repo" ] && [ -n "$sb_user" ] || die "the sandbox copy or its user is missing"
+  fi
   local top
-  top="$(git rev-parse --show-toplevel)" # resolved BEFORE the agent runs: no git after it
+  # Resolved BEFORE the agent runs: no git after it. In the sandbox variant no repository code has run in this tree at all.
+  if [ "$sandbox" = 1 ]; then top="$(pwd -P)"; else top="$(git rev-parse --show-toplevel)"; fi
   # The CLI's own state lives outside SYNC_OUT: SYNC_OUT is uploaded as an artifact, the CLI's config is not.
   local cfg="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/claude-config-round-$ROUND"
   mkdir -p "$cfg"
@@ -204,39 +218,61 @@ cmd_run() {
   local marker="$cfg/start-marker"
   : > "$marker"
   started="$(date +%s)"
+  with_wall() { if command -v timeout >/dev/null 2>&1; then timeout -k 30 "$wall" "$@"; else "$@"; fi; }
+  if [ "$sandbox" = 1 ]; then
+    # The key goes to the proxy on stdin: printf is a builtin, so it is in no argv, and `env -i` keeps it out of the proxy's environment.
+    # The proxy runs as THIS user; the agent runs as another one, so it cannot read this user's processes, environment or files.
+    printf '%s\n' "$DEEPINFRA_API_KEY" | env -i PATH="$PATH" HOME="${HOME:-/tmp}" node "$TOOLS_DIR/agent-key-proxy.mjs" \
+      --listening-file "$cfg/proxy.port" > "$cfg/proxy.out" 2> "$cfg/proxy.err" &
+    proxy_pid=$!
+    local i
+    for i in $(seq 1 100); do [ -s "$cfg/proxy.port" ] && break; sleep 0.1; done
+    [ -s "$cfg/proxy.port" ] || { kill "$proxy_pid" 2>/dev/null || true; die "the key proxy did not start"; }
+    port="$(cat "$cfg/proxy.port")"
+  fi
   # A clean environment: only what the CLI needs, so no runner variable can leak into (or out of) the session.
-  # The key reaches the process through its environment only; it is never an argument and never printed.
-  # shellcheck disable=SC2086
-  (
-    cd "$top"
-    with_wall() { if command -v timeout >/dev/null 2>&1; then timeout "$wall" "$@"; else "$@"; fi; }
-    with_wall env -i PATH="$PATH" HOME="${HOME:-/tmp}" LANG=C.UTF-8 TMPDIR="${TMPDIR:-/tmp}" \
-      ANTHROPIC_BASE_URL="https://api.deepinfra.com/anthropic" \
-      ANTHROPIC_AUTH_TOKEN="$DEEPINFRA_API_KEY" \
-      ANTHROPIC_API_KEY="" \
-      ANTHROPIC_MODEL="$(jq -r .model "$plan")" \
-      ANTHROPIC_DEFAULT_SONNET_MODEL="deepseek-ai/DeepSeek-V4.1-Flash-1017" \
-      ANTHROPIC_DEFAULT_OPUS_MODEL="deepseek-ai/DeepSeek-V4-Pro-0813" \
-      ANTHROPIC_DEFAULT_HAIKU_MODEL="inclusionAI/Ling-3.0-flash" \
-      CLAUDE_CODE_MAX_CONTEXT_TOKENS=131072 \
-      CLAUDE_CODE_MAX_OUTPUT_TOKENS=16384 \
-      CLAUDE_CODE_SUBAGENT_MODEL=inherit \
-      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
-      DISABLE_AUTOUPDATER=1 \
-      DISABLE_TELEMETRY=1 \
-      CLAUDE_CONFIG_DIR="$cfg" \
-      claude -p \
-        --output-format json \
-        --restricted --strict-mcp-config --safe-mode --setting-sources "" \
-        --no-session-persistence \
-        --permission-mode dontAsk \
-        --permission-prompts none \
-        --disable-slash-commands \
-        --disallowedTools "Bash(*--output*)" \
-        --tools "Read,Edit,Write,Grep,Glob,Bash" \
-        --allowedTools "Read,Edit,Write,Grep,Glob,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git ls-tree:*),Bash(git cat-file:*),Bash(git grep:*),Bash(grep:*),Bash(ls:*)" \
-        < "$SYNC_OUT/agent-prompt.txt" > "$raw_out" 2> "$raw_err"
-  ) || rc=$?
+  # Plain mode: the key reaches the process through its environment only. Sandbox mode: the agent's environment holds a dummy token.
+  local -a model_env=(
+    ANTHROPIC_API_KEY=""
+    ANTHROPIC_MODEL="$(jq -r .model "$plan")"
+    ANTHROPIC_DEFAULT_SONNET_MODEL="deepseek-ai/DeepSeek-V4.1-Flash-1017"
+    ANTHROPIC_DEFAULT_OPUS_MODEL="deepseek-ai/DeepSeek-V4-Pro-0813"
+    ANTHROPIC_DEFAULT_HAIKU_MODEL="inclusionAI/Ling-3.0-flash"
+    CLAUDE_CODE_MAX_CONTEXT_TOKENS=131072
+    CLAUDE_CODE_MAX_OUTPUT_TOKENS=16384
+    CLAUDE_CODE_SUBAGENT_MODEL=inherit
+    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+    DISABLE_AUTOUPDATER=1
+    DISABLE_TELEMETRY=1
+  )
+  local -a claude_args=(-p --output-format json --restricted --strict-mcp-config --safe-mode --setting-sources ""
+    --no-session-persistence --permission-mode dontAsk --permission-prompts none --disable-slash-commands)
+  if [ "$sandbox" = 1 ]; then
+    # Every tool, Bash without a restriction: what a command can do is bounded by the OS user it runs as, not by a list of command names.
+    claude_args+=(--tools "Read,Edit,Write,Grep,Glob,Bash" --allowedTools "Read,Edit,Write,Grep,Glob,Bash")
+    (
+      cd "$sb_repo"
+      sudo -n -u "$sb_user" -H env -i PATH="$sb_path" HOME="/home/$sb_user" LANG=C.UTF-8 TMPDIR=/tmp CI=true \
+        ANTHROPIC_BASE_URL="http://127.0.0.1:$port" ANTHROPIC_AUTH_TOKEN="local-proxy-no-key" \
+        CLAUDE_CONFIG_DIR="/home/$sb_user/.claude-round-$ROUND" "${model_env[@]}" \
+        timeout -k 30 "$wall" claude "${claude_args[@]}" < "$SYNC_OUT/agent-prompt.txt" > "$raw_out" 2> "$raw_err"
+    ) || rc=$?
+    # Whatever the agent left running (a test runner that outlived the CLI) and the proxy are stopped before anything else.
+    # `kill -KILL -1` as that user is one atomic signal to all of its processes; a looping pkill lost a race against a process that
+    # forks its successor every few milliseconds (the Linux container test).
+    sudo -n -u "$sb_user" kill -KILL -1 >/dev/null 2>&1 || true
+    kill "$proxy_pid" 2>/dev/null || true
+  else
+    claude_args+=(--disallowedTools "Bash(*--output*)" --tools "Read,Edit,Write,Grep,Glob,Bash"
+      --allowedTools "Read,Edit,Write,Grep,Glob,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git ls-tree:*),Bash(git cat-file:*),Bash(git grep:*),Bash(grep:*),Bash(ls:*)")
+    (
+      cd "$top"
+      with_wall env -i PATH="$PATH" HOME="${HOME:-/tmp}" LANG=C.UTF-8 TMPDIR="${TMPDIR:-/tmp}" \
+        ANTHROPIC_BASE_URL="https://api.deepinfra.com/anthropic" ANTHROPIC_AUTH_TOKEN="$DEEPINFRA_API_KEY" \
+        CLAUDE_CONFIG_DIR="$cfg" "${model_env[@]}" \
+        claude "${claude_args[@]}" < "$SYNC_OUT/agent-prompt.txt" > "$raw_out" 2> "$raw_err"
+    ) || rc=$?
+  fi
   local wall_s=$(( $(date +%s) - started ))
 
   # Fail closed (a backstop; the raw output is not in SYNC_OUT until the scan has passed): if anything below dies before
@@ -251,6 +287,9 @@ cmd_run() {
   while IFS= read -r f; do [ -z "$f" ] || hits+=("$(safe_name ".git/$f")"); done < <(files_with_key "$top/.git" --exclude-dir=objects)
   while IFS= read -r f; do [ -z "$f" ] || hits+=("artifact: $(safe_name "$f")"); done < <(files_with_key "$SYNC_OUT")
   while IFS= read -r f; do [ -z "$f" ] || hits+=("CLI output: $(safe_name "$f")"); done < <(files_with_key "$cfg" --include='agent-out.*')
+  if [ "$sandbox" = 1 ]; then # best effort: the key never reached that user, and files it made unreadable cannot be scanned here
+    while IFS= read -r f; do [ -z "$f" ] || hits+=("sandbox: $(safe_name "$f")"); done < <(files_with_key "$(dirname "$sb_repo")" --exclude-dir=node_modules --exclude-dir=.git)
+  fi
   n="$(names_with_key "$top")"
   [ "${n:-0}" -eq 0 ] || hits+=("(${n} file name(s) or link target(s) in the work tree contained the key)")
   local leaks=${#hits[@]}
