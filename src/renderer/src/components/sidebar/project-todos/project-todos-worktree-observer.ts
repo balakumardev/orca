@@ -6,7 +6,10 @@ import {
 } from '../../../../../shared/execution-host/execution-host'
 import { getFolderWorkspaceHostId } from '../../../../../shared/folder-workspaces/folder-workspace-host-id'
 import type { ProjectTodoComposerLink } from '../../../../../shared/project-todos-types'
-import { folderWorkspaceKey, parseWorkspaceKey } from '../../../../../shared/workspace/identity/workspace-scope'
+import {
+  folderWorkspaceKey,
+  parseWorkspaceKey
+} from '../../../../../shared/workspace/identity/workspace-scope'
 import { branchName } from '@/lib/source-control/branches/branch-name'
 import type { WorktreeCreationRequest } from '@/lib/workspace/creation/pending-worktree-creation'
 import type { StoreObserverHost } from '@/store/store-observer-installers'
