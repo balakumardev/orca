@@ -118,14 +118,14 @@ check "the prompt tells the model the real counts" grep -q 'src/beta.ts (content
 check "the prompt does not double them" test -z "$(grep -F 'src/beta.ts (content, 6' "$tmp/r1.out/agent-prompt.txt" || true)"
 check "no turn cap: the plan has no turn count" jq -e 'has("max_turns") | not' "$tmp/r1.out/agent-plan.json"
 check "no turn cap: the CLI is started without --max-turns" test -z "$(grep -F -e '--max-turns' "$tmp/bin/args" || true)"
-check "the only cap is the 30 minute wall clock" test "$(jq -r .wall_seconds "$tmp/r1.out/agent-plan.json")" = 1800
+check "the only cap is the 1 hour wall clock" test "$(jq -r .wall_seconds "$tmp/r1.out/agent-plan.json")" = 3600
 check "round 1 resolved everything" test "$(facts r1 .unresolved)" = false
 check "a successful round says ok in the job summary" grep -q 'Result: ok\.' "$tmp/r1.summary"
 check "no repair edits are recorded for a first round" test "$(facts r1 '.repair_edits // [] | length')" = 0
 
 echo "round 2 (repair, pro): wider scope, stops early with edits kept"
 round r2 repair repair-max-turns 2 pro r1
-check "repair on Pro: the same 30 minute wall clock" test "$(jq -r .wall_seconds "$tmp/r2.out/agent-plan.json")" = 1800
+check "repair on Pro: the same 1 hour wall clock" test "$(jq -r .wall_seconds "$tmp/r2.out/agent-plan.json")" = 3600
 check "repair prompt: the conflicted files are not given a hunk count" test -z "$(grep -F 'conflict hunk(s)' "$tmp/r2.out/agent-prompt.txt" || true)"
 check "repair prompt: the conflicted files are listed as conflicted in the merge" grep -q 'src/beta.ts (content, conflicted in the merge' "$tmp/r2.out/agent-prompt.txt"
 check "repair prompt: the owned, non-conflicted file is editable" grep -q '^- src/epsilon.ts (owned by a customization)' "$tmp/r2.out/agent-prompt.txt"
@@ -139,9 +139,9 @@ check "the earlier round's record is still in the facts" test "$(facts r2 '.agen
 
 echo "every mode and tier gets the same wall clock and no turn count"
 round r2f repair repair-max-turns 2 flash r1
-check "repair on Flash: 30 minutes" test "$(jq -r .wall_seconds "$tmp/r2f.out/agent-plan.json")" = 1800
+check "repair on Flash: 1 hour" test "$(jq -r .wall_seconds "$tmp/r2f.out/agent-plan.json")" = 3600
 round r3r retry resolve 3 pro r2
-check "retry on Pro: 30 minutes, no turn count" bash -c "test \"\$(jq -r .wall_seconds '$tmp/r3r.out/agent-plan.json')\" = 1800 && jq -e 'has(\"max_turns\") | not' '$tmp/r3r.out/agent-plan.json'"
+check "retry on Pro: 1 hour, no turn count" bash -c "test \"\$(jq -r .wall_seconds '$tmp/r3r.out/agent-plan.json')\" = 3600 && jq -e 'has(\"max_turns\") | not' '$tmp/r3r.out/agent-plan.json'"
 
 echo "round 1 stops early with two of three files left: round 2 CONTINUES that candidate, it does not start the merge again"
 round p1 first partial 1 flash
@@ -179,7 +179,7 @@ Orca-Custom-Patch: test"
 src_saved="$src"; base_saved="$BASE_SHA"; up_saved="$UPSTREAM_SHA"
 src="$many"; BASE_SHA="$(git -C "$many" rev-parse custom)"; UPSTREAM_SHA="$(git -C "$many" rev-parse 'v1.0.1^{commit}')"
 round m1 first noop 1 flash
-check "14 conflicted files: still no turn count, still 30 minutes" bash -c "jq -e 'has(\"max_turns\") | not' '$tmp/m1.out/agent-plan.json' && test \"\$(jq -r .wall_seconds '$tmp/m1.out/agent-plan.json')\" = 1800"
+check "14 conflicted files: still no turn count, still 1 hour" bash -c "jq -e 'has(\"max_turns\") | not' '$tmp/m1.out/agent-plan.json' && test \"\$(jq -r .wall_seconds '$tmp/m1.out/agent-plan.json')\" = 3600"
 check "14 conflicted files: all 14 are offered to the model" test "$(jq -r .files "$tmp/m1.out/agent-plan.json")" = 14
 
 echo "a modify/delete conflict is the agent's decision: it keeps the file or drops it, nobody has to step in"

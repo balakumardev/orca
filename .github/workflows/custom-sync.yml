@@ -198,7 +198,7 @@ jobs:
   agent2:
     name: agent (round 2, flash repair)
     needs: [detect, agent1, gates1]
-    # Two cases. Round 1 resolved everything and its gates failed: repair it with that gate output. Round 1 stopped (the 30 minute clock)
+    # Two cases. Round 1 resolved everything and its gates failed: repair it with that gate output. Round 1 stopped (the wall clock)
     # with files still unresolved (gates1 is skipped, so `!cancelled()` is what lets this job run at all): continue it. A key leak in
     # round 1 means unresolved too; it is checked here on purpose and never continued.
     if: >-
