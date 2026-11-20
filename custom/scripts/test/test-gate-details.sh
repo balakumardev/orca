@@ -195,6 +195,18 @@ check "localization (no extractor) still has details: the generic excerpt" bash 
 check "the details are also kept as a file in the artifact (logs/e2e.details.txt)" test -s "$tmp/out-main/logs/e2e.details.txt"
 check "a passing gate has no details field" bash -c '! jq -e ".gates[] | select(.status == \"pass\") | .details" "$1" >/dev/null 2>&1' _ "$gj"
 
+# record() must not depend on its caller's variables: its `local` line used $id of the CALLER (dynamic scope, shellcheck SC2318), which only
+# worked because run_gate happens to have an `id` too. Called from a scope with no `id` under `set -u`, as the script runs, it died.
+mkdir -p "$tmp/rec/logs" "$tmp/rec/notes"
+printf 'src/a.ts(3,5): error TS2345: Argument of type string is not assignable.\n' > "$tmp/rec/logs/typecheck.log"
+check "record(): works from a scope that has no \`id\` (set -u) and names its details file by its own id" bash -c '
+  set -euo pipefail
+  . "$1/lib.sh"; . "$1/gate-details.sh"
+  eval "$(awk "/^record\\(\\)/,/^}/" "$1/run-gates.sh")"
+  OUT="$2"; record typecheck "Typecheck" fail 1 3
+  test -s "$OUT/logs/typecheck.details.txt" && test ! -e "$OUT/logs/.details.txt"
+  jq -e ".details | contains(\"error TS2345\")" "$OUT/results.jsonl"' _ "$scripts" "$tmp/rec"
+
 # odd bytes through the whole script: a typecheck log with NUL, invalid UTF-8 and a split character must still give valid JSON
 run_gates odd STUB_TC="$odd" || true
 check "odd bytes through run-gates.sh: gates.json is valid JSON" jq -e . "$tmp/out-odd/gates.json"
@@ -214,6 +226,24 @@ if declare -F failing_gates_block >/dev/null; then
   check "fair share: the small gate is complete, the tail gate shows its END" bash -c '[[ "$1" == *"SMALL-B-FULL-TEXT"* && "$1" == *"TAIL-D-END"* ]]' _ "$blk"
   check "fair share: a huge gate is cut and says so; the budget holds" bash -c '[[ "$1" == *"cut to fit"* && "$(printf "%s" "$1" | wc -c)" -le 28000 ]]' _ "$blk"
   check "fair share: both huge gates keep about the same room (neither starves the other)" bash -c 'a="$(awk "/^### Huge A/{f=1;next} /^### /{f=0} f" <<<"$1" | wc -c)"; c="$(awk "/^### Huge C/{f=1;next} /^### /{f=0} f" <<<"$1" | wc -c)"; [ "$a" -gt 9000 ] && [ "$c" -gt 9000 ]' _ "$blk"
+  # The budget is in BYTES (the caller's trunc_bytes counts bytes): multibyte text must not push the block over it, because the overrun is cut
+  # off the END of the block, which is the last failing gate in gate order (e2e-ratchet, e2e), the one the repair most needs.
+  mb_json() { perl -Mutf8 -MJSON::PP -e 'my @g; my $n = 0; for my $x (["Typecheck", "details", "é" x 30000], ["Lint", "details", "日" x 30000], ["Unit tests", "output_tail", "😀" x 20000], ["E2E typecheck ratchet", "details", "é日😀" x 10000], ["Playwright e2e specs", "details", ("é" x 30000) . "LAST-GATE-END"]) { push @g, { id => "g" . $n++, name => $x->[0], status => "fail", exit_code => 1, $x->[1] => $x->[2] }; } print encode_json({ schema => 1, gates => \@g })'; }
+  mb_json > "$tmp/mb.json"
+  failing_gates_block 28000 "$tmp/mb.json" > "$tmp/mb.blk"
+  head -c 28000 "$tmp/mb.blk" > "$tmp/mb.cut" # what agent-round.sh does to the block (trunc_bytes 28000): the byte backstop
+  check "multibyte: the block itself (before any trunc_bytes) is within 28000 BYTES" test "$(wc -c < "$tmp/mb.blk" | tr -d ' ')" -le 28000
+  check "multibyte: all five failing gates have their section, after the byte backstop too" test "$(grep -c '^### ' "$tmp/mb.cut")" -eq 5
+  check "multibyte: every section keeps at least 1000 bytes of its text, the last gate included" bash -c 'LC_ALL=C awk "/^### /{ if (n != \"\") print n, b; n = \$2; b = 0; next } { b += length(\$0) + 1 } END { print n, b }" "$1" | LC_ALL=C awk "{ if (\$2 < 1000) bad = 1 } END { exit bad }"' _ "$tmp/mb.cut"
+  check "multibyte: the last gate shows its section, cut with the marker" bash -c 'sed -n "/^### Playwright e2e specs/,\$p" "$1" | grep -q -F "cut to fit"' _ "$tmp/mb.cut"
+  check "multibyte: still valid UTF-8 (every cut is on a character boundary)" perl -MEncode -e 'local $/; my $s = <STDIN>; eval { decode("UTF-8", $s, Encode::FB_CROAK) }; exit($@ ? 1 : 0)' < "$tmp/mb.blk"
+  # ASCII at the limit: eleven gates each with more text than fits, long names: the headers and cut markers count against the budget
+  perl -MJSON::PP -e 'my @g; for my $i (1 .. 11) { push @g, { id => "g$i", name => "A rather long gate name number $i for the header size", status => "fail", exit_code => 1, details => ("line of text $i\n" x 2000) } } print encode_json({ schema => 1, gates => \@g })' > "$tmp/asc.json"
+  failing_gates_block 28000 "$tmp/asc.json" > "$tmp/asc.blk"
+  check "eleven big gates: the block itself is within 28000 bytes (headers and markers are counted)" test "$(wc -c < "$tmp/asc.blk" | tr -d ' ')" -le 28000
+  head -c 28000 "$tmp/asc.blk" > "$tmp/asc.cut"
+  check "eleven big gates: after the byte backstop each section still ends with its own cut marker (the last one is not clipped)" test "$(grep -c -F 'cut to fit' "$tmp/asc.cut")" -eq 11
+  check "a small TOTAL still gives every gate a section" bash -c 'source "$1/lib.sh"; [ "$(failing_gates_block 3000 "$2" | grep -c "^### ")" -eq 11 ] && [ "$(failing_gates_block 3000 "$2" | wc -c)" -le 3000 ]' _ "$scripts" "$tmp/asc.json"
 else
   bad "failing_gates_block exists in lib.sh"
 fi

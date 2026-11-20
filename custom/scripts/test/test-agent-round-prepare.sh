@@ -195,4 +195,43 @@ if [ -s "$tmp/r1b.out/merge.bundle" ] && round r3 repair noop 3 pro r1b "$tmp/ga
   check "round 2 (no hunk-survival gate) has no advisory block" test -z "$(grep -F 'Advisory, not a failing check' "$tmp/r2.out/agent-prompt.txt" || true)"
 fi
 
+# ---- (d) a forged hunk-survival.json widens nothing ------------------------------------------------------------------------------------
+# The json comes from a gates artifact written by a job that also runs third-party install and test code. hunk_survival_edit_files is run
+# on its own (extracted from agent-round.sh) in a scratch repo whose work tree holds a file the new release does not have.
+echo "hunk_survival_edit_files: only files of the new release's tree, and the dropped ones are logged"
+fx="$tmp/forge"
+mkdir -p "$fx/repo/src/dir" "$fx/repo/.github/workflows" "$fx/gates/gates-1-static" "$fx/out"
+(
+  cd "$fx/repo"
+  git init -q -b main
+  echo a > src/real.ts; echo b > src/dir/x.ts; echo c > .github/workflows/ci.yml; echo d > CLAUDE.md
+  git add -A && git commit -q -m release
+  echo e > src/forged.ts # in the work tree, not in the release
+)
+fx_sha="$(git -C "$fx/repo" rev-parse HEAD)"
+jq -n --arg sha "$fx_sha" '{upstream_sha: $sha}' > "$fx/out/sync-facts.json"
+jq -n '{checked: 9, affected: 9, files: [
+  {old: "src/old.ts", mapped: "src/real.ts", removed: false},
+  {old: "x", mapped: "src/forged.ts", removed: false},
+  {old: "x", mapped: "src/dir", removed: false},
+  {old: "x", mapped: "../outside.ts", removed: false},
+  {old: "x", mapped: "/etc/passwd", removed: false},
+  {old: "x", mapped: "CLAUDE.md", removed: false},
+  {old: "x", mapped: ".github/workflows/ci.yml", removed: false},
+  {old: "x", mapped: ".git/config", removed: false},
+  {old: "x", mapped: 42, removed: false},
+  {old: "gone", mapped: "src/dir/x.ts", removed: true}]}' > "$fx/gates/gates-1-static/hunk-survival.json"
+if forged_out="$(cd "$fx/repo" && SYNC_OUT="$fx/out" PREV_GATES="$fx/gates" bash -c '
+  set -euo pipefail
+  . "$1/lib.sh"
+  eval "$(awk "/^hunk_survival_edit_files\\(\\)/,/^}/" "$1/agent-round.sh")"
+  hunk_survival_edit_files' _ "$scripts" 2> "$fx/log.txt")"; then
+  check "a forged json: only the real file of the release is accepted" test "$forged_out" = "src/real.ts"
+  check "a file that is only in the work tree is not accepted (it is not in the release)" test -z "$(grep -x 'src/forged.ts' <<<"$forged_out" || true)"
+  check "the dropped paths are logged, not silently lost" grep -q -F 'ignoring the path' "$fx/log.txt"
+  check "a file the check marked as removed is not a candidate" test -z "$(grep -x 'src/dir/x.ts' <<<"$forged_out" || true)"
+else
+  bad "hunk_survival_edit_files ran under set -euo pipefail with a forged json"; sed 's/^/    /' "$fx/log.txt" | tail -n 8
+fi
+
 exit "$([ "$fails" -eq 0 ] && echo 0 || echo 1)"

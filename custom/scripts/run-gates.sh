@@ -242,7 +242,8 @@ INSTALL_FAILED=0
 needs_install() { case "$1" in typecheck|lint|format|unit|unit-related|localization|e2e-ratchet) return 0 ;; esac; return 1; }
 
 record() { # id name status exit seconds
-  local id="$1" name="$2" status="$3" rc="$4" secs="$5" tail_text="" notes="" warns="[]" details_file="$OUT/logs/$id.details.txt" have_details=false
+  local id="$1" name="$2" status="$3" rc="$4" secs="$5" tail_text="" notes="" warns="[]" have_details=false
+  local details_file="$OUT/logs/$id.details.txt" # a second `local`: in the first one $id would still be the CALLER's (dynamic scope)
   [ -s "$OUT/logs/$id.log" ] && tail_text="$(strip_ansi < "$OUT/logs/$id.log" | tail -n 40 | tail -c 3500)"
   [ -s "$OUT/notes/$id.txt" ] && notes="$(paste -sd' ' "$OUT/notes/$id.txt")"
   [ -s "$OUT/notes/$id.warn" ] && warns="$(jq -R -s -c 'split("\n") | map(select(length > 0))' "$OUT/notes/$id.warn")"

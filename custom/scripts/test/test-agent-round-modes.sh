@@ -92,7 +92,7 @@ STUB
 chmod +x "$tmp/bin/claude"
 export PATH="$tmp/bin:$PATH"
 
-# round NAME MODE STUB ROUND TIER [PREV_NAME [GATES_DIR]]
+# round NAME MODE STUB ROUND TIER [PREV_NAME [GATES_DIR]]   (FORGE_EXTRA=lines: appended to extra-edit-files.txt between prepare and run)
 round() {
   local name="$1" mode="$2" stub="$3" n="$4" tier="$5" prev="${6:-}" gates="${7:-}" repo="$tmp/$1.repo"
   git clone -q --no-hardlinks "$src" "$repo"; git -C "$repo" checkout -q custom
@@ -105,6 +105,7 @@ round() {
   # An && chain: this subshell sits in an `||` list, where `set -e` is off, so a step that died would not stop the next one.
   ( cd "$repo" \
     && env "${env_[@]}" bash "$scripts/agent-round.sh" prepare > "$tmp/$name.prepare.log" 2>&1 \
+    && { [ -z "${FORGE_EXTRA:-}" ] || printf '%s\n' "$FORGE_EXTRA" >> "$tmp/$name.out/extra-edit-files.txt"; } \
     && env "${env_[@]}" DEEPINFRA_API_KEY="$FAKE_KEY" bash "$scripts/agent-round.sh" run > "$tmp/$name.run.log" 2>&1 \
     && env "${env_[@]}" GITHUB_STEP_SUMMARY="$tmp/$name.summary" bash "$scripts/agent-round.sh" finish > "$tmp/$name.finish.log" 2>&1
   ) || { bad "round $name ran to the end"; sed 's/^/    /' "$tmp/$name".*.log | tail -n 30; return 1; }
@@ -171,6 +172,12 @@ check "nothing is recorded as out of scope" test "$(facts r2h '.out_of_scope // 
 round r2n repair repair-moved 2 pro r1
 check "without the finding, the same edit to a file upstream owns is reverted as out of scope" test "$(facts r2n '.out_of_scope // [] | join(",")')" = "src/delta.ts"
 check "...and is not in the merge" test -z "$(git -C "$tmp/r2n.repo" show "$(facts r2n .merge_sha):src/delta.ts" | grep -F 'our restored hunk' || true)"
+
+echo "round 2 (repair): finish checks every extra edit path against the new release again (the list comes from an untrusted artifact)"
+FORGE_EXTRA="$(printf 'src/not-in-release.ts\n../outside.ts\nCLAUDE.md\nsrc')" round r2x repair repair-moved 2 pro r1 "$tmp/hs-gates"
+check "a path that is not a file of the new release is not made editable" test -z "$(grep -E 'not-in-release|outside|CLAUDE|^src$' "$tmp/r2x.out/allowed-edit-files.txt" || true)"
+check "...while the real one still is" test "$(grep -c -x 'src/delta.ts' "$tmp/r2x.out/allowed-edit-files.txt")" = 1
+check "finish says which path it ignored" grep -q -F 'ignoring src/not-in-release.ts in extra-edit-files.txt' "$tmp/r2x.finish.log"
 
 echo "every mode and tier gets the same wall clock and no turn count"
 round r2f repair repair-max-turns 2 flash r1
