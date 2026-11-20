@@ -261,7 +261,12 @@ export function structuredChatNamingDeps(
             runtime.resolveNamingEnvironment,
             current
           )
-        : await resolveGenerationTarget(workspace.path, settings.params.agentId, runtime)
+        : await resolveGenerationTarget(
+            workspace.path,
+            settings.params.agentId,
+            runtime,
+            record.location
+          )
       if (!target) {
         const failure = chatNamingFailure('noAgentAvailable')
         logger.warn(failure.error, log)

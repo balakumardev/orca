@@ -95,7 +95,12 @@ export function createProjectClaudeFixture(loginShellEnv: NodeJS.ProcessEnv = {}
   })
   installClaudeProfileRouter(router)
   const pins = createProjectAgentAccountsStore(() => join(root, 'pins.json'))
-  const binding = new ProjectClaudeBinding({ router, dataRoot, pins })
+  const binding = new ProjectClaudeBinding({
+    router,
+    dataRoot,
+    pins,
+    store: projectClaudeTestStore
+  })
   installProjectClaudeBinding(binding)
   const home = (id: string) => join(dataRoot, 'claude-profiles', id, 'home')
   for (const id of ['a', 'b', 'c']) {

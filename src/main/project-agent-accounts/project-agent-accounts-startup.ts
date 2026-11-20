@@ -20,7 +20,8 @@ export function installProjectAgentAccounts(
     const claude = new ProjectClaudeBinding({
       router: claudeRouter,
       dataRoot: getAppEnvironment().getPath('userData'),
-      pins: getProjectAgentAccountsStore()
+      pins: getProjectAgentAccountsStore(),
+      store
     })
     registerProjectAgentAccountAdapter(claude)
     installProjectClaudeBinding(claude)

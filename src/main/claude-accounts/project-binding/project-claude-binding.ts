@@ -1,5 +1,7 @@
+import type { AgentSessionExecutionLocation } from '../../../shared/agent-session/lifecycle/agent-session-record'
 import {
   getConnectionExecutionHostId,
+  isNativeLocalLocation,
   LOCAL_EXECUTION_HOST_ID
 } from '../../../shared/execution-host'
 import {
@@ -24,6 +26,12 @@ export type ProjectClaudeRouter = Pick<
   'savedAccount' | 'coveredBySystemDefault' | 'accountHome' | 'prepareAccount' | 'systemDefaultHome'
 >
 
+/** Where a chat runs; a catalog read with no workspace passes null. */
+export type ProjectClaudeLocation =
+  | Pick<AgentSessionExecutionLocation, 'executionHostId' | 'wslDistro' | 'workspaceId'>
+  | null
+  | undefined
+
 function sameChoice(left: ProjectAgentAccountChoice, right: ProjectAgentAccountChoice): boolean {
   return left.kind === 'system'
     ? right.kind === 'system'
@@ -39,6 +47,8 @@ export class ProjectClaudeBinding implements ProjectAgentAccountAdapter {
       router: ProjectClaudeRouter
       dataRoot: string
       pins: Pick<ProjectAgentAccountsStore, 'get'>
+      /** The main store; chats name only their workspace, so the binding looks the repo up itself. */
+      store?: ProjectAgentAccountRepoStore
     }
   ) {}
 
@@ -73,14 +83,35 @@ export class ProjectClaudeBinding implements ProjectAgentAccountAdapter {
     ) {
       return null
     }
-    // An unpinned spawn reads only the in-memory pins.
-    const repoId = getRepoIdFromWorktreeId(spawn.worktreeId)
-    const choice = this.args.pins.get(repoId, 'claude')
-    if (!choice || !findProjectAgentAccountRepo(store, repoId)) {
+    const pinned = this.pinned(store, spawn.worktreeId)
+    const route = pinned && this.route(pinned.choice)
+    return pinned && route
+      ? createProjectClaudeLaunch(this, pinned.repoId, pinned.choice, route)
+      : null
+  }
+
+  /** A chat launch follows the pin its workspace's terminals follow; publishes like resolve(). */
+  resolveLocation(location: ProjectClaudeLocation): ProjectClaudeLaunch | null {
+    return location && isNativeLocalLocation(location)
+      ? this.resolve(this.args.store, { worktreeId: location.workspaceId }, { runtime: 'host' })
+      : null
+  }
+
+  /** The pin a chat in `location` follows, read without touching any account folder. */
+  pinForLocation(location: ProjectClaudeLocation): ProjectAgentAccountChoice | null {
+    if (!location || !isNativeLocalLocation(location) || !this.args.store) {
       return null
     }
-    const route = this.route(choice)
-    return route ? createProjectClaudeLaunch(this, repoId, choice, route) : null
+    const choice = this.pinned(this.args.store, location.workspaceId)?.choice
+    return choice && (choice.kind === 'system' || this.isPinnableAccount(choice.accountId))
+      ? choice
+      : null
+  }
+
+  /** Side-effect free, for reads that must not publish a pointer or start a setup. */
+  routeForLocation(location: ProjectClaudeLocation): ProjectClaudeRoute | null {
+    const choice = this.pinForLocation(location)
+    return choice ? this.route(choice) : null
   }
 
   /** The route the pin still has, or null once it was changed or its account went away. */
@@ -95,6 +126,16 @@ export class ProjectClaudeBinding implements ProjectAgentAccountAdapter {
 
   systemDefaultHome(): string {
     return this.args.router.systemDefaultHome()
+  }
+
+  // Unpinned callers read only the in-memory pins.
+  private pinned(
+    store: ProjectAgentAccountRepoStore,
+    worktreeId: string
+  ): { repoId: string; choice: ProjectAgentAccountChoice } | null {
+    const repoId = getRepoIdFromWorktreeId(worktreeId)
+    const choice = this.args.pins.get(repoId, 'claude')
+    return choice && findProjectAgentAccountRepo(store, repoId) ? { repoId, choice } : null
   }
 
   private route(choice: ProjectAgentAccountChoice): ProjectClaudeRoute | null {
