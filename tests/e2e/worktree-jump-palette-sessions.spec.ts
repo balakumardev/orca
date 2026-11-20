@@ -359,7 +359,7 @@ test('Cmd+J lists transcript hits after Workspaces and Folders and resumes a clo
       await expect(sessionRows(palette)).toHaveCount(2)
       // Cmd/Ctrl+Shift+Enter starts a new worktree in the project of the workspace you are in.
       await input.press('ControlOrMeta+Shift+Enter')
-      await expect(input).toHaveAttribute('placeholder', /^New worktree in billing-exporter/)
+      await expect(input).toHaveAttribute('aria-placeholder', /^New worktree in billing-exporter/)
       await expect(input).toHaveValue('')
       await input.press(leaveWith)
       await expect(input).toHaveValue('quarterly')

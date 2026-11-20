@@ -218,7 +218,10 @@ test('Cmd+J shows where a new worktree can be made: footer, key hint on the high
     const before = await repoCount()
 
     await input.press('ControlOrMeta+Enter')
-    await expect(input).toHaveAttribute('placeholder', 'New worktree in fresh-app - type a name')
+    await expect(input).toHaveAttribute(
+      'aria-placeholder',
+      'New worktree in fresh-app - type a name'
+    )
     expect(await repoCount()).toBe(before + 1)
     await expect(composerDialog(orcaPage)).toHaveCount(0)
 

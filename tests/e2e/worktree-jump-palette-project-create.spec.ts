@@ -63,7 +63,7 @@ const footerHints = (palette: Locator): Locator =>
 const nameStepPrompt = (project: string): string => `New worktree in ${project} - type a name`
 // The palette's name step: the project is chosen and the input now takes the worktree name.
 async function expectNameStep(palette: Locator, input: Locator, project: string): Promise<void> {
-  await expect(input).toHaveAttribute('placeholder', nameStepPrompt(project))
+  await expect(input).toHaveAttribute('aria-placeholder', nameStepPrompt(project))
   await expect(palette.locator('[data-slot="palette-project-name-step"]')).toContainText(
     `New worktree in ${project}`
   )
@@ -293,14 +293,14 @@ test('Cmd+J starts a worktree in a project from the keyboard, with a name typed 
     await input.press('Escape')
     await expect(palette).toBeVisible()
     await expect(input).toHaveValue('acme-api')
-    await expect(input).not.toHaveAttribute('placeholder', nameStepPrompt('acme-api'))
+    await expect(input).not.toHaveAttribute('aria-placeholder', nameStepPrompt('acme-api'))
 
     await arrowToRow(input, row)
     await input.press('Enter')
     await expectNameStep(palette, input, 'acme-api')
     // Enter on an empty name does nothing.
     await input.press('Enter')
-    await expect(input).toHaveAttribute('placeholder', nameStepPrompt('acme-api'))
+    await expect(input).toHaveAttribute('aria-placeholder', nameStepPrompt('acme-api'))
     expect(await countWorktrees('acme-api')).toBe(1)
 
     await input.pressSequentially('login-fix')
