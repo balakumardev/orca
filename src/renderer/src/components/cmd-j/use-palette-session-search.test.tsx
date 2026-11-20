@@ -191,6 +191,19 @@ describe('usePaletteSessionSearch', () => {
     expect(result.current.hits.map((hit) => hit.sessionId)).toEqual(['s-new'])
   })
 
+  it('asks again for a query typed back before the search for the other one answered', async () => {
+    const searchSessions = vi.fn(async () => results(sessionHit('s-1')))
+    installVault({ searchStatus: vi.fn(async () => READY), searchSessions })
+    const { result, rerender } = render({ query: 'quarterly', visible: true })
+    await elapse(300)
+    expect(result.current.hits).toHaveLength(1)
+    rerender({ query: 'xyz-none', visible: true })
+    rerender({ query: 'quarterly', visible: true })
+    expect(result.current.hits).toEqual([])
+    await elapse(300)
+    expect(result.current.hits).toHaveLength(1)
+  })
+
   it('never shows the hits of an earlier query under a later one', async () => {
     installVault({
       searchStatus: vi.fn(async () => READY),

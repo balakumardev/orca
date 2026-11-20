@@ -28,10 +28,11 @@ export function usePaletteSessionSearch({ query, visible }: { query: string; vis
   const active = visible && enabled && !isWebClientLocation()
   const needle = sessionSearchQuery(query)
   const [answer, setAnswer] = useState<Answer | null>(null)
-  // The next opening of the palette starts from no hits, even for the same query.
-  const [wasActive, setWasActive] = useState(active)
-  if (wasActive !== active) {
-    setWasActive(active)
+  // Forgotten with the query: shown again for a query typed back, its rows mount as the highlight resets
+  // and cmdk selects none. The next opening of the palette starts from no hits too, even for the same query.
+  const [asked, setAsked] = useState({ active, needle })
+  if (asked.active !== active || asked.needle !== needle) {
+    setAsked({ active, needle })
     setAnswer(null)
   }
   // Checked again by each query until it is true; one palette opening never asks twice once it is.
