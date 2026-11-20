@@ -1,11 +1,14 @@
 import type { Locator, Page } from '@stablyai/playwright-test'
-import { expect } from '../desktop/electron-fixtures/orca-app'
-import { emitCodexHookStatus, type readHookEndpoint } from '../agents/session-fixtures/agent-hook-endpoint'
+import { expect } from '@stablyai/playwright-test'
 import {
-  waitForActivePaneHookDescriptor,
+  emitCodexHookStatus,
+  type readHookEndpoint
+} from '../agents/session-fixtures/agent-hook-endpoint'
+import { waitForActivePaneHookDescriptor } from '../terminal/input/terminal-active-pane'
+import {
   waitForActiveTerminalManager,
   waitForPaneCount
-} from '../terminal/input/terminal'
+} from '../terminal/layout/terminal-pane-operations'
 import {
   ensureTerminalVisible,
   getActiveTabId,

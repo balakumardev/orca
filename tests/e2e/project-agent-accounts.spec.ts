@@ -6,19 +6,20 @@ import type {
   ProjectAgentAccountsSnapshot
 } from '../../src/shared/project-agent-accounts'
 import { getRepoIdFromWorktreeId } from '../../src/shared/worktree/id'
-import { expect, test } from './desktop/electron-fixtures/orca-app'
+import { expect } from '@stablyai/playwright-test'
+import { test } from './desktop/electron-fixtures/orca-app'
 import { addRepoWithWorkspaces } from './workspaces/repository-fixtures/repo-with-workspaces'
 import {
   ensureTerminalVisible,
   waitForActiveWorktree,
   waitForSessionReady
 } from './desktop/renderer-probes/store'
+import { waitForActivePanePtyId } from './terminal/input/terminal'
+import { getTerminalContent } from './terminal/layout/terminal-pane-identity'
 import {
   execInTerminal,
-  getTerminalContent,
-  waitForActivePanePtyId,
   waitForActiveTerminalManager
-} from './terminal/input/terminal'
+} from './terminal/layout/terminal-pane-operations'
 
 const ACCOUNT_A = 'e2e-project-account-a'
 const ACCOUNT_B = 'e2e-project-account-b'

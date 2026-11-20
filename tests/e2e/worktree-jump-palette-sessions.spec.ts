@@ -11,7 +11,7 @@ import {
 } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { expect } from './desktop/electron-fixtures/orca-app'
+import { expect } from '@stablyai/playwright-test'
 import { buildFakeAgentCommandOverride } from './agents/session-fixtures/fake-agent-command-override'
 import { waitForSessionReady } from './desktop/renderer-probes/store'
 import { SUPPORTED, test, type ClaudeStub } from './agents/session-fixtures/structured-claude-stub'

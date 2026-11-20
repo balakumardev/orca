@@ -1,11 +1,12 @@
 import type { Page } from '@stablyai/playwright-test'
-import { test, expect } from './desktop/electron-fixtures/orca-app'
+import { expect } from '@stablyai/playwright-test'
+import { test } from './desktop/electron-fixtures/orca-app'
+import { focusActiveTerminalInput } from './terminal/input/terminal'
 import {
-  focusActiveTerminalInput,
   splitActiveTerminalPane,
   waitForActiveTerminalManager,
   waitForPaneCount
-} from './terminal/input/terminal'
+} from './terminal/layout/terminal-pane-operations'
 import {
   ensureTerminalVisible,
   getActiveWorktreeId,
