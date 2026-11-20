@@ -38,9 +38,11 @@ describe('repo add/catalog races', () => {
     let current = true
     const adding = store.getState().addRepoPath('/code/app', 'git', {
       runtimeEnvironmentId: 'env-1',
-      assertTargetCurrent: () => {
-        if (!current) {
-          throw new Error('The selected server was replaced')
+      targetGuard: {
+        assertCurrent: () => {
+          if (!current) {
+            throw new Error('The selected server was replaced')
+          }
         }
       }
     })

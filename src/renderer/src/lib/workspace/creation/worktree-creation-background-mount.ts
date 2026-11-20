@@ -42,6 +42,9 @@ export function openBackgroundDeclinedTerminal(
       agent: args.request.agent,
       environmentId: host.environmentId,
       worktreeId: args.worktreeId,
+      // Cancellation alone cannot stop a request already waiting in main's queue.
+      targetGuard: args.request.targetGuard,
+      workspaceExecutionHostId: args.request.executionHostId,
       prompt: heldChatMessage ?? args.request.launchDraftPrompt ?? args.request.quickPrompt,
       promptDelivery: heldChatMessage || args.request.launchDraftPrompt ? 'draft' : 'auto-submit',
       activate: false,
@@ -83,7 +86,13 @@ export function openBackgroundDeclinedTerminal(
     undefined,
     undefined,
     undefined,
-    { activateCreatedTabs: false, createNewTerminalForStartup: true }
+    {
+      activateCreatedTabs: false,
+      createNewTerminalForStartup: true,
+      // Local seeding retains the same authority as the declined chat.
+      executionHostId: args.request.executionHostId,
+      targetGuard: args.request.targetGuard
+    }
   )
   mountCreatedWorktreeStartupTabsInBackground(args.worktreeId)
   return { opened: tabId !== null }

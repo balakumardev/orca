@@ -68,9 +68,8 @@ function folderOpenDeps(host: PaletteSearchHost): FolderOpenDeps {
   const remoteGuard = host.runtimeEnvironmentId ? { targetGuard: paletteSearchHostGuard(host) } : {}
   const target = {
     runtimeEnvironmentId: host.runtimeEnvironmentId,
-    ...(host.runtimeEnvironmentId
-      ? { assertTargetCurrent: () => assertFolderHostCurrent(host) }
-      : {})
+    // The main-process queue needs the original runtime identity as well as the renderer check.
+    ...remoteGuard
   }
   const onCurrentHost = <T>(action: () => T): T => {
     assertFolderHostCurrent(host)

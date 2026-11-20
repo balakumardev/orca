@@ -109,6 +109,8 @@ export function ensureWorktreeHasInitialTerminal(
   defaultTabs?: WorktreeDefaultTabsLaunch,
   opts?: InitialTerminalOptions
 ): string | null {
+  // A failed activation must not seed a terminal on the runtime that replaced its owner.
+  opts?.targetGuard?.assertCurrent(opts.executionHostId)
   const { renderableTabCount } = store.reconcileWorktreeTabModel(worktreeId)
   // Editor/browser-only workspaces need no extra terminal merely because the legacy terminal slice is empty.
   const ownerState =

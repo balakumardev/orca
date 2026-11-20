@@ -156,8 +156,8 @@ export type FolderWorkspacePathStatusRouteOptions = { runtimeEnvironmentId: stri
 
 export type AddRepoPathOptions = {
   runtimeEnvironmentId?: string | null
-  /** Reject a queued or resumed add when the computer selected by its caller is no longer current. */
-  assertTargetCurrent?: () => void
+  /** Retain the selected pairing/runtime through queued addition and its workspace reveal. */
+  targetGuard?: RuntimeTargetGuard
   /** Overrides the host's basename naming for the new project. */
   displayName?: string
   /** The Add Project dialog shows a WSL host's Windows drive refusal inline; toasts above a modal cannot take clicks. */

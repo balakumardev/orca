@@ -270,6 +270,9 @@ export async function launchStructuredWorktreeSession(
           agent,
           ...request.launchInputs,
           worktreeId: args.worktreeId,
+          // A layout refusal changes the surface, not the captured creation target.
+          workspaceExecutionHostId: request.executionHostId,
+          targetGuard: request.targetGuard,
           prompt: plan.prompt,
           promptDelivery: plan.promptDelivery,
           activate: stillVisible(),
