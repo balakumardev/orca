@@ -17,6 +17,7 @@ import {
   PaneBannerLearnMore,
   PaneTopWarningBanner
 } from '../../appearance/pane-top-banner/PaneTopWarningBanner'
+import { useProjectClaudePinnedTerminalTab } from '@/components/project-agent-accounts/project-claude-pin'
 
 // System default already matches new terminals; key explicit selections so account switches recheck old shells.
 function selectedClaudeAccountKey(state: AppState): string | null {
@@ -87,10 +88,12 @@ export function ClaudeOldTerminalBanner({
       state.paneForegroundAgentByPaneKey[paneKey]?.agent === 'claude' ||
       state.agentStatusByPaneKey[paneKey]?.agentType === 'claude'
   )
+  // Why: a global selection never reaches a pinned project's terminals.
+  const projectPinned = useProjectClaudePinnedTerminalTab(tabId)
   const openedBefore = useOpenedBeforeClaudeAccounts(
     ptyId,
     tabId,
-    claudeInPane && !dismissed ? selectionKey : null,
+    claudeInPane && !dismissed && !projectPinned ? selectionKey : null,
     lifetime
   )
   const [dialogOpen, setDialogOpen] = useState(false)

@@ -31,6 +31,7 @@ import {
   trackAccountAddition
 } from '../sign-in/account-add-cancel-target'
 import { SettingsGroup } from '../../section-layout/SettingsGroup'
+import { ProjectAgentAccountsPaneSetting } from '../../../project-agent-accounts/ProjectAgentAccountsPaneSetting'
 
 export function renderClaudeAccountsSection(
   model: AccountsPaneSectionModel,
@@ -383,6 +384,7 @@ export function renderClaudeAccountsSection(
             )}
           </div>
         </SearchableSetting>
+        {isRemoteAccountScope ? null : <ProjectAgentAccountsPaneSetting provider="claude" />}
         {isRemoteAccountScope ? null : (
           <ClaudeRunningSessionSwitchSetting settings={settings} updateSettings={updateSettings} />
         )}

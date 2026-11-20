@@ -23427,7 +23427,8 @@
         "reviewBody_other": "{{count}} other Claude sessions weren't moved to {{next}}.",
         "body_one": "{{count}} Claude session is still running on {{previous}}. Restarting continues the conversation on {{next}}. Busy sessions wait for idle before restarting.",
         "body_other": "{{count}} Claude sessions are still running on {{previous}}. Restarting continues each conversation on {{next}}. Busy sessions wait for idle before restarting.",
-        "restartCount_one": "Restart {{count}} session"
+        "restartCount_one": "Restart {{count}} session",
+        "reasonRepoBound": "Project uses its own account"
       }
     },
     "managedData": {
@@ -25400,5 +25401,37 @@
     "helperInstalled": "Installed.",
     "helperUpdate": "Update",
     "helperRemove": "Remove"
+  },
+  "projectAgentAccounts": {
+    "select": {
+      "followNamed": "Follow active account ({{account}})",
+      "follow": "Follow active account",
+      "system": "System default",
+      "unavailable": "{{account}} (unavailable)"
+    },
+    "saveFailed": "Could not change the project’s account.",
+    "pinProject": "Pin a project…",
+    "searchProjects": "Search projects…",
+    "noProjectMatches": "No projects match your search.",
+    "statusTooltip": "This project uses {{account}}. Change it in project settings.",
+    "projectAccountLabel": "Account for {{project}}",
+    "unpinProject": "Unpin {{project}}",
+    "manageAccounts": "Manage accounts",
+    "claude": {
+      "title": "Claude account",
+      "description": "The Claude account this project’s terminals and chats sign in with.",
+      "elsewhereNote": "This project runs on another host or in WSL, so it uses that host’s active Claude account.",
+      "noAccountsHint": "This computer has no saved Claude accounts yet, so every project uses System default.",
+      "paneDescription": "Pin a project to one Claude account. Projects you don’t pin follow the active account.",
+      "secondAccountHint": "Add a second account to use different accounts in different projects."
+    },
+    "timingHint": "Applies to terminals and chats you open after this. Open terminals keep their account until reopened.",
+    "search": {
+      "account": "account",
+      "pin": "pin",
+      "login": "login",
+      "perProject": "per project"
+    },
+    "paneTitle": "Accounts per project"
   }
 }
