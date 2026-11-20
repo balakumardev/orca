@@ -225,7 +225,10 @@ jobs:
   gates2:
     name: gates (round 2)
     needs: [detect, agent2]
-    if: needs.agent2.result == 'success' && needs.agent2.outputs.unresolved == 'false'
+    # `!cancelled()` is needed: without a status function a job gets an implicit success() over its WHOLE ancestry, and a skipped round
+    # earlier in the chain (round 2 is skipped when round 3 follows round 1 directly) made these gates skip, so the candidate of the
+    # round that did run was never checked.
+    if: ${{ !cancelled() && needs.agent2.result == 'success' && needs.agent2.outputs.unresolved == 'false' }}
     uses: ./.github/workflows/custom-gates.yml
     with:
       mode: sync
@@ -300,7 +303,10 @@ jobs:
   gates3:
     name: gates (round 3)
     needs: [detect, agent3]
-    if: needs.agent3.result == 'success' && needs.agent3.outputs.unresolved == 'false'
+    # `!cancelled()` is needed: without a status function a job gets an implicit success() over its WHOLE ancestry, and a skipped round
+    # earlier in the chain (round 2 is skipped when round 3 follows round 1 directly) made these gates skip, so the candidate of the
+    # round that did run was never checked.
+    if: ${{ !cancelled() && needs.agent3.result == 'success' && needs.agent3.outputs.unresolved == 'false' }}
     uses: ./.github/workflows/custom-gates.yml
     with:
       mode: sync
