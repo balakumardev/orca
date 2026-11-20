@@ -3,7 +3,11 @@ import type { ClaudeProfileRouter } from '../../../claude-accounts/profiles/rout
 import { applyClaudeEnvPatch } from '../../../claude-accounts/runtime-auth/environment'
 import { claudeConfigDirEnvPatch } from './claude-config-dir-pin'
 import { resolveStructuredClaudeAccountHomePath } from '../../../runtime/agent-session/environment/structured-agent-account-home'
-import type { AgentSessionExecutionLocation } from '../../../../shared/agent-session/lifecycle/agent-session-record'
+import type {
+  AgentSessionExecutionLocation,
+  AgentSessionRecord
+} from '../../../../shared/agent-session/lifecycle/agent-session-record'
+import { requireLegacyAgentSessionAccountHome } from '../../../../shared/agent-session/lifecycle/accounts/agent-session-account-home'
 import { projectClaudeLaunchPreparation } from '../../../claude-accounts/project-binding/project-claude-workspace'
 
 /** The account a launch runs under is the current selection; the receipt records what it used. */
@@ -30,6 +34,16 @@ export async function prepareClaudeLaunchAccount(
   return preparation.provenance.startsWith('profile:')
     ? { route: 'managed', accountId: preparation.provenance.slice('profile:'.length), home }
     : { route: 'system', home, configDir: env.CLAUDE_CONFIG_DIR ?? null }
+}
+
+/** `prepareClaudeLaunchAccount` for a session record: its saved home and its workspace, so a project pin is honoured. */
+export function prepareClaudeRecordAccount(
+  router: ClaudeProfileRouter | undefined,
+  env: Record<string, string>,
+  record: Pick<AgentSessionRecord, 'accountHome' | 'location'>
+): Promise<ClaudeAccountRecipe> {
+  const { path } = requireLegacyAgentSessionAccountHome(record.accountHome)
+  return prepareClaudeLaunchAccount(router, env, path, record.location)
 }
 
 /** Pins the account a launch would run under now, without preparing its folder: managed settings
