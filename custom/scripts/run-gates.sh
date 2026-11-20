@@ -11,12 +11,16 @@
 #   --exit-zero     always exit 0 (failures are only recorded in gates.json); the sync workflow uses it so that a
 #                   failed gate becomes a draft PR instead of a red run.
 #
-# Gate ids: hygiene lint-caps install typecheck lint format unit unit-related localization e2e-ratchet e2e
+# Gate ids: hygiene lint-caps hunk-survival (sync only, advisory) install typecheck lint format unit unit-related localization e2e-ratchet e2e
 # Output: DIR/gates.json (schema 1), DIR/logs/<id>.log (full output). Gates are scripts: no model is involved.
+#   Every gate in gates.json has `output_tail` (the last 40 lines, 3500 bytes). A FAILING gate also has `details` (gate-details.sh: the
+#   failure-relevant excerpt of its log, about 8000 bytes and never more than 12000), which the repair prompt shows instead of the tail.
 # shellcheck source=lib.sh
 . "$(dirname "$0")/lib.sh"
 # shellcheck source=unit-flake.sh
 . "$(dirname "$0")/unit-flake.sh"
+# shellcheck source=gate-details.sh
+. "$(dirname "$0")/gate-details.sh"
 
 TOOLS_DIR="$(cd "$(dirname "$0")" && pwd)"
 OUT="" MODE="" CHANGED_BASE="" OUR_FILES="" ONLY="" SKIP="" EXIT_ZERO=0
@@ -128,6 +132,25 @@ gate_lint_caps() {
   [ "$(jq -r '.over | length' <<<"$json")" -eq 0 ] || { jq -r '.over[] | "OVER CAP \(.path): \(.lines)/\(.cap)"' <<<"$json"; return 1; }
 }
 
+# Advisory, sync only: lines our customizations added to upstream's files that the merge dropped (check-hunk-survival.sh). The candidate
+# is the merge commit sync-merge.sh makes, `commit-tree -p <base branch tip> -p <link>`, and the link commit has the parents (new release,
+# old release), so all four commits come from HEAD itself. It can never FAIL: anything that stops the check is a skip, the findings are
+# warnings (the PR caveats and the repair prompt show them), and `land` still decides on the real gates only.
+gate_hunk_survival() {
+  local ours new old base_tag tag_commit out rc=0 json="$OUT/hunk-survival.json"
+  ours="$(git rev-parse -q --verify 'HEAD^1^{commit}')" || skip_gate "HEAD has no first parent: not a sync merge commit" || return $?
+  new="$(git rev-parse -q --verify 'HEAD^2^1^{commit}')" || skip_gate "the second parent is not the sync's link commit (no new release behind it)" || return $?
+  old="$(git rev-parse -q --verify 'HEAD^2^2^{commit}')" || skip_gate "the second parent is not the sync's link commit (no old release behind it)" || return $?
+  base_tag="$(git show "$ours:custom/BASE" 2>/dev/null | tr -d '[:space:]')" || base_tag=""
+  if [[ "$base_tag" =~ $TAG_RE ]] && tag_commit="$(git rev-parse -q --verify "refs/tags/$base_tag^{commit}")" && [ "$tag_commit" != "$old" ]; then
+    skip_gate "custom/BASE ($base_tag) and the link commit name different old releases" || return $?
+  fi
+  out="$(with_timeout 300 bash "$TOOLS_DIR/check-hunk-survival.sh" --old "$old" --ours "$ours" --new "$new" --merged HEAD --json "$json")" || rc=$?
+  [ "$rc" -eq 0 ] || skip_gate "the check could not run (exit $rc): nothing was verified" || return $?
+  while IFS= read -r line; do [ -z "$line" ] || warn_note "$line"; done <<<"$out"
+  note "$(jq -r '"\(.checked) upstream file(s) we modified checked, \(.affected) with lines of ours lost (advisory: warnings, never a failure)"' "$json")"
+}
+
 gate_install() { pnpm install --frozen-lockfile; }
 gate_typecheck() { pnpm tc; }
 
@@ -219,13 +242,22 @@ INSTALL_FAILED=0
 needs_install() { case "$1" in typecheck|lint|format|unit|unit-related|localization|e2e-ratchet) return 0 ;; esac; return 1; }
 
 record() { # id name status exit seconds
-  local id="$1" name="$2" status="$3" rc="$4" secs="$5" tail_text="" notes="" warns="[]"
+  local id="$1" name="$2" status="$3" rc="$4" secs="$5" tail_text="" notes="" warns="[]" have_details=false
+  local details_file="$OUT/logs/$id.details.txt" # a second `local`: in the first one $id would still be the CALLER's (dynamic scope)
   [ -s "$OUT/logs/$id.log" ] && tail_text="$(strip_ansi < "$OUT/logs/$id.log" | tail -n 40 | tail -c 3500)"
   [ -s "$OUT/notes/$id.txt" ] && notes="$(paste -sd' ' "$OUT/notes/$id.txt")"
   [ -s "$OUT/notes/$id.warn" ] && warns="$(jq -R -s -c 'split("\n") | map(select(length > 0))' "$OUT/notes/$id.warn")"
+  # An excerpt is a convenience: a parser bug must never take the run down (the `if` keeps errexit out of the function) or leave a
+  # half-written file behind. The text goes into JSON from a file (--rawfile), so no argument-size limit and no quoting can break it.
+  rm -f "$details_file"
+  if [ "$status" = fail ] && [ -s "$OUT/logs/$id.log" ]; then
+    if gate_details "$id" "$OUT/logs/$id.log" > "$details_file" 2>/dev/null && [ -s "$details_file" ]; then have_details=true; else rm -f "$details_file"; fi
+  fi
+  [ "$have_details" = true ] || details_file=/dev/null
   jq -n -c --arg id "$id" --arg name "$name" --arg status "$status" --argjson rc "$rc" --argjson secs "$secs" \
-    --arg note "$notes" --arg tail "$tail_text" --argjson warns "$warns" \
-    '{id: $id, name: $name, status: $status, exit_code: $rc, seconds: $secs, note: $note, warnings: $warns, output_tail: $tail}' \
+    --arg note "$notes" --arg tail "$tail_text" --argjson warns "$warns" --rawfile details "$details_file" --argjson have_details "$have_details" \
+    '{id: $id, name: $name, status: $status, exit_code: $rc, seconds: $secs, note: $note, warnings: $warns, output_tail: $tail}
+      + (if $have_details then {details: $details} else {} end)' \
     >> "$OUT/results.jsonl"
 }
 
@@ -285,6 +317,8 @@ run_gate() { # id name function
 
 run_gate hygiene "Merge hygiene (markers, upstream CI, BASE)" gate_hygiene
 run_gate lint-caps "Lint line caps on files we touch" gate_lint_caps
+# A pull request has no old release to measure against, so the gate exists only in a sync run (a skipped gate would show up as a caveat).
+if [ "$MODE" = sync ]; then run_gate hunk-survival "Our lines survive the merge (advisory)" gate_hunk_survival; fi
 run_gate install "Install dependencies (frozen lockfile)" gate_install
 run_gate typecheck "Typecheck (pnpm tc)" gate_typecheck
 run_gate lint "oxlint on files in scope" gate_lint

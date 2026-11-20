@@ -321,6 +321,19 @@ cmd_finish_core() {
       if our_wins_path "$p" || foreign_ci_path "$p"; then continue; fi
       printf '%s\n' "$p" >> "$allowed_edit"
     done < "$SYNC_OUT/our-files.txt"
+    # Files the hunk-survival gate found lines of ours missing from (agent-round.sh prepare wrote the list): the NEW path of a file
+    # upstream moved, which our-files.txt (old paths) cannot name. Same exclusions as above, and each path is checked again here
+    # against the new release's tree (release_edit_path_ok in lib.sh): the list is derived from an untrusted artifact.
+    if [ -s "$SYNC_OUT/extra-edit-files.txt" ]; then
+      while IFS= read -r p; do
+        [ -n "$p" ] || continue
+        if release_edit_path_ok "$upstream_sha" "$p"; then
+          printf '%s\n' "$p" >> "$allowed_edit"
+        else
+          log "ignoring $(printf '%s' "$p" | tr -c '[:print:]' '?' | cut -c1-200) in extra-edit-files.txt: not an editable file of the new release"
+        fi
+      done < "$SYNC_OUT/extra-edit-files.txt"
+    fi
     sort -u -o "$allowed_edit" "$allowed_edit"
   fi
 

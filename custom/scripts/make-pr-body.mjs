@@ -26,6 +26,7 @@ const BODY_LIMIT = 60000 // GitHub rejects bodies over 65536 characters
 const GATE_ORDER = [
   'hygiene',
   'lint-caps',
+  'hunk-survival',
   'install',
   'typecheck',
   'lint',

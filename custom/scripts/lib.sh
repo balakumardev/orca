@@ -34,10 +34,17 @@ semver_gt() {
   [ "$a" != "$b" ] && [ "$(printf '%s\n%s\n' "$a" "$b" | sort -V | tail -n 1)" = "$a" ]
 }
 
+# The one identity the automation commits and opens PRs as. Upstream's own release commits carry the same name and email (its
+# release bot is github-actions too), so this identity alone never proves a commit is ours: see stale-sync-pr.sh.
+# AUTOMATION_LOGIN_RE matches the login `gh` reports for it (a PR author is `app/github-actions`, a comment author `github-actions[bot]`).
+AUTOMATION_NAME="github-actions[bot]"
+AUTOMATION_EMAIL="41898282+github-actions[bot]@users.noreply.github.com"
+AUTOMATION_LOGIN_RE='^(app/)?github-actions(\[bot\])?$'
+
 # git identity for commits made by the automation (local config only).
 set_git_identity() {
-  git config user.name "github-actions[bot]"
-  git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+  git config user.name "$AUTOMATION_NAME"
+  git config user.email "$AUTOMATION_EMAIL"
 }
 
 sync_out() { : "${SYNC_OUT:?SYNC_OUT must point at a directory outside the working tree}"; mkdir -p "$SYNC_OUT"; }
@@ -77,6 +84,19 @@ our_wins_path() {
     case "$1" in $pat) return 0 ;; esac
   done
   return 1
+}
+
+# release_edit_path_ok UPSTREAM_SHA PATH: may a repair round edit PATH because the hunk-survival check named it? Its hunk-survival.json
+# comes from a gates artifact written by a job that also runs third-party install and test code, so it is not trusted: PATH must be a
+# plain relative path, not fork scaffolding or upstream CI, and a FILE that exists in the new release's tree (git cat-file on the tree
+# only, no blob is fetched). A made-up path therefore widens nothing. Never edits, only answers (0 = ok).
+release_edit_path_ok() {
+  local sha="$1" p="$2"
+  case "$p" in
+    '' | /* | ./* | ../* | */./* | */../* | */.. | */. | . | .. | .git | .git/* | */.git | */.git/* | *$'\n'* | *$'\r'*) return 1 ;;
+  esac
+  if our_wins_path "$p" || foreign_ci_path "$p"; then return 1; fi
+  [ "$(git cat-file -t "$sha:$p" 2>/dev/null)" = blob ]
 }
 
 # Pathspecs (one per line) that keep fork scaffolding out of a git log of our customization commits: every our-wins pattern,
@@ -148,6 +168,42 @@ round_score() {
   fi
   if [ "$(jq -r '.key_leak // false' "$d/sync-facts.json")" = true ]; then score=100000; fi
   printf '%s\n' "$score"
+}
+
+# failing_gates_block TOTAL_BYTES GATES_JSON...: the text of the failing gates for a repair prompt, one "### <gate> (exit N)" section each.
+# A gate's text is its `details` (the failure excerpt run-gates.sh records; cut from the START when too long) or, for a gates.json that has
+# none, its `output_tail` (cut from the END, where the failure is). The budget is shared FAIRLY: gates are served shortest first and each
+# may take at most an equal share of what is left, so a gate with little to say frees room for the others and one huge gate cannot starve
+# the rest (with one shared budget the first gates filled it, and the e2e ratchet output never reached round 3 of v1.4.265). Everything is
+# counted in BYTES, like the caller's trunc_bytes (which cuts the END of the block, i.e. the last gate in gate order: e2e-ratchet, e2e): each
+# gate first sets aside the real size of its header, its cut marker and its newline, the rest is shared, and a cut falls on a character
+# boundary. So the block is never over TOTAL_BYTES and every gate keeps a section (unless TOTAL_BYTES is below about 150 per gate).
+failing_gates_block() {
+  local total="$1"; shift
+  jq -r -s --argjson total "$total" '
+    def bytes: utf8bytelength;
+    def head_fit($b): . as $s | if ($s | bytes) <= $b then $s else
+      ({lo: 0, hi: ($s | length)} | until(.lo >= .hi; (((.lo + .hi + 1) / 2) | floor) as $m | if ($s[:$m] | bytes) <= $b then .lo = $m else .hi = ($m - 1) end) | $s[:.lo]) end;
+    def tail_fit($b): . as $s | if ($s | bytes) <= $b then $s else
+      ({lo: 0, hi: ($s | length)} | until(.lo >= .hi; (((.lo + .hi + 1) / 2) | floor) as $m | if ($s[-$m:] | bytes) <= $b then .lo = $m else .hi = ($m - 1) end) | if .lo == 0 then "" else $s[-(.lo):] end) end;
+    [.[].gates[]? | select(.status == "fail")] as $g
+    | ($g | length) as $n
+    | if $n == 0 then empty else
+        ($g | to_entries | map(.key as $i | .value as $v
+          | (($v.details // "") != "") as $det
+          | (($v.details // "") as $d | if $d != "" then $d else ($v.output_tail // "") end) as $t
+          | ("### \($v.name) (exit \($v.exit_code))\(if $det then " - failure excerpt" else " - end of the log" end)\n") as $h
+          | (if $det then "\n[... cut to fit; the rest is in the gates artifact]" else "[... start cut ...]\n" end) as $m
+          | {i: $i, head: $h, mark: $m, detailed: $det, text: $t, tb: ($t | bytes), over: (($h | bytes) + ($m | bytes) + 1)})) as $e
+        | (reduce ($e | sort_by(.tb))[] as $x ({rem: ([($total - ($e | map(.over) | add)), 0] | max), left: $n, out: []};
+            ([$x.tb, ((.rem / .left) | floor)] | min) as $a
+            | .out += [$x + {allow: $a}] | .rem -= $a | .left -= 1)).out
+        | sort_by(.i)[]
+        | . as $x
+        | $x.head + (if $x.tb <= $x.allow then $x.text
+                     elif $x.detailed then ($x.text | head_fit($x.allow)) + $x.mark
+                     else $x.mark + ($x.text | tail_fit($x.allow)) end)
+      end' "$@"
 }
 
 # Generated files are never merged by hand or by a model: upstream's version wins and the reviewer is told.

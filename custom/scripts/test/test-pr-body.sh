@@ -32,6 +32,7 @@ mkdir -p "$tmp/gates-2-static" "$tmp/gates-2-e2e" "$tmp/raw"
 cat > "$tmp/gates-2-static/gates.json" <<'JSON'
 {"schema":1,"mode":"sync","runner":{"os":"Linux"},"gates":[
  {"id":"unit","name":"Unit tests for the directories in scope","status":"pass","exit_code":0,"seconds":120,"note":"n","warnings":["The first unit run threw an unhandled error that did not reproduce: src/x.test.ts passed on a re-run."],"output_tail":""},
+ {"id":"hunk-survival","name":"Our lines survive the merge (advisory)","status":"pass","exit_code":0,"seconds":9,"note":"1 upstream file(s) we modified checked, 1 with lines of ours lost","warnings":["`src/old/List.tsx` -> `src/new/List.tsx`: 2 of 7 significant lines we added are missing from the merged file, e.g. `useFollowHook({`"],"output_tail":""},
  {"id":"lint-caps","name":"Lint line caps on files we touch","status":"pass","exit_code":0,"seconds":0,"note":"","warnings":["src/big.ts: 296/300 lines (within 10 of the cap)"],"output_tail":""}]}
 JSON
 cat > "$tmp/gates-2-e2e/gates.json" <<'JSON'
@@ -142,6 +143,11 @@ done
 render main "$tmp/dispatch-only.yml"
 has "$body" 'artifact `e2e-results-2` of [this run](https://example.invalid/run/1)' && ok "a failed e2e gate links the e2e-results-<round> artifact of the run" || bad "e2e artifact link"
 has "$body" 'Unit tests for the directories in scope: The first unit run threw an unhandled error that did not reproduce' && ok "a gate warning is shown under the gate's name" || bad "gate warning text"
+has "$body" 'Our lines survive the merge (advisory): `src/old/List.tsx` -> `src/new/List.tsx`: 2 of 7 significant lines we added are missing from the merged file' && ok "the advisory hunk-survival finding is a caveat under its gate's name" || bad "hunk-survival caveat"
+hs_line="$({ grep -n -F 'Our lines survive the merge (advisory): ' "$body" || true; } | cut -d: -f1 | sed -n '1p')"
+lc_line="$({ grep -n -F 'Near a lint cap: src/big.ts' "$body" || true; } | cut -d: -f1 | sed -n '1p')"
+un_line="$({ grep -n -F 'Unit tests for the directories in scope: The first unit run' "$body" || true; } | cut -d: -f1 | sed -n '1p')"
+[ -n "$hs_line" ] && [ -n "$lc_line" ] && [ -n "$un_line" ] && [ "$lc_line" -lt "$hs_line" ] && [ "$hs_line" -lt "$un_line" ] && ok "...listed between lint-caps and unit, in the gate order (GATE_ORDER)" || bad "hunk-survival order (lint-caps line '$lc_line', hunk-survival line '$hs_line', unit line '$un_line')"
 ! has "$body" 'Near a lint cap: The first unit run' && ok "a unit warning is not labelled as a lint-cap warning" || bad "unit warning mislabelled"
 has "$body" 'Near a lint cap: src/big.ts' && ok "a lint-cap warning keeps its label" || bad "lint-cap label"
 has "$body" '| 2 | repair |' && has "$body" '1: ran out of turns; edits kept; gates decide' && ok "the model table says the round ran out of turns, edits kept, gates decide" || bad "exit column wording"

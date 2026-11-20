@@ -4,7 +4,8 @@ name: custom-sync
 # a real run (see it below): when every gate of the chosen candidate is green and `custom` has not moved since the sync
 # started, it merges the PR itself and dispatches custom-release.yml once. In every other case the PR waits for a human.
 #
-#   detect   newest stable upstream release vs custom/BASE; quiet exit when there is nothing new
+#   detect   newest stable upstream release vs custom/BASE; quiet exit when there is nothing new. A stale PR of the tag that nobody
+#            touched (custom moved on while it ran) is not "nothing new": it is replaced (custom/scripts/stale-sync-pr.sh).
 #   merge    merge the release into sync/<tag> by script (clean, or scripted conflict rules), no model
 #   agent1   (only when conflicts remain) Flash resolves the conflicted files    } custom-agent.yml, environment `agent`
 #   agent2   Flash repairs the candidate using the REAL gate output of round 1,   } (agent2 and agent3 also CONTINUE a
@@ -14,7 +15,8 @@ name: custom-sync
 #            scope as round 2), or continues the one that got furthest; only when no round left a usable candidate
 #            does it start again from scratch
 #   gates*   custom-gates.yml: install, typecheck, lint, format, unit tests, localization, e2e ratchet, e2e specs
-#   open-pr  push sync/<tag> (the only branch this workflow may push), open the PR from FACTS, retire older sync PRs
+#   open-pr  push sync/<tag> (the only branch this workflow may push), open the PR from FACTS, retire older sync PRs; close the
+#            stale PR it replaces; on a re-run of the failed jobs adopt the PR attempt 1 opened (custom/scripts/open-pr.sh)
 #   land     real runs only, all gates green, custom unchanged: check-run `gates / result`, merge commit, dispatch the release
 #            (custom/scripts/land-sync-pr.sh). A merge by the workflow token starts no `push:` workflow, hence the dispatch.
 #
@@ -76,6 +78,9 @@ jobs:
       release_url: ${{ steps.detect.outputs.release_url }}
       supersede: ${{ steps.detect.outputs.supersede }}
       orphan_branch: ${{ steps.detect.outputs.orphan_branch }}
+      orphan_sha: ${{ steps.detect.outputs.orphan_sha }}
+      replace_pr: ${{ steps.detect.outputs.replace_pr }}
+      replace_head: ${{ steps.detect.outputs.replace_head }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -225,7 +230,10 @@ jobs:
   gates2:
     name: gates (round 2)
     needs: [detect, agent2]
-    if: needs.agent2.result == 'success' && needs.agent2.outputs.unresolved == 'false'
+    # `!cancelled()` is needed: without a status function a job gets an implicit success() over its WHOLE ancestry, and a skipped round
+    # earlier in the chain (round 2 is skipped when round 3 follows round 1 directly) made these gates skip, so the candidate of the
+    # round that did run was never checked.
+    if: ${{ !cancelled() && needs.agent2.result == 'success' && needs.agent2.outputs.unresolved == 'false' }}
     uses: ./.github/workflows/custom-gates.yml
     with:
       mode: sync
@@ -300,7 +308,10 @@ jobs:
   gates3:
     name: gates (round 3)
     needs: [detect, agent3]
-    if: needs.agent3.result == 'success' && needs.agent3.outputs.unresolved == 'false'
+    # `!cancelled()` is needed: without a status function a job gets an implicit success() over its WHOLE ancestry, and a skipped round
+    # earlier in the chain (round 2 is skipped when round 3 follows round 1 directly) made these gates skip, so the candidate of the
+    # round that did run was never checked.
+    if: ${{ !cancelled() && needs.agent3.result == 'success' && needs.agent3.outputs.unresolved == 'false' }}
     uses: ./.github/workflows/custom-gates.yml
     with:
       mode: sync
@@ -401,6 +412,10 @@ jobs:
           PR_OUT: ${{ runner.temp }}/pr
           SUPERSEDE: ${{ needs.detect.outputs.supersede }}
           ORPHAN_BRANCH: ${{ needs.detect.outputs.orphan_branch }}
+          ORPHAN_SHA: ${{ needs.detect.outputs.orphan_sha }}
+          # A stale, untouched PR for this same branch: open-pr.sh re-checks it against this head sha, closes it and takes its name.
+          REPLACE_PR: ${{ needs.detect.outputs.replace_pr }}
+          REPLACE_HEAD: ${{ needs.detect.outputs.replace_head }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: bash "$GITHUB_WORKSPACE/tools/custom/scripts/open-pr.sh"
 
