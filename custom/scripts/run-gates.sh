@@ -53,10 +53,18 @@ selected() { # id
 }
 
 # ------------------------------------------------------------------------------------------------ target sets
-# ALL_TARGETS: every existing file in scope. sync: our files. pr: files changed since the base.
+# ALL_TARGETS: every existing file in scope. sync: our files. pr: files changed since the base (a sync PR: files that differ from the release it merges).
 ALL_TARGETS="$OUT/targets-all.txt"
 if [ "$MODE" = sync ]; then
   while IFS= read -r p; do [ -f "$p" ] && printf '%s\n' "$p"; done < "$OUR_FILES" | sort -u > "$ALL_TARGETS" || true
+elif [ "${SYNC_PR:-}" = 1 ]; then
+  # A sync PR changes every file upstream changed since the old BASE, so "changed since the base" is the whole upstream delta (tens of
+  # thousands of files, upstream's own over-cap files among them). Measure it against the release it merges: what differs from that
+  # release is what our customizations own. The workflow sets SYNC_PR only for a same-repository sync/* branch.
+  sync_tag="$(tr -d '[:space:]' < custom/BASE)"
+  [[ "$sync_tag" =~ $TAG_RE ]] || die "custom/BASE is not a release tag"
+  git rev-parse -q --verify "refs/tags/$sync_tag^{commit}" >/dev/null || fetch_upstream "+refs/tags/$sync_tag:refs/tags/$sync_tag"
+  git diff --name-only --diff-filter=d "refs/tags/$sync_tag" HEAD | sort -u > "$ALL_TARGETS"
 else
   git diff --name-only --diff-filter=d "$CHANGED_BASE" HEAD | sort -u > "$ALL_TARGETS"
 fi

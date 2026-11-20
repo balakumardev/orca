@@ -129,6 +129,8 @@ jobs:
         env:
           MODE: ${{ inputs.mode }}
           CHANGED_BASE: ${{ github.event.pull_request.base.sha }}
+          # A hand-fixed sync PR is measured against the upstream release it merges, not against the old custom (see run-gates.sh).
+          SYNC_PR: ${{ inputs.mode == 'pr' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.event.pull_request.head.ref, 'sync/') && '1' || '' }}
           # Why: a PR clone has no upstream release tags (see config/fork-pr-gate-test-excludes.mjs). No ORCA_ prefix: run-gates.sh unsets those.
           FORK_PR_GATE: ${{ inputs.mode == 'pr' && '1' || '' }}
           GATES_OUT: ${{ runner.temp }}/gates-out/gates-${{ inputs.mode == 'pr' && 'pr' || inputs.round }}-static
@@ -234,6 +236,8 @@ jobs:
         env:
           MODE: ${{ inputs.mode }}
           CHANGED_BASE: ${{ github.event.pull_request.base.sha }}
+          # A hand-fixed sync PR is measured against the upstream release it merges, not against the old custom (see run-gates.sh).
+          SYNC_PR: ${{ inputs.mode == 'pr' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.event.pull_request.head.ref, 'sync/') && '1' || '' }}
           GATES_OUT: ${{ runner.temp }}/gates-out/gates-${{ inputs.mode == 'pr' && 'pr' || inputs.round }}-e2e
         run: |
           extra=()
