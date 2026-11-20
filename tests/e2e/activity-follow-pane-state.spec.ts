@@ -101,7 +101,7 @@ async function startAgentInNewTab(
   await expect
     .poll(() =>
       page.evaluate(
-        (paneKey) => Boolean(window.__store?.getState().agentStatusByPaneKey[paneKey]),
+        (paneKey) => Boolean(window.__store?.getState().agentStatusByPaneKey.get(paneKey)),
         agent.paneKey
       )
     )
