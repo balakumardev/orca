@@ -3,13 +3,20 @@ import {
   prepareLocalCommitMessageAgentEnv,
   type CommitMessageAgentEnvironmentResolvers
 } from '../../text-generation/commit-message-agent-environment'
+import { projectClaudeGenerationTarget } from '../../claude-accounts/project-binding/project-claude-workspace'
+import type { ProjectClaudeLocation } from '../../claude-accounts/project-binding/project-claude-binding'
 
 export async function resolveGenerationTarget(
   worktreePath: string,
   agentId: string,
-  deps: { getAgentEnvResolvers: () => CommitMessageAgentEnvironmentResolvers | undefined }
+  deps: { getAgentEnvResolvers: () => CommitMessageAgentEnvironmentResolvers | undefined },
+  workspace?: string | ProjectClaudeLocation
 ): Promise<CommitMessageGenerationTarget | null> {
-  const localEnv = await prepareLocalCommitMessageAgentEnv(agentId, deps.getAgentEnvResolvers())
+  const localEnv = await prepareLocalCommitMessageAgentEnv(
+    agentId,
+    deps.getAgentEnvResolvers(),
+    projectClaudeGenerationTarget(agentId, workspace, worktreePath)
+  )
   if (!localEnv.ok) {
     return null
   }

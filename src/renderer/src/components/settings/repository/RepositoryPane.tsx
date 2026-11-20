@@ -28,6 +28,7 @@ import { RepoSettingsDraftInput } from './RepositorySettingsDraftInput'
 import { RepositoryForkSyncSection } from './source-control/RepositoryForkSyncSection'
 import { RepositoryAgentTrustSection } from './RepositoryAgentTrustSection'
 import { RepositoryGitHubAccountSection } from './source-control/RepositoryGitHubAccountSection'
+import { ProjectAgentAccountsRepositorySection } from '../../project-agent-accounts/ProjectAgentAccountsRepositorySection'
 import { useTranslate } from '@/i18n/use-translate'
 import { RepositoryWindowsRuntimeSection } from './runtime/RepositoryWindowsRuntimeSection'
 import { matchesRepositoryIdentitySearch } from './identity/repository-identity-search'
@@ -335,6 +336,11 @@ export function RepositoryPane({
             <RepositoryGitHubAccountSection
               repo={repo}
               updateRepo={updateSelectedRepo}
+              forceVisible={forceFullPaneForRepoMatch}
+            />
+
+            <ProjectAgentAccountsRepositorySection
+              repo={repo}
               forceVisible={forceFullPaneForRepoMatch}
             />
 

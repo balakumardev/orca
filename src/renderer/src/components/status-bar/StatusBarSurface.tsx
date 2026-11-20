@@ -21,6 +21,7 @@ import { SkillUpdateStatusSegment } from './SkillUpdateStatusSegment'
 import { NativeChatResumeStatusSegment } from './NativeChatResumeStatusSegment'
 import { CaffeinateStatusSegment } from './CaffeinateStatusSegment'
 import { LidAwakeStatusSegment } from '../lid-awake/LidAwakeStatusSegment'
+import { ProjectAgentAccountStatusSegment } from '../project-agent-accounts/ProjectAgentAccountStatusSegment'
 import { PluginsStatusSegment } from './PluginsStatusSegment'
 import { PluginStatusBarItems } from './PluginStatusBarItems'
 import { RemoteServerUpdateStatusSegment } from './RemoteServerUpdateStatusSegment'
@@ -312,6 +313,7 @@ export function StatusBarSurface({
         <div ref={segmentsRef} className="flex w-max items-center gap-3">
           {!isPairedWebClientWindow() ? (
             <>
+              <ProjectAgentAccountStatusSegment iconOnly={segmentsIconOnly} />
               <PluginsStatusSegment />
               <PluginStatusBarItems iconOnly={segmentsIconOnly} />
               <CaffeinateStatusSegment iconOnly={segmentsIconOnly} />
