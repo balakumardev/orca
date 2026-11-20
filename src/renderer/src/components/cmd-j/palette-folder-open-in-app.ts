@@ -52,7 +52,6 @@ function folderOpenDeps(): FolderOpenDeps {
       openProjectDefaultCheckout({
         repoId,
         source: 'local_folder_picker',
-        setHideDefaultBranchWorkspace: state().setHideDefaultBranchWorkspace,
         executionHostId: LOCAL_EXECUTION_HOST_ID
       }),
     listWorktrees: (repoId) =>
