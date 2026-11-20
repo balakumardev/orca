@@ -96,7 +96,7 @@ cmd_prepare() {
     [ -z "${PREV_GATES:-}" ] || while IFS= read -r p; do gate_files+=("$p"); done < <(find "$PREV_GATES" -name gates.json 2>/dev/null | sort)
     if [ "${#gate_files[@]}" -gt 0 ] && [ -n "$(jq -r '.gates[] | select(.status == "fail") | .id' "${gate_files[@]}" 2>/dev/null)" ]; then
       check="$check
-$(jq -r '.gates[] | select(.status == "fail") | "### \(.name) (exit \(.exit_code))\n\(.output_tail)"' "${gate_files[@]}" | trunc_bytes 7000)"
+$(jq -r '.gates[] | select(.status == "fail") | "### \(.name) (exit \(.exit_code))\n\((.output_tail // "") | .[-4000:])"' "${gate_files[@]}" | trunc_bytes 28000)"
     else
       check="$check
 (no check output; the previous attempt left these files unresolved: $(jq -r '(.unresolved_files // []) | join(", ")' "${prev_facts:-/dev/null}" 2>/dev/null))"
@@ -124,13 +124,18 @@ $(jq -r '.gates[] | select(.status == "fail") | "### \(.name) (exit \(.exit_code
       process.stdout.write(text.replace(/\n{3,}/g, "\n\n"))
     ' > "$prompt"
 
+  # The formatter version the gates will use, read from the lockfile of this merge state (the model has not run yet, so the file is
+  # ours). finish formats our files with that version, outside this tree (install-oxfmt.sh). No match just means no formatting.
+  { grep -m1 -oE "^  '?oxfmt@[0-9][0-9A-Za-z.+-]*" pnpm-lock.yaml 2>/dev/null || true; } | sed -E "s/^  '?oxfmt@//" > "$SYNC_OUT/oxfmt-version.txt"
+
   local wall work skip=false
-  # No turn cap: a round ends when the model is done or when the wall clock runs out (30 minutes, every round). A turn cap stopped
+  # No turn cap: a round ends when the model is done or when the wall clock runs out (1 hour, every round). A turn cap stopped
   # v1.4.261 at 16 of its 22 model files (70 turns, about 4.4 a file) and the fixed merge leaves 31, so the work decides the length,
   # not a number guessed in advance. The wall clock bounds the money: about $0.01 a Flash turn and $0.07 a Pro turn (measured, full
-  # list rate), 6.7 s and 16.8 s a turn, so 30 minutes is at most about $3 on Flash and $7.5 on Pro. A round that hits the clock keeps its
-  # edits and the next round continues from them; the CLI is killed then, so that round has no token or cost figures.
-  wall=1800
+  # list rate), 4.3 to 6.7 s and 16.8 s a turn, so an hour is at most about $8 on Flash and $15 on Pro. A round that hits the clock keeps
+  # its edits and the next round continues from them; the CLI is killed then, so that round has no token or cost figures. Half an hour
+  # was not enough for v1.4.265 (43 conflicted files): rounds 1 and 2 used 29 and 24 minutes and round 3 was killed with nothing written.
+  wall=3600
   # Every conflict the scripts left is the model's, whatever its kind; nothing left to resolve means run does not call it.
   work="$nfiles"; [ "$resume" -eq 0 ] || work="$nresume"
   if [ "$MODE" != repair ] || [ "$resume" -eq 1 ]; then [ "$work" -gt 0 ] || skip=true; fi
