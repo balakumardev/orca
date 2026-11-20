@@ -3,21 +3,28 @@
 # post the gates commit status, then retire superseded sync PRs. Never force-pushes, never pushes tags, never
 # touches the base branch. Runs git and gh only; no repository code is executed here.
 #
-# Three situations besides the plain first run:
+# Situations besides the plain first run:
 #   - REPLACE_PR (a stale PR of the SAME branch, found by detect-release.sh): the PR is re-checked against the facts detect saw
-#     (still open, same repo, against the base branch, opened by the automation, head still the commit detect judged), and only then
-#     closed with the superseded marker comment, its branch deleted, and the new candidate pushed to the same branch name and opened
-#     as a new PR. If the PR changed in the meantime (a person pushed to it while the sync ran) NOTHING is closed, deleted or pushed:
-#     the job ends green without a PR, with a warning and a summary line, and `land` (which needs pr_number) does not run.
+#     (still open, same repo, against the base branch, opened by the automation, READY not a draft, head still the commit detect
+#     judged), and only then closed with the superseded marker comment, its branch deleted, and the new candidate pushed to the same
+#     branch name and opened as a new PR. If the PR changed in the meantime (a person pushed to it or turned it into a draft while the
+#     sync ran) NOTHING is closed, deleted or pushed: the job ends green without a PR, with a warning and a summary line, and `land`
+#     (which needs pr_number) does not run.
 #   - ORPHAN_BRANCH: a leftover branch with no PR is deleted first so the push stays a plain push.
-#   - GITHUB_RUN_ATTEMPT > 1 (a re-run of the failed jobs re-runs this job too, rerun-infra-failures.sh relies on it): when the first
-#     attempt already opened the PR for this very merge commit, that PR is adopted (title, body, draft state and labels refreshed
-#     from the new gate results) instead of failing on `gh pr create`. A different candidate cannot be pushed over an existing
-#     branch (no force-push), so then the job fails as it always did.
+#   - A branch is DELETED only on proof, read from GitHub right before the delete (the tip is read again each time, never trusted from
+#     earlier): the tip is exactly the commit detect saw (REPLACE_HEAD for the replaced PR, ORPHAN_SHA for a leftover branch) AND no
+#     other open PR of this repository, against any base, has the branch as its head (deleting a branch closes every PR that has it as
+#     its head, without a comment, and detect would then read the PR as closed by a person). Otherwise (a person pushed since, an
+#     earlier attempt of this run published another candidate and opened a PR) NOTHING is deleted or pushed and the job ends green
+#     without a PR, like the replace guard. A tip that already is this run's merge commit is not deleted and not pushed again.
+#   - An open PR for this very merge commit (an earlier attempt opened it; a re-run of the failed jobs, which rerun-infra-failures.sh
+#     relies on, runs this job again) is adopted, on any attempt: title, body, draft state and labels refreshed from the new gate
+#     results, instead of failing on `gh pr create`.
 #
 # Outputs: pr_url, pr_number, merge_sha, draft (custom-sync's land job reads them).
 # Env: GH_TOKEN, REPO (owner/name), FACTS (sync-facts.json of the chosen round), PR_OUT (output of make-pr-body.sh),
-#      SUPERSEDE (JSON array of PR numbers), ORPHAN_BRANCH (true/false), REPLACE_PR and REPLACE_HEAD (stale PR to replace), RUN_URL
+#      SUPERSEDE (JSON array of PR numbers), ORPHAN_BRANCH (true/false), ORPHAN_SHA (the commit the leftover branch held when detect
+#      looked), REPLACE_PR and REPLACE_HEAD (stale PR to replace), RUN_URL
 # shellcheck source=lib.sh
 . "$(dirname "$0")/lib.sh"
 # shellcheck source=stale-sync-pr.sh
@@ -27,6 +34,7 @@
 SUPERSEDE="${SUPERSEDE:-[]}"
 REPLACE_PR="${REPLACE_PR:-}"
 REPLACE_HEAD="${REPLACE_HEAD:-}"
+ORPHAN_SHA="${ORPHAN_SHA:-}"
 branch="$(jq -r .branch "$FACTS")"; base_branch="$(jq -r .base_branch "$FACTS")"; merge_sha="$(jq -r .merge_sha "$FACTS")"
 [[ "$branch" == sync/* || "$branch" == sync-test/* ]] || die "refusing to push '$branch': only sync/* and sync-test/* branches are allowed"
 git rev-parse -q --verify "refs/heads/$branch" >/dev/null || die "branch $branch does not exist locally"
@@ -41,18 +49,53 @@ for l in $(jq -r '.labels[]' "$PR_OUT/pr-meta.json"); do
 done
 
 say() { printf '%s\n' "$*" >&2; if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then printf '%s\n' "$*" >>"$GITHUB_STEP_SUMMARY"; fi; }
-branch_exists() { gh api "repos/$REPO/git/ref/heads/$branch" >/dev/null 2>&1; }
+# End green without a PR (no pr_number output, so `land` does not run): something on GitHub is not what detect saw.
+bail() {
+  warn "$1 No branch is deleted or pushed from here on and no PR is opened."
+  say "### custom-sync: no PR opened for $branch"
+  say "$1 Look at the branch and its PRs; the sync this run made was thrown away."
+  exit 0
+}
+# The commit the branch points at right now; empty when it does not exist (or the read failed: then nothing is ever deleted, and a
+# plain push is rejected when the branch does exist).
+branch_tip() { gh api "repos/$REPO/git/ref/heads/$branch" --jq .object.sha 2>/dev/null || true; }
+# Open PRs of THIS repository whose head is the sync branch, against any base. `gh pr list --head` also returns a fork's PR that uses
+# the same branch name; it is not ours and does not hold our branch, so it is dropped.
+open_prs_of_branch() {
+  gh pr list --repo "$REPO" --state open --head "$branch" --limit 30 --json number,url,headRefOid,baseRefName,isCrossRepository \
+    | jq -c '[.[] | select(.isCrossRepository != true)]'
+}
+# check_branch_may_go: reads the tip and the open PRs NOW and sets BRANCH_TIP and BRANCH_BLOCKER (why the branch must not be deleted;
+# empty when it may go or is already free or already holds this run's commit). Call it as a plain statement, right before the delete.
+BRANCH_TIP="" BRANCH_BLOCKER=""
+check_branch_may_go() {
+  local others expected
+  BRANCH_BLOCKER=""
+  BRANCH_TIP="$(branch_tip)"
+  if [ -z "$BRANCH_TIP" ] || [ "$BRANCH_TIP" = "$merge_sha" ]; then return 0; fi
+  others="$(open_prs_of_branch | jq -r --arg n "${REPLACE_PR:-0}" '[.[] | select((.number | tostring) != $n) | "#\(.number)"] | join(", ")')"
+  if [ -n "$others" ]; then
+    BRANCH_BLOCKER="$branch (now at ${BRANCH_TIP:0:10}) is the head of open PR $others, which is not the PR being replaced"
+    return 0
+  fi
+  [ "${ORPHAN_BRANCH:-false}" = true ] || return 0 # nothing is deleted on this path; the plain push below is rejected when the branch exists
+  if [ -n "$REPLACE_PR" ]; then expected="$REPLACE_HEAD"; else expected="$ORPHAN_SHA"; fi
+  if [ -z "$expected" ]; then
+    BRANCH_BLOCKER="detect did not say which commit $branch held (it is at ${BRANCH_TIP:0:10} now)"
+  elif [ "$BRANCH_TIP" != "$expected" ]; then
+    BRANCH_BLOCKER="$branch moved from ${expected:0:10} (what detect saw) to ${BRANCH_TIP:0:10}: a person pushed to it, or an earlier attempt of this run published another candidate"
+  fi
+}
 
-# ---- a re-run of this job: adopt the PR the first attempt opened for the same commit --------------------------------------
+# ---- an open PR for this very commit: a first attempt opened it, adopt it ----------------------------------------------------
 adopted=""
-if [[ "${GITHUB_RUN_ATTEMPT:-1}" =~ ^[0-9]+$ ]] && [ "${GITHUB_RUN_ATTEMPT:-1}" -gt 1 ]; then
-  adopted="$(gh pr list --repo "$REPO" --state open --head "$branch" --base "$base_branch" --limit 5 --json number,url,headRefOid \
-    | jq -c --arg sha "$merge_sha" '[.[] | select(.headRefOid == $sha)] | first // empty')"
+if [ "$(branch_tip)" = "$merge_sha" ]; then
+  adopted="$(open_prs_of_branch | jq -c --arg sha "$merge_sha" --arg b "$base_branch" '[.[] | select(.headRefOid == $sha and .baseRefName == $b)] | first // empty')"
 fi
 
 if [ -n "$adopted" ]; then
   pr_number="$(jq -r '.number' <<<"$adopted")"; pr_url="$(jq -r '.url' <<<"$adopted")"
-  log "attempt $GITHUB_RUN_ATTEMPT: adopting PR #$pr_number that attempt 1 opened for $merge_sha"
+  log "attempt ${GITHUB_RUN_ATTEMPT:-1}: adopting PR #$pr_number that an earlier attempt opened for $merge_sha"
   edit=(--repo "$REPO" --title "$title" --body-file "$PR_OUT/pr-body.md")
   for l in ${labels[@]+"${labels[@]}"}; do edit+=(--add-label "$l"); done
   gh pr edit "$pr_number" "${edit[@]}" >/dev/null
@@ -66,8 +109,9 @@ else
   if [ -n "$REPLACE_PR" ]; then
     [[ "$branch" == sync/* ]] || die "refusing to replace a PR on '$branch': only sync/* branches are replaced"
     [[ "$REPLACE_PR" =~ ^[0-9]+$ ]] && [ -n "$REPLACE_HEAD" ] || die "REPLACE_PR='$REPLACE_PR' REPLACE_HEAD='$REPLACE_HEAD' are not a PR number and a head sha"
-    info="$(gh pr view "$REPLACE_PR" --repo "$REPO" --json state,headRefName,headRefOid,baseRefName,isCrossRepository,author)" \
+    info="$(gh pr view "$REPLACE_PR" --repo "$REPO" --json state,headRefName,headRefOid,baseRefName,isCrossRepository,isDraft,author)" \
       || die "could not read PR #$REPLACE_PR to re-check it before replacing it"
+    ORPHAN_BRANCH=true # the old PR's branch has to go before the new one can take its name
     left_alone=""
     case "$(jq -r '.state' <<<"$info")" in
       OPEN)
@@ -75,8 +119,13 @@ else
         elif [ "$(jq -r '.headRefName' <<<"$info")" != "$branch" ]; then left_alone="its head branch is not $branch"
         elif [ "$(jq -r '.baseRefName' <<<"$info")" != "$base_branch" ] || [ "$base_branch" != custom ]; then left_alone="its base is not custom"
         elif ! jq -e --arg re "$AUTOMATION_LOGIN_RE" '(.author.login // "") | test($re)' <<<"$info" >/dev/null; then left_alone="it was not opened by the automation"
+        elif [ "$(jq -r '.isDraft' <<<"$info")" != false ]; then left_alone="it is a draft now (its gates failed or a person is working on it); only a ready PR is replaced"
         elif [ "$(jq -r '.headRefOid' <<<"$info")" != "$REPLACE_HEAD" ]; then
           left_alone="its head moved from ${REPLACE_HEAD:0:10} to $(jq -r '.headRefOid' <<<"$info" | cut -c1-10) while the sync ran (a person pushed to it?)"
+        fi
+        if [ -z "$left_alone" ]; then # before closing anything: would its branch be free to delete?
+          check_branch_may_go
+          left_alone="$BRANCH_BLOCKER"
         fi
         if [ -z "$left_alone" ]; then
           gh pr close "$REPLACE_PR" --repo "$REPO" --comment "$(superseded_comment)" >/dev/null
@@ -94,15 +143,21 @@ else
       say "Stale PR #$REPLACE_PR was left alone because $left_alone. Look at that PR; the sync this run made was thrown away."
       exit 0
     fi
-    ORPHAN_BRANCH=true # the old PR's branch has to go before the new one can take its name
   fi
 
-  # A leftover branch with no PR (an interrupted earlier run) is deleted first so the push can stay a plain push.
-  if [ "${ORPHAN_BRANCH:-false}" = true ] && branch_exists; then
+  # A leftover branch (the replaced PR's, or an interrupted run's with no PR) is deleted first so the push can stay a plain push,
+  # but only on proof (see the header): the tip is read again here, right before the delete.
+  check_branch_may_go
+  [ -z "$BRANCH_BLOCKER" ] || bail "$branch is left alone: $BRANCH_BLOCKER."
+  if [ "${ORPHAN_BRANCH:-false}" = true ] && [ -n "$BRANCH_TIP" ] && [ "$BRANCH_TIP" != "$merge_sha" ]; then
     if [ -n "$REPLACE_PR" ]; then warn "deleting $branch (the head of replaced PR #$REPLACE_PR)"; else warn "deleting orphan branch $branch (no PR was ever opened for it)"; fi
     gh api -X DELETE "repos/$REPO/git/refs/heads/$branch"
   fi
-  git push origin "refs/heads/$branch:refs/heads/$branch" || die "push of $branch was rejected (see above; if it names a workflow file, the token lacks the workflows permission)"
+  if [ "$BRANCH_TIP" = "$merge_sha" ]; then
+    log "$branch already holds $merge_sha (an earlier attempt pushed it): not pushing again"
+  else
+    git push origin "refs/heads/$branch:refs/heads/$branch" || die "push of $branch was rejected (see above; if it names a workflow file, the token lacks the workflows permission)"
+  fi
 
   args=(--repo "$REPO" --base "$base_branch" --head "$branch" --title "$title" --body-file "$PR_OUT/pr-body.md")
   [ "$draft" != true ] || args+=(--draft)

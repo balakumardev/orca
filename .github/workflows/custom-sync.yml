@@ -78,6 +78,7 @@ jobs:
       release_url: ${{ steps.detect.outputs.release_url }}
       supersede: ${{ steps.detect.outputs.supersede }}
       orphan_branch: ${{ steps.detect.outputs.orphan_branch }}
+      orphan_sha: ${{ steps.detect.outputs.orphan_sha }}
       replace_pr: ${{ steps.detect.outputs.replace_pr }}
       replace_head: ${{ steps.detect.outputs.replace_head }}
     steps:
@@ -405,6 +406,7 @@ jobs:
           PR_OUT: ${{ runner.temp }}/pr
           SUPERSEDE: ${{ needs.detect.outputs.supersede }}
           ORPHAN_BRANCH: ${{ needs.detect.outputs.orphan_branch }}
+          ORPHAN_SHA: ${{ needs.detect.outputs.orphan_sha }}
           # A stale, untouched PR for this same branch: open-pr.sh re-checks it against this head sha, closes it and takes its name.
           REPLACE_PR: ${{ needs.detect.outputs.replace_pr }}
           REPLACE_HEAD: ${{ needs.detect.outputs.replace_head }}

@@ -8,7 +8,10 @@
 # script's `git push` act on the real bare repository, and `pr create` records what origin held at that moment. So the order
 # (re-check, close with the marker, delete the branch, push, create) and the end state (origin's branch is the new merge commit)
 # are observed, not assumed. The guards: a PR that changed since detect saw it (head moved, merged, from a fork, other base,
-# another author, another branch) is left alone, and then NOTHING is closed, deleted or pushed and no PR number is output.
+# another author, another branch, turned into a draft) is left alone, and then NOTHING is closed, deleted or pushed and no PR
+# number is output. A branch is deleted only while it still points at the commit detect saw (REPLACE_HEAD / ORPHAN_SHA) and no
+# other open PR uses it: a re-run (attempt 2) that built another candidate, a PR opened on an orphan branch, a person's push after
+# detect, a fork's PR with the same branch name and a PR against another base all have a case.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -55,7 +58,9 @@ case "$1 $2" in
   "api -X" | "api repos"*)
     case "$method $path" in
       "DELETE repos/"*/git/refs/heads/*) git --git-dir="$ORIGIN" update-ref -d "refs/heads/${path#*/git/refs/heads/}" ;;
-      "GET repos/"*/git/ref/heads/*) git --git-dir="$ORIGIN" rev-parse -q --verify "refs/heads/${path#*/git/ref/heads/}" >/dev/null ;;
+      "GET repos/"*/git/ref/heads/*)
+        sha="$(git --git-dir="$ORIGIN" rev-parse -q --verify "refs/heads/${path#*/git/ref/heads/}")" || { echo "HTTP 404" >&2; exit 1; }
+        if [ -n "$jqprog" ]; then jq -n -r --arg s "$sha" '{object: {sha: $s}}' | jq -r "$jqprog"; else echo "$sha"; fi ;;
       "GET repos/"*/issues/*/comments) emit "$FIX/comments-$(basename "$(dirname "$path")").json" ;;
       "POST repos/"*/statuses/*) ;;
       *) if [[ "$path" == */statuses/* ]]; then :; else echo "stub gh: no route for: $*" >&2; exit 1; fi ;;
@@ -105,6 +110,11 @@ view() { # NUMBER [STATE] [HEAD] [BASE] [CROSS] [LOGIN] [HEADREF] [DRAFT]
     '{state: $st, headRefName: $hr, headRefOid: $h, baseRefName: $b, isCrossRepository: $x, author: {login: $l}, isDraft: $d}' > "$FIX/view-$1.json"
 }
 comments() { jq -n --arg l "$2" --arg b "$3" '[{user: {login: $l}, body: $b}]' > "$FIX/comments-$1.json"; }
+addopen() { # NUMBER HEAD [CROSS] [BASE]: one more entry in what `gh pr list --state open --head <branch>` answers (a fork's PR included)
+  jq --argjson n "$1" --arg h "$2" --argjson x "${3:-false}" --arg b "${4:-custom}" \
+    '. + [{number: $n, url: ("https://github.com/balakumardev/orca/pull/" + ($n | tostring)), headRefOid: $h, baseRefName: $b, isCrossRepository: $x}]' \
+    "$FIX/list-open.json" > "$FIX/l.tmp" && mv "$FIX/l.tmp" "$FIX/list-open.json"
+}
 
 run() { # env assignments... -> o_out o_rc
   : > "$tmp/gh.log"
@@ -173,32 +183,78 @@ BRANCH="sync/v1.4.258"
 world none
 run SUPERSEDE='[]' ORPHAN_BRANCH=false
 if [ "$o_rc" = 0 ] && ! called '^pr close ' && ! called '-X DELETE' && called '^pr create ' && [ "$(origin_sha)" = "$MERGE_SHA" ] && [ "$(out_of pr_number)" = 99 ]; then ok "plain first run (no replacement, no orphan): push and create, nothing closed or deleted"; else bad "plain: rc=$o_rc out=[$o_out]"; fi
-if ! called '^pr list '; then ok "a first attempt never looks for a PR to adopt"; else bad "attempt 1 listed PRs: $(grep '^pr list' "$tmp/gh.log")"; fi
+if ! called '^pr list '; then ok "a first run on a free branch name looks at no PR (there is no branch for one to use)"; else bad "free name listed PRs: $(grep '^pr list' "$tmp/gh.log")"; fi
 world old
-run SUPERSEDE='[]' ORPHAN_BRANCH=true
-if [ "$o_rc" = 0 ] && ! called '^pr close ' && called '-X DELETE' && [ "$(origin_sha)" = "$MERGE_SHA" ] && called '^pr create '; then ok "orphan branch (no PR): deleted, pushed, PR created, and no PR is closed"; else bad "orphan: rc=$o_rc out=[$o_out]"; fi
+run SUPERSEDE='[]' ORPHAN_BRANCH=true ORPHAN_SHA="$OLD_SHA"
+if [ "$o_rc" = 0 ] && ! called '^pr close ' && called '-X DELETE' && [ "$(origin_sha)" = "$MERGE_SHA" ] && called '^pr create '; then ok "orphan branch (no PR, still at the commit detect saw): deleted, pushed, PR created, and no PR is closed"; else bad "orphan: rc=$o_rc out=[$o_out]"; fi
 world old; view 30 OPEN "$OLD_SHA" custom false app/github-actions sync/v1.0.1; view 31 OPEN "$OLD_SHA" custom false balakumardev sync/v1.0.2
-run SUPERSEDE='[30,31]' ORPHAN_BRANCH=true
+run SUPERSEDE='[30,31]' ORPHAN_BRANCH=true ORPHAN_SHA="$OLD_SHA"
 if called '^pr close 30 ' && called 'heads/sync/v1.0.1' && ! called '^pr close 31 ' && grep -qF "PR #31 no longer looks like a superseded sync PR" <<<"$o_out"; then ok "older tags' PRs: the one by the automation is closed with its branch deleted, a person's is left alone"; else bad "supersede: out=[$o_out] log=[$(tr '\n' ';' < "$tmp/gh.log")]"; fi
 
 # ---- a re-run (attempt 2) adopts the PR attempt 1 opened for the same commit ----------------------------------------------
 world merge; view 99 OPEN "$MERGE_SHA" custom false app/github-actions "$BRANCH" true
-jq -n --arg s "$MERGE_SHA" '[{number: 99, url: "https://github.com/balakumardev/orca/pull/99", headRefOid: $s}]' > "$FIX/list-open.json"
+addopen 99 "$MERGE_SHA"
 run SUPERSEDE='[]' ORPHAN_BRANCH=false GITHUB_RUN_ATTEMPT=2
 if [ "$o_rc" = 0 ] && ! called '^pr create ' && called '^pr edit 99 ' && called '^pr ready 99 ' && ! called 'ready 99 .*--undo' && [ "$(out_of pr_number)" = 99 ] && [ "$(out_of draft)" = false ]; then ok "attempt 2: the open PR for the same commit is adopted (no create), refreshed, and made ready because the gates are green now"; else bad "adopt: rc=$o_rc out=[$o_out] log=[$(tr '\n' ';' < "$tmp/gh.log")]"; fi
 if called 'pr edit 99 .*--title' && called '--body-file' && called '--add-label upstream-sync' && ! called 'no-such-label'; then ok "attempt 2: title, body and labels are refreshed"; else bad "edit call: $(grep '^pr edit' "$tmp/gh.log")"; fi
 if called 'statuses/'"$MERGE_SHA"; then ok "attempt 2: the gate statuses are posted again"; else bad "no status call on adoption"; fi
 world merge; view 99 OPEN "$MERGE_SHA" custom false app/github-actions "$BRANCH" false; meta true
-jq -n --arg s "$MERGE_SHA" '[{number: 99, url: "https://github.com/balakumardev/orca/pull/99", headRefOid: $s}]' > "$FIX/list-open.json"
+addopen 99 "$MERGE_SHA"
 run SUPERSEDE='[]' ORPHAN_BRANCH=false GITHUB_RUN_ATTEMPT=3
 if [ "$o_rc" = 0 ] && called '^pr ready 99 .*--undo' && [ "$(out_of draft)" = true ]; then ok "attempt 3: a PR that is ready but now has failing gates goes back to draft"; else bad "undo: rc=$o_rc log=[$(tr '\n' ';' < "$tmp/gh.log")]"; fi
 world merge; view 99 OPEN "$MERGE_SHA" custom false app/github-actions "$BRANCH" true; meta true
-jq -n --arg s "$MERGE_SHA" '[{number: 99, url: "https://github.com/balakumardev/orca/pull/99", headRefOid: $s}]' > "$FIX/list-open.json"
+addopen 99 "$MERGE_SHA"
 run SUPERSEDE='[]' ORPHAN_BRANCH=false GITHUB_RUN_ATTEMPT=2
 if [ "$o_rc" = 0 ] && ! called '^pr ready '; then ok "a draft PR whose gates still fail is left a draft (no ready call)"; else bad "draft stays: $(tr '\n' ';' < "$tmp/gh.log")"; fi
-world old
-jq -n --arg s "$OLD_SHA" '[{number: 99, url: "https://github.com/balakumardev/orca/pull/99", headRefOid: $s}]' > "$FIX/list-open.json"
+# Was "the push is rejected and the job fails": now the open PR that holds the branch is seen first and the job ends green without a PR.
+world old; addopen 99 "$OLD_SHA"
 run SUPERSEDE='[]' ORPHAN_BRANCH=false GITHUB_RUN_ATTEMPT=2
-if [ "$o_rc" != 0 ] && ! called '^pr create ' && ! called '^pr edit ' && [ "$(origin_sha)" = "$OLD_SHA" ]; then ok "attempt 2 with another candidate than the open PR's: not adopted, the push is rejected (no force-push) and the job fails as before"; else bad "different candidate: rc=$o_rc out=[$o_out]"; fi
+if [ "$o_rc" = 0 ] && ! called '^pr create ' && ! called '^pr edit ' && ! called '-X DELETE' && [ "$(origin_sha)" = "$OLD_SHA" ] && [ -z "$(out_of pr_number)" ] && grep -qF "left alone" <<<"$o_out"; then ok "attempt 2 with another candidate than the open PR's: not adopted, nothing deleted or pushed, green without a PR number (land does not run)"; else bad "different candidate: rc=$o_rc out=[$o_out] log=[$(tr '\n' ';' < "$tmp/gh.log")]"; fi
+
+# ---- a branch is deleted only on proof: the reviewer's blocker ---------------------------------------------------------------
+STALE="cccccccccccccccccccccccccccccccccccccccc" # the head of the stale PR #43 as detect saw it; NOT the commit attempt 1 published
+SEEN="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"  # what detect saw on an orphan branch
+NAME_PREFIX="branch safety: "
+# Attempt 1 replaced #43 (closed it with the marker, deleted its branch, pushed its candidate A1 = OLD_SHA, opened #44). Attempt 2 built
+# another candidate (MERGE_SHA). The branch holds #44's head: it must survive, and #44 must stay open.
+world old; view 43 CLOSED "$STALE"; comments 43 "github-actions[bot]" "$MARK"; addopen 44 "$OLD_SHA"
+run SUPERSEDE='[]' ORPHAN_BRANCH=true REPLACE_PR=43 REPLACE_HEAD="$STALE" GITHUB_RUN_ATTEMPT=2; untouched "replace, attempt 2, another candidate, #44 open on the branch: branch kept, #44 kept"
+if grep -qF "#44" <<<"$o_out"; then ok "branch safety: and the warning names the open PR that holds the branch"; else bad "warning text: $o_out"; fi
+# The same with detect's REPLACE_HEAD equal to the tip (the reviewer's repro): the open PR alone is enough to refuse.
+world old; view 43 CLOSED "$OLD_SHA"; comments 43 "github-actions[bot]" "$MARK"; addopen 44 "$OLD_SHA"
+run SUPERSEDE='[]' ORPHAN_BRANCH=true REPLACE_PR=43 REPLACE_HEAD="$OLD_SHA" GITHUB_RUN_ATTEMPT=2; untouched "tip equals REPLACE_HEAD but another open PR uses the branch: kept"
+# Attempt 1 got as far as the push but not the PR (no open PR at all): the tip is still not what detect saw.
+world old; view 43 CLOSED "$STALE"; comments 43 "github-actions[bot]" "$MARK"
+run SUPERSEDE='[]' ORPHAN_BRANCH=true REPLACE_PR=43 REPLACE_HEAD="$STALE" GITHUB_RUN_ATTEMPT=2; untouched "replace, attempt 2, branch holds a commit detect never saw and no PR uses it: kept"
+# A person pushed an extra commit to the stale PR's branch after the PR re-check: the PR still reads as the old head, the tip does not.
+world old; view 43 OPEN "$STALE"
+run SUPERSEDE='[]' ORPHAN_BRANCH=true REPLACE_PR=43 REPLACE_HEAD="$STALE"; untouched "replace: the branch tip is not the head detect judged (a person's commit): the PR is not even closed"
+# A second open PR on the branch (against another base) would be closed by the delete without a word.
+world old; view 43 OPEN "$OLD_SHA"; addopen 45 "$OLD_SHA" false main
+run SUPERSEDE='[]' ORPHAN_BRANCH=true REPLACE_PR=43 REPLACE_HEAD="$OLD_SHA"; untouched "replace: another open PR (base main) has the branch as its head: nothing closed, deleted or pushed"
+# The orphan path (no REPLACE_PR).
+world old; addopen 44 "$OLD_SHA"
+run SUPERSEDE='[]' ORPHAN_BRANCH=true ORPHAN_SHA="$OLD_SHA" GITHUB_RUN_ATTEMPT=2; untouched "orphan, attempt 2: an open PR was opened on the branch since: kept (even though the tip is what detect saw)"
+world old; addopen 44 "$OLD_SHA" false main
+run SUPERSEDE='[]' ORPHAN_BRANCH=true ORPHAN_SHA="$OLD_SHA"; untouched "orphan, attempt 1: a PR against ANOTHER base on the branch (someone opened it on the leftover) is kept"
+world old
+run SUPERSEDE='[]' ORPHAN_BRANCH=true ORPHAN_SHA="$SEEN"; untouched "orphan: the branch moved since detect (a person pushed): kept"
+world old
+run SUPERSEDE='[]' ORPHAN_BRANCH=true; untouched "orphan: detect gave no commit to compare with: kept"
+world old; addopen 50 "$OLD_SHA" true custom
+run SUPERSEDE='[]' ORPHAN_BRANCH=true ORPHAN_SHA="$OLD_SHA"
+if [ "$o_rc" = 0 ] && called '-X DELETE' && [ "$(origin_sha)" = "$MERGE_SHA" ] && [ "$(out_of pr_number)" = 99 ]; then ok "orphan: a FORK's PR with the same branch name does not hold our branch: replaced as usual"; else bad "fork PR: rc=$o_rc out=[$o_out] log=[$(tr '\n' ';' < "$tmp/gh.log")]"; fi
+NAME_PREFIX=""
+# Attempt 1 pushed this very candidate and failed before the PR: nothing to delete, nothing to push, the PR is created.
+world merge; view 43 CLOSED "$STALE"; comments 43 "github-actions[bot]" "$MARK"
+run SUPERSEDE='[]' ORPHAN_BRANCH=true REPLACE_PR=43 REPLACE_HEAD="$STALE" GITHUB_RUN_ATTEMPT=2
+if [ "$o_rc" = 0 ] && ! called '-X DELETE' && ! called '^pr close ' && called '^pr create ' && [ "$(origin_sha)" = "$MERGE_SHA" ] && [ "$(out_of pr_number)" = 99 ] && grep -qF "not pushing again" <<<"$o_out"; then ok "the branch already holds this run's commit (no PR yet): no delete, no push, the PR is created"; else bad "tip == merge: rc=$o_rc out=[$o_out] log=[$(tr '\n' ';' < "$tmp/gh.log")]"; fi
+
+# ---- a draft is never replaced -----------------------------------------------------------------------------------------------
+NAME_PREFIX="draft: "
+world old; view 43 OPEN "$OLD_SHA" custom false app/github-actions "$BRANCH" true
+run SUPERSEDE='[]' ORPHAN_BRANCH=true REPLACE_PR=43 REPLACE_HEAD="$OLD_SHA"; untouched "the PR became a draft between detect and open-pr (a person, or red gates): nothing closed, deleted or pushed"
+if grep -qF "draft" <<<"$o_out"; then ok "draft: and the warning says it is a draft"; else bad "draft text: $o_out"; fi
+NAME_PREFIX=""
 
 exit "$([ "$fails" -eq 0 ] && echo 0 || echo 1)"

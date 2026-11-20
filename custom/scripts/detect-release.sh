@@ -12,7 +12,7 @@
 # An existing PR for sync/<tag> ends the search (an open one is the answer, a merged one means custom/BASE moved on, one a person
 # closed means "no"), with ONE exception that lets a sync heal itself: an open PR that is stale (custom moved on while it ran, so
 # `land` refused it) and untouched automation output is replaced. This script only decides and reports it (outputs replace_pr and
-# replace_head, orphan_branch true); open-pr.sh re-checks it and closes the PR. The rules and the safety guards are in stale-sync-pr.sh.
+# replace_head, orphan_branch true, orphan_sha: the commit the branch held); open-pr.sh re-checks it and closes the PR. The rules and the safety guards are in stale-sync-pr.sh.
 # shellcheck source=lib.sh
 . "$(dirname "$0")/lib.sh"
 # shellcheck source=stale-sync-pr.sh
@@ -42,6 +42,7 @@ IS_TEST=false
 TAG_IS_RELEASE=false
 REPLACE_PR=""
 REPLACE_HEAD=""
+ORPHAN_SHA=""
 if [ -z "$REF" ]; then
   releases="$(gh api "repos/$UPSTREAM_REPO/releases?per_page=100")"
   TAG="$(jq -r --arg re "$TAG_RE" '.[] | select(.draft == false and .prerelease == false) | .tag_name | select(test($re))' <<<"$releases" \
@@ -78,6 +79,7 @@ if [ "$IS_TEST" = true ]; then
   TITLE="[test] Sync upstream $TAG (${UPSTREAM_SHA:0:7})"
   SUPERSEDE='[]'
   ORPHAN=false
+  ORPHAN_SHA=""
 else
   LABEL="$TAG"
   BRANCH="sync/$TAG"
@@ -90,8 +92,11 @@ else
   [ -z "$SYNC_PR_STOP" ] || stop "$SYNC_PR_STOP"
   REPLACE_PR="$SYNC_PR_REPLACE"
   REPLACE_HEAD="$SYNC_PR_REPLACE_HEAD"
+  # The branch may already exist: the head of the PR being replaced, or a leftover of an interrupted run with no PR. open-pr.sh
+  # deletes it only while it still points at the commit seen here (orphan_sha), so a push or a PR that came in since is never lost.
   ORPHAN=false
-  if gh api "repos/$REPO/git/ref/heads/$BRANCH" >/dev/null 2>&1; then ORPHAN=true; fi
+  ORPHAN_SHA="$(gh api "repos/$REPO/git/ref/heads/$BRANCH" --jq .object.sha 2>/dev/null || true)"
+  [ -z "$ORPHAN_SHA" ] || ORPHAN=true
   # Open sync PRs for older tags opened by this automation (bot author, same repo, same base).
   SUPERSEDE="$(gh pr list --repo "$REPO" --state open --base "$BASE_BRANCH" --limit 50 \
     --json number,headRefName,author,isCrossRepository \
@@ -121,5 +126,6 @@ gh_out title "$TITLE"
 gh_out release_url "$RELEASE_URL"
 gh_out supersede "$SUPERSEDE"
 gh_out orphan_branch "$ORPHAN"
+gh_out orphan_sha "$ORPHAN_SHA"
 gh_out replace_pr "$REPLACE_PR"
 gh_out replace_head "$REPLACE_HEAD"
