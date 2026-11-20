@@ -43,6 +43,7 @@ export function seedProjects(): void {
           web('wt-web-docs', 'docs-refresh')
         ]
       },
+      settings: { ...initialAppState.settings!, botsEnabled: false },
       showSleepingWorkspaces: true,
       activeModal: 'worktree-palette',
       prefetchWorktreeCreateBase: vi.fn(async () => {}),
