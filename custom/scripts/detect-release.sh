@@ -8,8 +8,15 @@
 # not prerelease), not the newest published. Upstream tags are not ancestors of each other (every
 # release is `main` plus a few release-only commits), so publication order says nothing about which
 # tag contains which, while a higher version number always means a later cut.
+#
+# An existing PR for sync/<tag> ends the search (an open one is the answer, a merged one means custom/BASE moved on, one a person
+# closed means "no"), with ONE exception that lets a sync heal itself: an open PR that is stale (custom moved on while it ran, so
+# `land` refused it) and untouched automation output is replaced. This script only decides and reports it (outputs replace_pr and
+# replace_head, orphan_branch true); open-pr.sh re-checks it and closes the PR. The rules and the safety guards are in stale-sync-pr.sh.
 # shellcheck source=lib.sh
 . "$(dirname "$0")/lib.sh"
+# shellcheck source=stale-sync-pr.sh
+. "$(dirname "$0")/stale-sync-pr.sh"
 
 REPO="${GITHUB_REPOSITORY:?}"
 BASE_BRANCH="${INPUT_BASE_BRANCH:-custom}"
@@ -33,6 +40,8 @@ BASE_TAG="$(gh api "repos/$REPO/contents/custom/BASE?ref=$BASE_SHA" --jq .conten
 
 IS_TEST=false
 TAG_IS_RELEASE=false
+REPLACE_PR=""
+REPLACE_HEAD=""
 if [ -z "$REF" ]; then
   releases="$(gh api "repos/$UPSTREAM_REPO/releases?per_page=100")"
   TAG="$(jq -r --arg re "$TAG_RE" '.[] | select(.draft == false and .prerelease == false) | .tag_name | select(test($re))' <<<"$releases" \
@@ -75,17 +84,19 @@ else
   TITLE="Sync upstream $TAG"
   # A PR in ANY state for this tag ends the search: an open one is already the answer, a closed one
   # (owner said no) must not be reopened every three hours, a merged one means custom/BASE moved on.
-  existing="$(gh pr list --repo "$REPO" --state all --head "$BRANCH" --json number,state --limit 5)"
-  if [ "$(jq 'length' <<<"$existing")" -gt 0 ]; then
-    stop "PR #$(jq -r '.[0].number' <<<"$existing") ($(jq -r '.[0].state' <<<"$existing")) already exists for $BRANCH"
-  fi
+  # Exception (stale-sync-pr.sh): a stale, untouched automation PR is replaced; PRs the automation itself closed that way are
+  # counted, and the third replacement is the last.
+  classify_sync_prs "$REPO" "$BRANCH" "$BASE_BRANCH" "$BASE_SHA" "$UPSTREAM_SHA"
+  [ -z "$SYNC_PR_STOP" ] || stop "$SYNC_PR_STOP"
+  REPLACE_PR="$SYNC_PR_REPLACE"
+  REPLACE_HEAD="$SYNC_PR_REPLACE_HEAD"
   ORPHAN=false
   if gh api "repos/$REPO/git/ref/heads/$BRANCH" >/dev/null 2>&1; then ORPHAN=true; fi
   # Open sync PRs for older tags opened by this automation (bot author, same repo, same base).
   SUPERSEDE="$(gh pr list --repo "$REPO" --state open --base "$BASE_BRANCH" --limit 50 \
     --json number,headRefName,author,isCrossRepository \
-    | jq -c --arg b "$BRANCH" '[.[] | select((.headRefName | startswith("sync/")) and .isCrossRepository == false
-        and .headRefName != $b and (.author.login | test("^(app/)?github-actions(\\[bot\\])?$"))) | .number]')"
+    | jq -c --arg b "$BRANCH" --arg re "$AUTOMATION_LOGIN_RE" '[.[] | select((.headRefName | startswith("sync/")) and .isCrossRepository == false
+        and .headRefName != $b and (.author.login | test($re))) | .number]')"
 fi
 
 if [ "$TAG_IS_RELEASE" = true ]; then
@@ -96,7 +107,7 @@ fi
 
 log "Sync target: $TAG ($UPSTREAM_SHA) onto $BASE_BRANCH ($BASE_SHA, BASE $BASE_TAG), test=$IS_TEST, branch=$BRANCH"
 gh_out proceed true
-gh_out reason "sync $TAG onto $BASE_BRANCH"
+if [ -n "$REPLACE_PR" ]; then gh_out reason "sync $TAG onto $BASE_BRANCH, replacing stale PR #$REPLACE_PR"; else gh_out reason "sync $TAG onto $BASE_BRANCH"; fi
 gh_out is_test "$IS_TEST"
 gh_out tag "$TAG"
 gh_out tag_is_release "$TAG_IS_RELEASE"
@@ -110,3 +121,5 @@ gh_out title "$TITLE"
 gh_out release_url "$RELEASE_URL"
 gh_out supersede "$SUPERSEDE"
 gh_out orphan_branch "$ORPHAN"
+gh_out replace_pr "$REPLACE_PR"
+gh_out replace_head "$REPLACE_HEAD"

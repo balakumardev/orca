@@ -34,10 +34,17 @@ semver_gt() {
   [ "$a" != "$b" ] && [ "$(printf '%s\n%s\n' "$a" "$b" | sort -V | tail -n 1)" = "$a" ]
 }
 
+# The one identity the automation commits and opens PRs as. Upstream's own release commits carry the same name and email (its
+# release bot is github-actions too), so this identity alone never proves a commit is ours: see stale-sync-pr.sh.
+# AUTOMATION_LOGIN_RE matches the login `gh` reports for it (a PR author is `app/github-actions`, a comment author `github-actions[bot]`).
+AUTOMATION_NAME="github-actions[bot]"
+AUTOMATION_EMAIL="41898282+github-actions[bot]@users.noreply.github.com"
+AUTOMATION_LOGIN_RE='^(app/)?github-actions(\[bot\])?$'
+
 # git identity for commits made by the automation (local config only).
 set_git_identity() {
-  git config user.name "github-actions[bot]"
-  git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+  git config user.name "$AUTOMATION_NAME"
+  git config user.email "$AUTOMATION_EMAIL"
 }
 
 sync_out() { : "${SYNC_OUT:?SYNC_OUT must point at a directory outside the working tree}"; mkdir -p "$SYNC_OUT"; }

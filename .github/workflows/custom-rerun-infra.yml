@@ -1,0 +1,47 @@
+name: custom-rerun-infra
+# Re-runs the failed jobs of our own workflow runs when the runner machinery failed (a hosted macOS job "not acquired", lost
+# communication, a shutdown signal), so a PR gate or a sync is not left red until a person clicks "re-run". All the logic is
+# custom/scripts/rerun-infra-failures.sh (what it re-runs, what it never touches, why custom-release.yml is excluded, the attempt cap);
+# this file only gives it the repository's own token. Run it by hand with dry_run to see what it would do.
+#
+# Security: no secrets, no pull_request trigger, the script comes from the default branch (the checkout of github.sha of a scheduled
+# or dispatched run). `actions: write` is the one write scope (to re-run); `checks: read` reads the job annotations.
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Decide and print what would be re-run, but re-run nothing.
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: custom-rerun-infra
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  rerun:
+    name: rerun
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: write
+      checks: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          sparse-checkout: custom/scripts
+          persist-credentials: false
+      - name: Re-run the failed jobs of infrastructure failures
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+        run: bash custom/scripts/rerun-infra-failures.sh
