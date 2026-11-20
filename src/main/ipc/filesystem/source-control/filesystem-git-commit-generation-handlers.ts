@@ -19,6 +19,7 @@ import { getLocalGitOptionsForRegisteredWorktree } from '../../worktrees/local-w
 import { withLinkedIssueDraftContext } from '../../../../shared/source-control/ai/recipes/source-control-ai-action-variables'
 import { resolveSourceControlAiLinkedIssue } from '../../source-control/source-control-ai-linked-issue'
 import { prepareLocalCommitMessageAgentEnv } from '../../../text-generation/execution/commit-message-agent-environment'
+import { generationWorkspaceOfLocalPath } from '../../../project-agent-accounts/project-agent-account-generation-target'
 import {
   CANCELED_GENERATION_RESULT,
   runCancelableLocalGeneration
@@ -109,7 +110,10 @@ export function registerFilesystemGitCommitGenerationHandlers(
           const localEnv = await prepareLocalCommitMessageAgentEnv(
             resolvedSettings.params.agentId,
             commitMessageAgentEnv,
-            getLocalAgentRuntimeTarget(gitOptions)
+            getLocalAgentRuntimeTarget(
+              gitOptions,
+              generationWorkspaceOfLocalPath(store, args.worktreePath, worktreePath)
+            )
           )
           if (!localEnv.ok) {
             return { success: false, error: localEnv.error }

@@ -1,6 +1,7 @@
 import type { AgentSessionRecord } from '../../../shared/agent-session/lifecycle/agent-session-record'
 import { requireLegacyAgentSessionAccountHome } from '../../../shared/agent-session/lifecycle/accounts/agent-session-account-home'
 import { getClaudeProfileRouter } from '../../claude-accounts/profiles/routing/claude-profile-installed-router'
+import { projectClaudePolicy } from '../../claude-accounts/project-binding/project-claude-workspace'
 import { applyClaudeEnvPatch } from '../../claude-accounts/runtime-auth/environment'
 import { agentSessionPinnedLaunchDirectory } from '../../runtime/agent-session/records/agent-session-record-launch-directory'
 import type { StructuredAgentLaunchSources } from '../../runtime/agent-session/launch/structured-agent-launch-composition'
@@ -44,7 +45,7 @@ export function claudeNamingInvocation(
       ? Promise.resolve(pinned)
       : sources.resolveWorkspacePath(record.location.workspaceId)
     const router = getClaudeProfileRouter()
-    const policy = router?.preparation()
+    const policy = projectClaudePolicy(record.location) ?? router?.preparation()
     const systemHome = router?.systemDefaultHome()
     const savedHome = requireLegacyAgentSessionAccountHome(record.accountHome).path
     return (async () => {

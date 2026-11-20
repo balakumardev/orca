@@ -12,6 +12,7 @@ import {
   resolveClaudeAgentTeamsShimBin
 } from './claude-agent-teams-shim-env'
 import { applyClaudeEnvPatch } from '../../../claude-accounts/runtime-auth/environment'
+import { projectClaudeTerminalPreparation } from '../../../claude-accounts/project-binding/project-claude-workspace'
 import { worktreeIdsEqual } from '../../../../shared/worktree/id'
 import { splitPanePendingError } from './terminal-split-retry'
 import {
@@ -163,7 +164,11 @@ export abstract class OrcaRuntimeWithResolveTerminalSplitSourceAuthority extends
       ...process.env,
       ...args.baseEnv
     }
-    const auth = args.prepareAuth && this.prepareClaudeAuth ? await this.prepareClaudeAuth() : null
+    const pty = this.ptysById.get(this.handles.get(args.handle)?.ptyId ?? '')
+    const auth =
+      args.prepareAuth && this.prepareClaudeAuth
+        ? await (projectClaudeTerminalPreparation(pty) ?? this.prepareClaudeAuth())
+        : null
     if (auth) {
       applyClaudeEnvPatch(baseEnv, auth.envPatch)
     }

@@ -25,6 +25,7 @@ import {
 } from '../sign-in/account-add-cancel-target'
 import { SettingsGroup } from '../../section-layout/SettingsGroup'
 import { renderClaudeAccountRow } from './accounts-pane-claude-account-row'
+import { ProjectAgentAccountsPaneSetting } from '../../../project-agent-accounts/ProjectAgentAccountsPaneSetting'
 
 export function renderClaudeAccountsSection(
   model: AccountsPaneSectionModel,
@@ -253,6 +254,7 @@ export function renderClaudeAccountsSection(
             )}
           </div>
         </SearchableSetting>
+        {isRemoteAccountScope ? null : <ProjectAgentAccountsPaneSetting provider="claude" />}
         {isRemoteAccountScope ? null : (
           <ClaudeOAuthUsageSetting
             settings={settings}

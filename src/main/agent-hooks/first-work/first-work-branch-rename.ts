@@ -218,7 +218,7 @@ async function runAutoRename(
     return { outcome: resolved.outcome, settles: false }
   }
 
-  const target = await resolveGenerationTarget(worktreePath, params.agentId, deps)
+  const target = await resolveGenerationTarget(worktreePath, params.agentId, deps, worktreeId)
   if (!target) {
     deps.setRenameError(worktreeId, 'Could not prepare the branch-name generation environment.')
     return failed('could not prepare generation environment', false)

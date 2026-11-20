@@ -15,6 +15,7 @@ import {
 import { getCommitMessageModelDiscoveryHostKey } from '../../../../shared/source-control/ai/generation/commit-message-host-key'
 import { getPullRequestDraftContext } from '../../../text-generation/pull-request-context/pull-request-context'
 import { prepareLocalCommitMessageAgentEnv } from '../../../text-generation/execution/commit-message-agent-environment'
+import { generationWorkspaceOfLocalPath } from '../../../project-agent-accounts/project-agent-account-generation-target'
 import { SSH_HOST_NOT_SERVED_MESSAGE } from '../../../providers/ssh-host-not-served-error'
 import { resolveRegisteredWorktreePath } from '../../worktrees/removal/registered-worktree-roots-cache'
 import { getLocalGitOptionsForRegisteredWorktree } from '../../worktrees/local-worktree-runtime-options'
@@ -141,7 +142,10 @@ export function registerFilesystemGitPullRequestGenerationHandlers(
       const localEnv = await prepareLocalCommitMessageAgentEnv(
         resolvedSettings.params.agentId,
         commitMessageAgentEnv,
-        getLocalAgentRuntimeTarget(gitOptions)
+        getLocalAgentRuntimeTarget(
+          gitOptions,
+          generationWorkspaceOfLocalPath(store, args.worktreePath, worktreePath)
+        )
       )
       if (!localEnv.ok) {
         return { success: false, error: localEnv.error }

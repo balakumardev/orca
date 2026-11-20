@@ -167,6 +167,8 @@ function cantMoveReasonLabel(
       return t('accounts.claude.switchSessions.reasonNoSession', "Can't resume")
     case 'shared-session':
       return t('accounts.claude.switchSessions.reasonSharedSession', 'Also open in another pane')
+    case 'repo-bound':
+      return t('accounts.claude.switchSessions.reasonRepoBound', 'Project uses its own account')
   }
 }
 

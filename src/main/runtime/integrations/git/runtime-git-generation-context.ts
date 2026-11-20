@@ -10,6 +10,7 @@ import type { SourceControlAiOperation } from '../../../../shared/source-control
 import type { CommitMessageAgentRuntimeTarget } from '../../../text-generation/execution/commit-message-agent-environment'
 import type { CommitMessageGenerationTarget } from '../../../text-generation/source-control-text-generation-types'
 import type { PullRequestLinkedIssueMeta } from '../../../source-control/pull-request-linked-issue'
+import { generationWorkspaceOfRuntimeTarget } from '../../../project-agent-accounts/project-agent-account-generation-target'
 import {
   localGitOptionsForTarget,
   type RuntimeGitCommandHost,
@@ -65,7 +66,9 @@ export function localAgentRuntimeTargetForTarget(
   target: RuntimeGitTarget
 ): CommitMessageAgentRuntimeTarget {
   const wslDistro = localGitOptionsForTarget(target).wslDistro
-  return wslDistro ? { runtime: 'wsl', wslDistro } : { runtime: 'host' }
+  return wslDistro
+    ? { runtime: 'wsl', wslDistro }
+    : { runtime: 'host', ...generationWorkspaceOfRuntimeTarget(target) }
 }
 
 export function localTextGenerationTargetForTarget(

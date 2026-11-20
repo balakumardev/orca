@@ -21,6 +21,7 @@ import {
 import type { AppState } from '@/store/types'
 import type { RuntimeClientTarget } from '../../../../../../shared/remote-runtime/host-catalog/runtime-client-target'
 import type { ClaudeManagedAccount } from '../../../../../../shared/agent-accounts/managed-account-types'
+import { isProjectClaudeBoundPane } from '@/components/project-agent-accounts/project-claude-pin'
 
 export type { ClaudeSessionMoveCandidate } from './claude-pane-inventory'
 
@@ -40,14 +41,16 @@ export function findQueuedClaudeRestartsOnAccount(args: {
   const host = isHostTarget(args.target) ? args.host : undefined
   const ptyIds: string[] = []
   for (const pane of localClaudePanes(state, args.owner, args.target)) {
+    // Why pinned panes too: their restart relaunches on the project's account, so it would only interrupt.
     if (
       pane.inLane &&
       state.pendingPaneAccountRestarts[pane.ptyId] === 'claude' &&
-      isClaudePaneOnAccount(
-        resolveClaudePaneFolder(pane.transcriptPath, saved, host, getRendererAppPlatform()),
-        args.accountId,
-        host
-      )
+      (isProjectClaudeBoundPane(pane, saved) ||
+        isClaudePaneOnAccount(
+          resolveClaudePaneFolder(pane.transcriptPath, saved, host, getRendererAppPlatform()),
+          args.accountId,
+          host
+        ))
     ) {
       ptyIds.push(pane.ptyId)
     }
@@ -65,6 +68,7 @@ export type ClaudeSessionCantMoveReason =
   | 'unknown-account'
   | 'no-session'
   | 'shared-session'
+  | 'repo-bound'
 
 /** Running Claude sessions a switch can see, by what a restart would do for them. */
 export type ClaudeSwitchSessions = {
@@ -101,6 +105,9 @@ function scanPane(
     return args.hostSwitch && isWslLane(pane.laneKey)
       ? { group: 'cantMove', pane, reason: 'wsl-terminal' }
       : null
+  }
+  if (isProjectClaudeBoundPane(pane, args.saved)) {
+    return { group: 'cantMove', pane, reason: 'repo-bound' }
   }
   if (!pane.resumable) {
     return { group: 'cantMove', pane, reason: 'no-session', stranded: true }

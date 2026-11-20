@@ -8,6 +8,7 @@ import { registerProjectGroupHandlers } from './repos/project-group-handlers'
 import { registerFolderWorkspaceHandlers } from './repos/folder-workspace-handlers'
 import { registerFolderSearchHandlers } from './repos/folder-search-handlers'
 import { registerProjectTodosHandlers } from './repos/project-todos-handlers'
+import { registerProjectAgentAccountsHandlers } from './project-agent-accounts-handlers'
 import { registerNestedRepoImportHandler } from './repos/nested-repo-import-handler'
 import { registerRepoUpdateHandler } from './repos/repo-update-handler'
 import { registerSparsePresetHandlers } from './repos/sparse-preset-handlers'
@@ -87,6 +88,7 @@ export function registerRepoHandlers(
   registerFolderWorkspaceHandlers(mainWindow, store, runtime)
   registerFolderSearchHandlers(store)
   registerProjectTodosHandlers()
+  registerProjectAgentAccountsHandlers(store)
   registerNestedRepoImportHandler(mainWindow, store, metadata.enqueueRepositoryMetadata)
   registerRepoUpdateHandler(mainWindow, store)
   registerSparsePresetHandlers(mainWindow, store)

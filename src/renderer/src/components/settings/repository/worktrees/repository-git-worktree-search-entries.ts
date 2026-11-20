@@ -3,6 +3,7 @@ import type { SettingsSearchEntry } from '../../search/settings-search'
 import { translate } from '@/i18n/i18n'
 import type { Translate } from '@/i18n/use-translate'
 import { searchKeywordTranslator } from '../../search/settings-search-keywords'
+import { getProjectAgentAccountSearchEntries } from '../../../project-agent-accounts/project-agent-account-search'
 
 function getRepositoryGitWorktreeSearchParts(repo: Repo, t: Translate = translate) {
   const translateSearchKeyword = searchKeywordTranslator(t)
@@ -161,14 +162,20 @@ export function getRepositoryGitWorktreeSearchEntries(
     entries.base,
     entries.location,
     entries.sparsePresets,
-    entries.sharedPaths
+    entries.sharedPaths,
+    ...getProjectAgentAccountSearchEntries(repo, t)
   ]
 }
 
 export function getRepositoryGitWorktreeSearchMetadata(repo: Repo, t: Translate = translate) {
   const entries = getRepositoryGitWorktreeSearchParts(repo, t)
   return {
-    identity: [entries.externalWorktrees, entries.base, entries.location],
+    identity: [
+      entries.externalWorktrees,
+      entries.base,
+      entries.location,
+      ...getProjectAgentAccountSearchEntries(repo, t)
+    ],
     sparsePresets: [entries.sparsePresets],
     sharedPaths: [entries.sharedPaths]
   }

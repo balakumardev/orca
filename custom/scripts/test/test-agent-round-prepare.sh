@@ -132,8 +132,8 @@ else
   bad "prepare produced no prompt (it died before the model step)"
 fi
 
-# ---- (b) a check output far over 7000 bytes, and item 2: what a repair round may edit --------------------------------------
-echo "round 2 (repair): the check output is far over 7000 bytes and over a pipe buffer"
+# ---- (b) a check output far over the 28000 byte budget, and item 2: what a repair round may edit --------------------------------------
+echo "round 2 (repair): the check output is far over the budget and over a pipe buffer"
 # Round 2 repairs a candidate round 1 made. Make that candidate with the FIXED scripts, so that this part is judged on its own
 # even when the scripts under test are the pre-fix ones (round 1 above would have died there).
 RS="$new_scripts" round r1b first resolve 1 flash || true
@@ -147,12 +147,12 @@ node -e '
   process.stdout.write(JSON.stringify({ schema: 1, mode: "sync", gates }))
 ' > "$tmp/gates/gates-1-static/gates.json"
 gates_bytes="$(jq -r '.gates[] | select(.status == "fail") | "### \(.name) (exit \(.exit_code))\n\(.output_tail)"' "$tmp/gates/gates-1-static/gates.json" | wc -c | tr -d ' ')"
-check "fixture: the failing gates' output is far over 7000 bytes and over a pipe buffer" test "$gates_bytes" -gt 150000
+check "fixture: the failing gates' output is far over the budget and over a pipe buffer" test "$gates_bytes" -gt 150000
 if [ -s "$tmp/r1b.out/merge.bundle" ] && round r2 repair noop 2 pro r1b "$tmp/gates"; then
   prompt2="$tmp/r2.out/agent-prompt.txt"
   n="$(block_bytes "$prompt2" '^CHECK OUTPUT' '^FINISH by printing')"
   check "prepare exited 0 for a repair round with a huge check output" test -s "$prompt2"
-  check "the check block is truncated to about 7000 bytes, not empty" test "$n" -gt 1000 -a "$n" -le 7300
+  check "the check block is truncated to about 28000 bytes, not empty" test "$n" -gt 1000 -a "$n" -le 28300
   check "the check block keeps the start of the gate output" grep -q -F 'FIRST-GATE-MARK' "$prompt2"
   check "the check block drops the end of the gate output" test -z "$(grep -F 'LAST-GATE-MARK' "$prompt2" || true)"
   check "the repair prompt's customization block is also bounded" test "$(block_bytes "$prompt2" '^OUR CUSTOMIZATIONS' '^If upstream already implements')" -le 6003

@@ -415,6 +415,19 @@ cmd_finish_core() {
     caveat "pnpm-lock.yaml was regenerated after package.json was merged. Check the lockfile diff."
   fi
 
+  # 2b. Format the code files our customizations own. A model cannot run a formatter, and a format gate that only a machine
+  #     can satisfy stayed red through all three rounds of v1.4.265. OXFMT_BIN is set by the workflow's finish step (no key
+  #     there); without it nothing happens. The files are recorded and shown to the reviewer.
+  if [ "$key_leak" != true ] && [ -n "${OXFMT_BIN:-}" ]; then
+    local formatted
+    formatted="$(bash "$(dirname "${BASH_SOURCE[0]}")/format-our-files.sh" "$SYNC_OUT/our-files.txt")" || formatted=""
+    if [ -n "$formatted" ]; then
+      while IFS= read -r p; do [ -n "$p" ] && git add --sparse -- "$p"; done <<<"$formatted"
+      facts_set formatted_files "$(printf '%s\n' "$formatted" | jq -R -s -c 'split("\n") | map(select(length > 0))')"
+      caveat "oxfmt --write reformatted $(printf '%s\n' "$formatted" | grep -c .) file(s) of ours after the agent ran (no model can run it): $(printf '%s\n' "$formatted" | paste -sd' ' -)"
+    fi
+  fi
+
   local is_unresolved=false
   if [ "${#unresolved[@]}" -gt 0 ] || [ "$key_leak" = true ]; then
     is_unresolved=true

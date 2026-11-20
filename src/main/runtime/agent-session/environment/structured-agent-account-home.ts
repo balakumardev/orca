@@ -2,7 +2,8 @@ import type { AgentSessionAccountKind } from '../../../../shared/agent-session/f
 import type { GlobalSettings } from '../../../../shared/settings/global-settings-types'
 import { normalizeRuntimePathForComparison } from '../../../../shared/file-access/cross-platform-path'
 import { getClaudeProfileRouter } from '../../../claude-accounts/profiles/routing/claude-profile-installed-router'
-import { claudeRoutedHomeAsync } from '../../../claude-accounts/profiles/routing/claude-profile-routed-home'
+import { claudeRoutedHomeForLocation } from '../../../claude-accounts/project-binding/project-claude-workspace'
+import type { AgentSessionExecutionLocation } from '../../../../shared/agent-session/lifecycle/agent-session-record'
 import { normalizeCodexRuntimeSelection } from '../../../codex-accounts/account-management/runtime-selection'
 import {
   resolveOrcaManagedCodexHomePath,
@@ -19,6 +20,8 @@ export type StructuredClaudeAccountHomeDeps = {
   wslDistro: string | null
   /** `identity` names the selected account before its folder exists; the default checks availability. */
   purpose?: 'identity'
+  /** Where the chat runs, so a project pinned to an account is honoured. */
+  location?: AgentSessionExecutionLocation | null
   getClaudeConfigDirectory: (
     target: { runtime: 'host' } | { runtime: 'wsl'; wslDistro: string }
   ) => string | null | undefined
@@ -30,7 +33,11 @@ export async function resolveStructuredClaudeAccountHomePath(
   // Why only an account: System default keeps the launch-env and configured homes below.
   const router = deps.wslDistro ? undefined : getClaudeProfileRouter()
   const accountHome = router
-    ? await claudeRoutedHomeAsync(router, deps.purpose === 'identity' ? 'identity' : 'checked')
+    ? await claudeRoutedHomeForLocation(
+        router,
+        deps.location,
+        deps.purpose === 'identity' ? 'identity' : 'checked'
+      )
     : null
   if (accountHome) {
     return accountHome

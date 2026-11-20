@@ -18,9 +18,13 @@ import type { ProjectExecutionRuntimeResolution } from '../../../../../../shared
 import type * as localPreflightContext from '@/runtime/hosts/preflight/local-preflight-context'
 import type * as paneSelectionLane from '../codex-pane-selection-lane'
 import type { ClaudeHostFolders } from '../../../../../../shared/agent-accounts/claude/claude-pane-account-folder'
+import type * as projectAgentAccountsStore from '@/components/project-agent-accounts/project-agent-accounts-store'
+import type { ProjectAgentAccountsSnapshot } from '../../../../../../shared/project-agent-accounts'
+import type { Repo } from '../../../../../../shared/repository/repo-types'
 
 const laneByPtyId: Record<string, string> = {}
 let projectRuntime: ProjectExecutionRuntimeResolution | undefined
+let projectPins: ProjectAgentAccountsSnapshot = { projects: {} }
 
 vi.mock('@/runtime/hosted-terminals/inspection/runtime-terminal-process-inspection', () => ({
   inspectRuntimeTerminalProcess: vi.fn(),
@@ -33,6 +37,13 @@ vi.mock('@/runtime/hosts/preflight/local-preflight-context', async (importOrigin
   ...(await importOriginal<typeof localPreflightContext>()),
   getLocalProjectExecutionRuntimeContext: () => projectRuntime
 }))
+vi.mock(
+  '@/components/project-agent-accounts/project-agent-accounts-store',
+  async (importOriginal) => ({
+    ...(await importOriginal<typeof projectAgentAccountsStore>()),
+    readProjectAgentAccounts: () => ({ available: true, snapshot: projectPins })
+  })
+)
 vi.mock('../codex-pane-selection-lane', async (importOriginal) => ({
   ...(await importOriginal<typeof paneSelectionLane>()),
   resolveCodexPaneSelectionLane: ({ ptyId }: { ptyId: string }) => ({
@@ -154,6 +165,7 @@ const movable = async (...args: Parameters<typeof scan>) =>
 
 beforeEach(() => {
   projectRuntime = undefined
+  projectPins = { projects: {} }
   for (const key of Object.keys(laneByPtyId)) {
     delete laneByPtyId[key]
   }
@@ -393,6 +405,67 @@ describe('findQueuedClaudeRestartsOnAccount', () => {
 
     expect(
       findQueuedClaudeRestartsOnAccount({ owner: LOCAL, target: HOST, accountId: 'acct-b' })
+    ).toEqual([ptyId(1)])
+  })
+})
+
+describe('projects pinned to a Claude account', () => {
+  const PINNED_WORKTREE = 'repo-pinned::/src/pinned'
+  const pinnedRepo: Repo = {
+    id: 'repo-pinned',
+    path: '/src/pinned',
+    displayName: 'pinned',
+    badgeColor: '#888888',
+    addedAt: 1,
+    kind: 'git'
+  }
+
+  // Pane 1 is in the pinned project, pane 2 in an unpinned one; both run on acct-a.
+  function seedPinnedProject(): void {
+    seedPanes([
+      { n: 1, agentType: 'claude', configDir: FOLDER_B },
+      { n: 2, agentType: 'claude', configDir: FOLDER_A }
+    ])
+    useAppStore.setState({
+      repos: [pinnedRepo],
+      tabsByWorktree: {
+        [PINNED_WORKTREE]: [{ ...makeTab({ n: 1 }), worktreeId: PINNED_WORKTREE }],
+        wt1: [makeTab({ n: 2 })]
+      }
+    })
+    projectPins = {
+      projects: { 'repo-pinned': { claude: { kind: 'account', accountId: 'acct-b' } } }
+    }
+  }
+
+  beforeEach(() => {
+    vi.mocked(inspectRuntimeTerminalProcess).mockResolvedValue({
+      foregroundProcess: 'claude',
+      hasChildProcesses: true
+    })
+    vi.mocked(confirmRuntimeTerminalForegroundProcess).mockResolvedValue('claude')
+  })
+
+  it('never offers to move a pinned pane, even off the account being left', async () => {
+    seedPinnedProject()
+
+    const found = await scan('acct-b', HOST, undefined, 'acct-a')
+
+    expect(found.onAccount).toEqual([])
+    expect(found.elsewhere).toEqual([])
+    expect(found.cantMove).toEqual([
+      expect.objectContaining({ ptyId: ptyId(1), reason: 'repo-bound' })
+    ])
+  })
+
+  it("cancels a pinned pane's queued restart, which would only relaunch it on its pin", () => {
+    seedPinnedProject()
+    useAppStore.setState({
+      pendingPaneAccountRestarts: { [ptyId(1)]: 'claude', [ptyId(2)]: 'claude' }
+    })
+
+    expect(
+      findQueuedClaudeRestartsOnAccount({ owner: LOCAL, target: HOST, accountId: 'acct-c' })
     ).toEqual([ptyId(1)])
   })
 })

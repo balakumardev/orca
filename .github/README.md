@@ -113,6 +113,20 @@ A Mac kept awake in a bag runs warm and loses battery, so the hold has limits an
 
 It does not hold in On mode, in `orca serve` mode, or for agents on SSH or paired hosts.
 
+### A Claude account for each project (`project-agent-accounts`)
+
+Orca keeps several Claude accounts, but one account was active for every project. Now a project can have its own. Open **Settings > AI Provider Accounts > Claude**: the **Accounts per project** block lists the projects you pinned and has a **Pin a project...** button. Project settings has the same **Claude account** choice. There are three choices:
+
+- **Follow active account.** This is the default. Nothing changes.
+- **System default.** Your normal `~/.claude` login.
+- **One of your Orca accounts.**
+
+A pinned project's terminals and chats open under its account. That covers `claude` typed in a terminal, agents Orca starts, native chats and their automatic names, commit and pull request text, first-work branch names and `orca claude-teams`. Switching the active account does not move a pinned project, and its terminals are left out of the "restart sessions?" question. The status bar shows a small chip with the account when the open project is pinned. If you remove an account, its pins go with it and those terminals fall back to System default.
+
+A change applies to terminals and chats you open after it. A terminal that is already open keeps its account until you reopen it. Terminals outside Orca are not touched. Pins are saved in `project-agent-accounts.json` next to Orca's settings.
+
+Limits: it works for Git projects on this computer. Projects on SSH or other hosts, projects in WSL and folder workspaces keep using the active account. The usage numbers in the status bar describe the active account; a pinned account's usage updates on the normal poll. There is no command-line option yet. Codex and other agents can be added later with one small adapter each.
+
 ### Updates from this fork (`self-updater`, `disable-updater`)
 
 Upstream's built-in updater is off in this build. It would offer upstream's own newer build, which is signed by a different Apple team and would fail the signature check. Instead, the app looks at this fork's releases about 90 seconds after it starts and then every 4 hours. You can also check from the menu or from Settings. It downloads the newest `+custom` release, checks the sha256, the signing team, Apple notarization and the stapled ticket, and stages the update. The restart button on the update card installs it. Nothing quits by itself.

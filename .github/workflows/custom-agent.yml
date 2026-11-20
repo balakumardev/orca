@@ -86,7 +86,7 @@ jobs:
     name: agent
     runs-on: ubuntu-latest
     environment: agent
-    timeout-minutes: 45
+    timeout-minutes: 80 # the model's hour (agent-round.sh wall) plus checkout, the CLI install, prepare and finish
     outputs:
       unresolved: ${{ steps.finish.outputs.unresolved }}
       # Set by the `run` step, so it survives a crash in `finish`. No value when the model step never ran (no key was used).
@@ -168,6 +168,14 @@ jobs:
           TIER: ${{ inputs.tier }}
           DEEPINFRA_API_KEY: ${{ secrets.DEEPINFRA_API_KEY }}
         run: bash "$TOOLS_DIR/agent-round.sh" run
+      - name: Install the formatter (no key in this step)
+        id: oxfmt
+        continue-on-error: true
+        env:
+          SYNC_OUT: ${{ runner.temp }}/out/round-${{ inputs.round }}
+          TOOLS_DIR: ${{ github.workspace }}/tools/custom/scripts
+          OXFMT_DIR: ${{ runner.temp }}/oxfmt
+        run: bash "$TOOLS_DIR/install-oxfmt.sh"
       - name: Enforce scope, commit, bundle
         id: finish
         working-directory: repo
@@ -177,6 +185,7 @@ jobs:
           ROUND: ${{ inputs.round }}
           MODE: ${{ inputs.mode }}
           TIER: ${{ inputs.tier }}
+          OXFMT_BIN: ${{ steps.oxfmt.outputs.bin }}
         run: bash "$TOOLS_DIR/agent-round.sh" finish
       - name: Upload the candidate
         if: always()

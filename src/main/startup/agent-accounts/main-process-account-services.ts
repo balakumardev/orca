@@ -15,6 +15,7 @@ import { createDesktopOrcaAccountService } from '../desktop-orca-account-service
 import { installOrcaServerSignIn, OrcaServerSignIn } from '../../orca-profiles/orca-server-sign-in'
 import { GoogleConnect, installGoogleConnect } from '../../google/google-connect'
 import { setBotToolSignInBrowser } from '../../bots/tool-oauth/bot-tool-sign-in-flows'
+import { installProjectAgentAccounts } from '../../project-agent-accounts/project-agent-accounts-startup'
 
 export function initializeMainProcessAccountServices(): void {
   const store = state.store
@@ -45,6 +46,7 @@ export function initializeMainProcessAccountServices(): void {
   })
   state.codexAccounts = services.codexAccounts
   state.claudeRuntimeAuth = services.claudeRuntimeAuth
+  installProjectAgentAccounts(store, services.claudeRuntimeAuth.router)
   state.claudeAccounts = services.claudeAccounts
   state.orcaAccount = createDesktopOrcaAccountService()
   // A paired client may sign this host in too (D3); the desktop keeps its own window sign-in.
