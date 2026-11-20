@@ -27,4 +27,4 @@ jobs:
     uses: ./.github/workflows/custom-gates.yml
     with:
       mode: pr
-      e2e_runner: ubuntu-latest
+      e2e_runner: macos-15-intel
