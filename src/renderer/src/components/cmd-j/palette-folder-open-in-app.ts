@@ -1,6 +1,6 @@
 import { toast } from 'sonner'
 import type { FolderSearchEntry } from '../../../../shared/folder-search-types'
-import { LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host'
+import { LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host/execution-host'
 import { translate } from '@/i18n/i18n'
 import { useAppStore } from '@/store/index'
 import { selectWorktreesByRepo } from '@/store/workspaces/catalog/workspace-record-fields'

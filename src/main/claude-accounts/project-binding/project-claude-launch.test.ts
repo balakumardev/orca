@@ -1,7 +1,7 @@
 import { readFileSync, rmSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { getDefaultSettings } from '../../../shared/constants'
+import { getDefaultSettings } from '../../../shared/orca-profiles/constants'
 import { preparePtyIpcSpawnPreflight } from '../../ipc/pty/ipc/spawn-preflight'
 import { createPtyIpcSpawnState } from '../../ipc/pty/ipc/spawn-state'
 import type { PtySpawnIpcDeps } from '../../ipc/pty/ipc/spawn-types'
@@ -96,7 +96,8 @@ describe.each<Preflight>(['renderer', 'runtime'])(
         wslDistro: null,
         wslLinuxConfigDir: null,
         envPatch: routed,
-        provenance: 'profile:b'
+        provenance: 'profile:b',
+        readingAccount: { accountId: 'b', runtime: 'host', wslDistro: null }
       })
       expect(readFileSync(f.pointer('accounts', 'b'), 'utf8')).toBe(f.home('b'))
       expect(f.prepareClaudeAuth).not.toHaveBeenCalled()

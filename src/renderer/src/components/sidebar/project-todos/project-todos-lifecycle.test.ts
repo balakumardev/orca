@@ -5,7 +5,7 @@ import { applyRemoveWorktreeSuccessState } from '@/store/slices/worktrees/teardo
 import { buildWorktreePurgeState } from '@/store/slices/worktrees/teardown/worktree-purge-state'
 import { completeWorktreeCreation } from '@/lib/workspace/creation/worktree-creation-completion'
 import type { WorktreeCreationRequest } from '@/lib/workspace/creation/pending-worktree-creation'
-import type { Repo } from '../../../../../shared/repo-types'
+import type { Repo } from '../../../../../shared/repository/repo-types'
 import type { GroupHeaderRow } from '../../../../../shared/sidebar-list/row-types'
 import { slugifyTodoWorktreeName } from '../../../../../shared/project-todos-types'
 import { buildRenderableRows } from '../worktree-list/listing/renderable-rows'

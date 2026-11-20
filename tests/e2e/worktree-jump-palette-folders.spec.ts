@@ -3,8 +3,9 @@ import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { expect, test } from './helpers/orca-app'
-import { waitForSessionReady } from './helpers/store'
+import { expect } from '@stablyai/playwright-test'
+import { test } from './desktop/electron-fixtures/orca-app'
+import { waitForSessionReady } from './desktop/renderer-probes/store'
 
 test.use({ seedTestRepo: false })
 

@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { getPosixClaudeShellFunction } from '../../../shared/claude-shell-function'
+import { getPosixClaudeShellFunction } from '../../../shared/shell/launch/agents/claude-shell-function'
 import { ClaudeAccountSelection } from '../selection/claude-account-selection'
 import {
   installProjectAgentAccountsStore,

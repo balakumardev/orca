@@ -4,11 +4,47 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { ActivityThreadListPane } from './activity-thread-list-pane'
-import type { ActivityThreadGroup, AgentPaneThread } from './activity-thread-types'
-import { makeTab, makeWorktree } from './ActivityPrototypePage-test-fixtures'
+import { ActivityThreadListPane } from './thread-list/activity-thread-list-pane'
+import type { ActivityThreadGroup, AgentPaneThread } from './threads/activity-thread-types'
+import type { TerminalTab } from '../../../../shared/workspace-layout/terminal-tab-types'
+import type { Worktree } from '../../../../shared/worktree/types'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
+
+function makeTab(): TerminalTab {
+  return {
+    id: 'tab-1',
+    ptyId: 'pty-1',
+    worktreeId: 'wt-1',
+    title: 'Claude',
+    customTitle: null,
+    color: null,
+    sortOrder: 0,
+    createdAt: 1
+  }
+}
+
+function makeWorktree(): Worktree {
+  return {
+    id: 'wt-1',
+    repoId: 'repo-1',
+    path: '/repo/wt-1',
+    head: 'abc123',
+    branch: 'feature',
+    isBare: false,
+    isMainWorktree: false,
+    displayName: 'feature',
+    comment: '',
+    linkedIssue: null,
+    linkedPR: null,
+    linkedLinearIssue: null,
+    isArchived: false,
+    isUnread: false,
+    isPinned: false,
+    sortOrder: 0,
+    lastActivityAt: 1
+  }
+}
 
 function makeThread(name: string): AgentPaneThread {
   return {

@@ -1,18 +1,26 @@
 import path from 'node:path'
 import type { Locator, Page, TestInfo } from '@stablyai/playwright-test'
-import { test, expect } from './helpers/orca-app'
+import { expect } from '@stablyai/playwright-test'
+import { test } from './desktop/electron-fixtures/orca-app'
 import {
   splitActiveTerminalPane,
   waitForActiveTerminalManager,
   waitForPaneCount
-} from './helpers/terminal'
-import { ensureTerminalVisible, waitForActiveWorktree, waitForSessionReady } from './helpers/store'
+} from './terminal/layout/terminal-pane-operations'
+import {
+  ensureTerminalVisible,
+  waitForActiveWorktree,
+  waitForSessionReady
+} from './desktop/renderer-probes/store'
 import { seedAgentsForActivePanes, showActivityPane, threadRows } from './helpers/activity-sidebar'
 
 test.use({ launchEnv: { ORCA_BACKGROUND_LAUNCH: '1' } })
 
+// Upstream words the search button's name after the bots the palette also searches, so the label is a pattern.
+const SEARCH_BUTTON_NAME = /^Search (bots, workspaces, and|worktrees and) browser tabs$/
+
 const QUICK_LINK_ITEMS = [
-  'Search worktrees and browser tabs',
+  SEARCH_BUTTON_NAME,
   'Tasks',
   'Artifacts',
   'Skills',
@@ -102,7 +110,7 @@ test.describe('Stacked sidebar', () => {
     const workspaces = orcaPage.locator('[data-sidebar-workspaces-pane]')
     const activity = orcaPage.locator('[data-sidebar-activity-pane]')
 
-    await expect(workspaces.locator('[data-sidebar-section-title]')).toBeVisible()
+    await expect(workspaces.locator('[data-sidebar-section-title="projects"]')).toBeVisible()
     await expect(activity.getByRole('button', { name: 'Collapse Activity' })).toBeVisible()
     await expect(threadRows(orcaPage)).toHaveCount(1)
     const workspacesBox = await workspaces.boundingBox()
@@ -112,9 +120,7 @@ test.describe('Stacked sidebar', () => {
     await expect(orcaPage.getByRole('button', { name: 'View activity', exact: true })).toHaveCount(
       0
     )
-    await expect(
-      orcaPage.getByRole('button', { name: 'Search worktrees and browser tabs' })
-    ).toBeHidden()
+    await expect(orcaPage.getByRole('button', { name: SEARCH_BUTTON_NAME })).toBeHidden()
 
     const splitter = orcaPage.locator('[data-sidebar-activity-splitter]')
     await expect(splitter).toBeVisible()
@@ -160,7 +166,7 @@ test.describe('Stacked sidebar', () => {
     await trigger.click()
     await popover.getByRole('button', { name: 'Automations', exact: true }).click()
     await expect(popover).toBeHidden()
-    await expect(orcaPage.getByRole('heading', { name: 'Automations', level: 1 })).toBeVisible()
+    await expect(orcaPage.getByRole('navigation', { name: 'Automations' })).toBeVisible()
   })
 
   test('hides the agent description until Show description is ticked and remembers the choice', async ({

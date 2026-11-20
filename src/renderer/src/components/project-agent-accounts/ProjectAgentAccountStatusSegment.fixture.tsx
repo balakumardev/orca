@@ -1,5 +1,5 @@
 import { defineFixture } from '../../component-fixtures/component-fixture'
-import { getDefaultSettings } from '../../../../shared/constants'
+import { getDefaultSettings } from '../../../../shared/orca-profiles/constants'
 import type { ProjectAgentAccountsSnapshot } from '../../../../shared/project-agent-accounts'
 import { ProjectAgentAccountStatusSegment } from './ProjectAgentAccountStatusSegment'
 

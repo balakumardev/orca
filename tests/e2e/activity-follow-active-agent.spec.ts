@@ -1,21 +1,25 @@
 import type { Page } from '@stablyai/playwright-test'
-import { test, expect } from './helpers/orca-app'
-import { emitCodexHookStatus, readHookEndpoint } from './helpers/agent-hook-endpoint'
+import { expect } from '@stablyai/playwright-test'
+import { test } from './desktop/electron-fixtures/orca-app'
 import {
-  focusActiveTerminalInput,
+  emitCodexHookStatus,
+  readHookEndpoint
+} from './agents/session-fixtures/agent-hook-endpoint'
+import { focusActiveTerminalInput } from './terminal/input/terminal'
+import { waitForActivePaneHookDescriptor } from './terminal/input/terminal-active-pane'
+import {
   focusLastTerminalPane,
   splitActiveTerminalPane,
-  waitForActivePaneHookDescriptor,
   waitForActiveTerminalManager,
   waitForPaneCount
-} from './helpers/terminal'
+} from './terminal/layout/terminal-pane-operations'
 import {
   ensureTerminalVisible,
   getActiveTabId,
   getActiveWorktreeId,
   switchToOtherWorktree,
   switchToWorktree
-} from './helpers/store'
+} from './desktop/renderer-probes/store'
 import {
   activateTab,
   clickRow,
@@ -42,7 +46,7 @@ test.use({ launchEnv: { ORCA_BACKGROUND_LAUNCH: '1' } })
 
 const NEXT_CHORD = 'ControlOrMeta+Shift+Quote'
 
-// An agent row whose terminal tab was closed: the workspace can be opened, but no pane can take focus.
+// An agent row with no terminal tab behind it: the workspace can be opened, but no pane can take focus.
 async function seedRetainedAgentInWorkspace(page: Page, prompt: string): Promise<SeededAgent> {
   const paneKey = await page.evaluate((prompt) => {
     const state = window.__store?.getState()
@@ -50,29 +54,21 @@ async function seedRetainedAgentInWorkspace(page: Page, prompt: string): Promise
     if (!state || !worktreeId) {
       throw new Error('No active workspace for the retained agent')
     }
-    const tab = state.createTab(worktreeId, undefined, undefined, { activate: false })
-    const paneKey = `${tab.id}:${crypto.randomUUID()}`
-    state.closeTab(tab.id)
+    // A tab id that was never created here: a closed tab's id is refused by the status slice.
+    const paneKey = `${crypto.randomUUID()}:${crypto.randomUUID()}`
     const startedAt = Date.now() - 5_000
-    state.retainAgents([
+    state.setAgentStatus(
+      paneKey,
       {
-        entry: {
-          state: 'done',
-          prompt,
-          updatedAt: startedAt,
-          stateStartedAt: startedAt,
-          paneKey,
-          terminalTitle: 'Retained agent',
-          stateHistory: [],
-          agentType: 'codex',
-          lastAssistantMessage: 'Finished before the tab closed.'
-        },
-        worktreeId,
-        tab,
+        state: 'done',
+        prompt,
         agentType: 'codex',
-        startedAt
-      }
-    ])
+        lastAssistantMessage: 'Finished before the tab closed.'
+      },
+      'Retained agent',
+      { updatedAt: startedAt, stateStartedAt: startedAt },
+      { worktreeId }
+    )
     return paneKey
   }, prompt)
   return { paneKey, leafId: paneKey.split(':')[1], title: 'Retained agent', prompt }

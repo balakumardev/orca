@@ -1,16 +1,16 @@
 import { realpath } from 'node:fs/promises'
 import { isAbsolute } from 'node:path'
-import type { Repo } from '../../shared/repo-types'
+import type { Repo } from '../../shared/repository/repo-types'
 import {
   LOCAL_EXECUTION_HOST_ID,
   getRepoExecutionHostId,
   getRepoRoutingConnectionId
-} from '../../shared/execution-host'
+} from '../../shared/execution-host/execution-host'
 import {
   isPathInsideOrEqual,
   normalizeRuntimePathForComparison
-} from '../../shared/cross-platform-path'
-import { isWslUncPath } from '../../shared/wsl-paths'
+} from '../../shared/file-access/cross-platform-path'
+import { isWslUncPath } from '../../shared/file-access/wsl-paths'
 import { MAX_FOLDER_SEARCH_ROOTS } from '../../shared/folder-search-settings'
 import { expandLeadingHomePath } from '../filesystem/home-path-expansion'
 import { FOLDER_SEARCH_CALL_TIMEOUT_MS, TIMED_OUT, withinMs } from './folder-search-time'

@@ -1,15 +1,15 @@
 import { useContext, useEffect, useRef } from 'react'
 import { useAppStore } from '@/store'
-import type { ActivityGroupBy } from '../../../../shared/agents-view-thread-filters'
+import type { ActivityGroupBy } from '../../../../shared/agent-status/presentation/agents-view-thread-filters'
 import { getFollowedAgentPaneKey } from './activity-follow-agent-pane'
 import {
   decideActivityFollow,
   findCollapsedGroupKeyHolding,
   type ActivityFollowMemory
 } from './activity-follow-focused-agent'
-import { ActivityThreadCollapseContext } from './activity-thread-collapse-context'
+import { ActivityThreadCollapseContext } from './thread-list/activity-thread-collapse-context'
 import { requestActivityThreadReveal } from './activity-thread-reveal-request'
-import type { ActivityThreadGroup, AgentPaneThread } from './activity-thread-types'
+import type { ActivityThreadGroup, AgentPaneThread } from './threads/activity-thread-types'
 
 /** Moves the sidebar Activity highlight to the followed agent (see getFollowedAgentPaneKey), and shows its row after a change. Highlight only: the workspace and tab are already active. */
 export function useActivityFollowFocusedAgent({

@@ -11,10 +11,10 @@ import {
 } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { expect } from './helpers/orca-app'
-import { buildFakeAgentCommandOverride } from './helpers/fake-agent-command-override'
-import { waitForSessionReady } from './helpers/store'
-import { SUPPORTED, test, type ClaudeStub } from './helpers/structured-claude-stub'
+import { expect } from '@stablyai/playwright-test'
+import { buildFakeAgentCommandOverride } from './agents/session-fixtures/fake-agent-command-override'
+import { waitForSessionReady } from './desktop/renderer-probes/store'
+import { SUPPORTED, test, type ClaudeStub } from './agents/session-fixtures/structured-claude-stub'
 
 test.use({ seedTestRepo: false })
 test.skip(!SUPPORTED, 'the Claude stub wrapper is POSIX-only')
@@ -359,7 +359,7 @@ test('Cmd+J lists transcript hits after Workspaces and Folders and resumes a clo
       await expect(sessionRows(palette)).toHaveCount(2)
       // Cmd/Ctrl+Shift+Enter starts a new worktree in the project of the workspace you are in.
       await input.press('ControlOrMeta+Shift+Enter')
-      await expect(input).toHaveAttribute('placeholder', /^New worktree in billing-exporter/)
+      await expect(input).toHaveAttribute('aria-placeholder', /^New worktree in billing-exporter/)
       await expect(input).toHaveValue('')
       await input.press(leaveWith)
       await expect(input).toHaveValue('quarterly')

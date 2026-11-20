@@ -1,15 +1,15 @@
-import type { AgentSessionAccountKind } from '../../../../shared/agent-session/agent-session-availability'
-import type { GlobalSettings } from '../../../../shared/global-settings-types'
-import { normalizeRuntimePathForComparison } from '../../../../shared/cross-platform-path'
+import type { AgentSessionAccountKind } from '../../../../shared/agent-session/failures/agent-session-availability'
+import type { GlobalSettings } from '../../../../shared/settings/global-settings-types'
+import { normalizeRuntimePathForComparison } from '../../../../shared/file-access/cross-platform-path'
 import { getClaudeProfileRouter } from '../../../claude-accounts/profiles/routing/claude-profile-installed-router'
 import { claudeRoutedHomeForLocation } from '../../../claude-accounts/project-binding/project-claude-workspace'
 import type { AgentSessionExecutionLocation } from '../../../../shared/agent-session/lifecycle/agent-session-record'
-import { normalizeCodexRuntimeSelection } from '../../../codex-accounts/runtime-selection'
+import { normalizeCodexRuntimeSelection } from '../../../codex-accounts/account-management/runtime-selection'
 import {
   resolveOrcaManagedCodexHomePath,
   getSystemCodexHomePath
 } from '../../../codex/configuration/homes/codex-home-paths'
-import { resolveAbsoluteDirOverride } from '../../../../shared/absolute-dir-override'
+import { resolveAbsoluteDirOverride } from '../../../../shared/file-access/absolute-dir-override'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 

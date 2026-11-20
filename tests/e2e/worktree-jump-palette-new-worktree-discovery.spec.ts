@@ -3,9 +3,10 @@ import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { expect, test } from './helpers/orca-app'
+import { expect } from '@stablyai/playwright-test'
+import { test } from './desktop/electron-fixtures/orca-app'
 import { readComposerExposure, recordComposerExposure } from './helpers/composer-exposure'
-import { waitForSessionReady } from './helpers/store'
+import { waitForSessionReady } from './desktop/renderer-probes/store'
 
 test.use({ seedTestRepo: false })
 
@@ -217,7 +218,10 @@ test('Cmd+J shows where a new worktree can be made: footer, key hint on the high
     const before = await repoCount()
 
     await input.press('ControlOrMeta+Enter')
-    await expect(input).toHaveAttribute('placeholder', 'New worktree in fresh-app - type a name')
+    await expect(input).toHaveAttribute(
+      'aria-placeholder',
+      'New worktree in fresh-app - type a name'
+    )
     expect(await repoCount()).toBe(before + 1)
     await expect(composerDialog(orcaPage)).toHaveCount(0)
 

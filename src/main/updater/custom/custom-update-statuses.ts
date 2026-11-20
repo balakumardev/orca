@@ -1,4 +1,4 @@
-import type { ChangelogData, UpdateStatus } from '../../../shared/update-status-types'
+import type { ChangelogData, UpdateStatus } from '../../../shared/updater/update-status-types'
 import type { CustomUpdateCandidate } from './custom-update-feed'
 import type { CustomUpdateError } from './custom-update-errors'
 

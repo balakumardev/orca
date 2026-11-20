@@ -2,7 +2,7 @@ import { beforeEach, expect, it, vi } from 'vitest'
 import { useAppStore } from '@/store/index'
 import type * as projectAgentAccountsStore from './project-agent-accounts-store'
 import type { ProjectAgentAccountsSnapshot } from '../../../../shared/project-agent-accounts'
-import type { Repo } from '../../../../shared/repo-types'
+import type { Repo } from '../../../../shared/repository/repo-types'
 import { isProjectClaudeBoundPane } from './project-claude-pin'
 
 let pins: ProjectAgentAccountsSnapshot = { projects: {} }

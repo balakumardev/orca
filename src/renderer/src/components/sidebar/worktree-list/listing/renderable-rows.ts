@@ -1,13 +1,13 @@
+import { useMemo } from 'react'
 import {
   getProjectTodoScopeKeyFromHeader,
   getProjectTodoSectionOccurrenceKey
 } from '../../../../../../shared/project-todos-types'
-import {
-  PINNED_GROUP_KEY,
-  getWorktreeLineageGroupKey
-} from '../../../../../../shared/sidebar-list/group-keys'
-import type { HostSectionRow } from '../../../../../../shared/sidebar-list/host-section-rows'
-import type { RenderRow } from './render-row'
+import { PINNED_GROUP_KEY } from '../../../../../../shared/sidebar-list/sections/group-keys'
+import type { HostSectionRow } from '../../../../../../shared/sidebar-list/hosts/host-section-rows'
+import type { WorktreeGroupBy } from '../../../../../../shared/sidebar-list/row-types'
+import type { ProjectTodosSlotRow, RenderRow, RenderableRow } from './render-row'
+import { useExpandedProjectTodoSectionKeys } from '../../project-todos/project-todos-store'
 
 export type WorktreeItemRow = Extract<HostSectionRow, { type: 'item' }>
 export type FolderWorkspaceItemRow = Extract<HostSectionRow, { type: 'folder-workspace' }>
@@ -20,71 +20,54 @@ export function isPinnedWorktreeRow(row: WorktreeItemRow): boolean {
   return row.sectionKey === PINNED_GROUP_KEY
 }
 
-// Collapse a parent and its visible lineage descendants into one virtual row so the card renders them inline.
+// Each visible workspace owns a measured virtual slot, including expanded descendants.
 export function buildRenderableRows(
   rows: HostSectionRow[],
   expandedTodoSectionKeys?: ReadonlySet<string>
-): RenderRow[] {
-  const renderRows: RenderRow[] = []
-  for (let index = 0; index < rows.length; index++) {
-    const row = rows[index]
-    if (row.type === 'header') {
-      renderRows.push(row)
-      if (expandedTodoSectionKeys && expandedTodoSectionKeys.size > 0) {
-        const todoSectionKey = getProjectTodoSectionOccurrenceKey(row)
-        if (
-          expandedTodoSectionKeys.has(todoSectionKey) &&
-          getProjectTodoScopeKeyFromHeader(row, 'repo') !== null
-        ) {
-          renderRows.push({ type: 'project-todos', key: todoSectionKey, headerRow: row })
-        }
-      }
+): RenderableRow[] {
+  if (!expandedTodoSectionKeys || expandedTodoSectionKeys.size === 0) {
+    return rows
+  }
+  // A project's TODO list draws under its own header, so it takes the next slot after it.
+  const renderRows: RenderableRow[] = []
+  for (const row of rows) {
+    renderRows.push(row)
+    if (row.type !== 'header') {
       continue
     }
-    if (row.type === 'folder-workspace') {
-      const descendants = getDescendantItemRows(rows, index, row.depth)
-      if (descendants.length > 0 && row.lineageGroupKey && !row.lineageCollapsed) {
-        renderRows.push({ type: 'lineage-group', key: row.key, rows: descendants, folder: row })
-        index += descendants.length
-      } else {
-        renderRows.push(row)
-      }
-      continue
-    }
+    const todoSectionKey = getProjectTodoSectionOccurrenceKey(row)
     if (
-      !isWorktreeItemRow(row) ||
-      row.lineageChildCount === 0 ||
-      row.lineageCollapsed ||
-      rows[index + 1]?.type !== 'item' ||
-      (rows[index + 1] as WorktreeItemRow).depth <= row.depth
+      expandedTodoSectionKeys.has(todoSectionKey) &&
+      getProjectTodoScopeKeyFromHeader(row, 'repo') !== null
     ) {
-      renderRows.push(row)
-      continue
+      renderRows.push({ type: 'project-todos', key: todoSectionKey, headerRow: row })
     }
-
-    const groupRows = [row, ...getDescendantItemRows(rows, index, row.depth)]
-    renderRows.push({
-      type: 'lineage-group',
-      key: `${row.sectionKey}:${getWorktreeLineageGroupKey(row.worktree)}`,
-      rows: groupRows
-    })
-    index += groupRows.length - 1
   }
   return renderRows
 }
 
-function getDescendantItemRows(
-  rows: readonly HostSectionRow[],
-  parentIndex: number,
-  parentDepth: number
-): WorktreeItemRow[] {
-  const descendants: WorktreeItemRow[] = []
-  for (let cursor = parentIndex + 1; cursor < rows.length; cursor++) {
-    const child = rows[cursor]
-    if (!isWorktreeItemRow(child) || child.depth <= parentDepth) {
-      break
-    }
-    descendants.push(child)
+function toSectionRow(row: RenderableRow): RenderRow {
+  if (row.type !== 'project-todos') {
+    return row
   }
-  return descendants
+  const slotKey = `todos:${row.key}`
+  const slot: ProjectTodosSlotRow = {
+    type: 'pending-creation',
+    key: slotKey,
+    creationId: slotKey,
+    repo: row.headerRow.repo,
+    todoSectionKey: row.key,
+    headerRow: row.headerRow
+  }
+  return slot
+}
+
+/** The measured rows: a TODO slot joins the shared row union instead of widening it. */
+export function useRenderableRows(rows: HostSectionRow[], groupBy: WorktreeGroupBy): RenderRow[] {
+  const expandedTodoSectionKeys = useExpandedProjectTodoSectionKeys()
+  const todoSectionKeys = groupBy === 'repo' ? expandedTodoSectionKeys : undefined
+  return useMemo(
+    () => buildRenderableRows(rows, todoSectionKeys).map(toSectionRow),
+    [rows, todoSectionKeys]
+  )
 }

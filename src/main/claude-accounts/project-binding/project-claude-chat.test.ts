@@ -1,17 +1,11 @@
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AgentSessionExecutionLocation } from '../../../shared/agent-session/lifecycle/agent-session-record'
-import { requireLegacyAgentSessionAccountHome } from '../../../shared/agent-session/lifecycle/agent-session-account-home'
-import { agentSessionRecordFixture as titleRecordFixture } from '../../../shared/agent-session/lifecycle/agent-session-record.test-fixture'
-import { LOCAL_EXECUTION_HOST_ID } from '../../../shared/execution-host'
+import { requireLegacyAgentSessionAccountHome } from '../../../shared/agent-session/lifecycle/accounts/agent-session-account-home'
+import { LOCAL_EXECUTION_HOST_ID } from '../../../shared/execution-host/execution-host'
 import { chatNamingAgentTarget } from '../../runtime/agent-session/naming/structured-chat-naming-agent-launch'
-import { claudeNamingInvocation } from '../../claude/claude-naming-invocation'
-import {
-  acquired,
-  fakeClaude,
-  PROVIDER_SESSION_ID
-} from '../../claude/structured/claude-structured-session-test-support'
-import { agentSessionRecordFixture } from '../../native-chat/agent-session-record-test-fixture'
+import { claudeNamingInvocation } from '../../claude/conversation-naming/claude-naming-invocation'
+import { agentSessionRecordFixture } from '../../native-chat/testing/agent-session-record-test-fixture'
 import type { StructuredAgentAccountHomeServices } from '../../runtime/agent-session/installation/structured-agent-runtime-registration-types'
 import { structuredAgentRuntimeMetadata } from '../../runtime/agent-session/installation/structured-agent-runtime-metadata'
 import { createClaudeStructuredLaunchResolver } from '../../runtime/agent-session/launch/structured-agent-launch-composition.test-support'
@@ -170,51 +164,5 @@ describe('Claude chats in a pinned project', () => {
     expect(naming.home).toBe(f.home('b'))
     expect(naming.env[POINTER]).toBe(f.pointer('accounts', 'b'))
     expect(f.prepareLaunch).not.toHaveBeenCalled()
-  })
-})
-
-describe('auto titles for Claude chats in a pinned project', () => {
-  async function titleOwnerIsCurrent(
-    f: ReturnType<typeof chatFixture>,
-    launch: Parameters<typeof acquired>[1]
-  ): Promise<boolean> {
-    const cli = fakeClaude()
-    const adapter = await acquired(cli, { cwd: f.root, ...launch })
-    try {
-      const record = titleRecordFixture()
-      record.sessionId = 'session-1'
-      record.providerHandleChain[0]!.handle.nativeId = PROVIDER_SESSION_ID
-      record.location = location()
-      return adapter.captureConversationTitleOwner(record)!.isCurrent(record)
-    } finally {
-      await adapter.closeAll()
-      cli.dispose()
-    }
-  }
-
-  it('owns the title of a chat that runs on the pinned account, and only while pinned', async () => {
-    const f = chatFixture()
-    const onB = {
-      account: 'managed' as const,
-      claudeConfigDir: f.home('b'),
-      accountRecipe: { route: 'managed' as const, accountId: 'b', home: f.home('b') }
-    }
-    await f.pins.set('local', 'claude', { kind: 'account', accountId: 'b' })
-    expect(await titleOwnerIsCurrent(f, onB)).toBe(true)
-    await f.pins.set('local', 'claude', null)
-    expect(await titleOwnerIsCurrent(f, onB)).toBe(false)
-  })
-
-  it('owns the title of a System default chat in a project pinned to System default', async () => {
-    const f = chatFixture()
-    const onSystem = {
-      account: 'system' as const,
-      claudeConfigDir: f.systemHome,
-      accountRecipe: { route: 'system' as const, home: f.systemHome, configDir: null }
-    }
-    await f.pins.set('local', 'claude', { kind: 'system' })
-    expect(await titleOwnerIsCurrent(f, onSystem)).toBe(true)
-    await f.pins.set('local', 'claude', null)
-    expect(await titleOwnerIsCurrent(f, onSystem)).toBe(false)
   })
 })

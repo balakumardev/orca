@@ -4,8 +4,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createFolderSearchService } from './folder-search-service'
 import type { FolderSearchStore } from './folder-search-service'
 import { scanFolderRoots } from './folder-search-scan'
-import { getDefaultSettings } from '../../shared/constants'
-import type { Repo } from '../../shared/repo-types'
+import { getDefaultSettings } from '../../shared/orca-profiles/constants'
+import type { Repo } from '../../shared/repository/repo-types'
 import {
   createFolderSearchTestTree,
   makeGitRoot,

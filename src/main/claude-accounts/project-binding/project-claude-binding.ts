@@ -3,7 +3,7 @@ import {
   getConnectionExecutionHostId,
   isNativeLocalLocation,
   LOCAL_EXECUTION_HOST_ID
-} from '../../../shared/execution-host'
+} from '../../../shared/execution-host/execution-host'
 import {
   isProjectAgentAccountId,
   type ProjectAgentAccountChoice

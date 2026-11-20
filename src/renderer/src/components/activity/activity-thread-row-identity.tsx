@@ -1,6 +1,6 @@
 import React from 'react'
 import { RepoIconGlyph } from '@/components/repo/repo-icon'
-import type { Repo } from '../../../../shared/repo-types'
+import type { Repo } from '../../../../shared/repository/repo-types'
 import { resolveRepoHeaderColor } from '../sidebar/worktree-list/rows/project-header-color'
 
 function sameLabel(a: string, b: string): boolean {

@@ -121,7 +121,7 @@ Orca keeps several Claude accounts, but one account was active for every project
 - **System default.** Your normal `~/.claude` login.
 - **One of your Orca accounts.**
 
-A pinned project's terminals and chats open under its account. That covers `claude` typed in a terminal, agents Orca starts, native chats with their automatic titles and names, commit and pull request text, first-work branch names and `orca claude-teams`. Switching the active account does not move a pinned project, and its terminals are left out of the "restart sessions?" question. The status bar shows a small chip with the account when the open project is pinned. If you remove an account, its pins go with it and those terminals fall back to System default.
+A pinned project's terminals and chats open under its account. That covers `claude` typed in a terminal, agents Orca starts, native chats and their automatic names, commit and pull request text, first-work branch names and `orca claude-teams`. Switching the active account does not move a pinned project, and its terminals are left out of the "restart sessions?" question. The status bar shows a small chip with the account when the open project is pinned. If you remove an account, its pins go with it and those terminals fall back to System default.
 
 A change applies to terminals and chats you open after it. A terminal that is already open keeps its account until you reopen it. Terminals outside Orca are not touched. Pins are saved in `project-agent-accounts.json` next to Orca's settings.
 

@@ -3,8 +3,8 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { deriveFolderSearchRoots } from './folder-search-roots'
 import { createFolderSearchService } from './folder-search-service'
-import { getDefaultSettings } from '../../shared/constants'
-import type { Repo } from '../../shared/repo-types'
+import { getDefaultSettings } from '../../shared/orca-profiles/constants'
+import type { Repo } from '../../shared/repository/repo-types'
 import {
   createFolderSearchTestTree,
   makeGitRoot,

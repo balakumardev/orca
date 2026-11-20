@@ -1,5 +1,5 @@
 import type { FolderSearchEntry } from '../../../../shared/folder-search-types'
-import { getRuntimePathBasename } from '../../../../shared/cross-platform-path'
+import { getRuntimePathBasename } from '../../../../shared/file-access/cross-platform-path'
 import { comparePaletteRankedItems } from '@/lib/workspace/search/palette/cmd-j-section-leadership'
 import type { PaletteDocumentRank } from '../../../../shared/palette-match/palette-document'
 import { matchPaletteExtraFields, type PaletteExtraResult } from './palette-extra-results'

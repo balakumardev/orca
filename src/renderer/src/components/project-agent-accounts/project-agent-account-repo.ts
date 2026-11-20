@@ -1,10 +1,10 @@
 import { useAppStore } from '@/store/index'
 import type { AppState } from '@/store/types'
 import { getLocalRepoProjectExecutionRuntimeContext } from '@/runtime/hosts/preflight/local-preflight-context'
-import { isRepoOnCatalogHost } from '../../../../shared/execution-host'
-import { isFolderRepo } from '../../../../shared/repo-kind'
-import type { Repo } from '../../../../shared/repo-types'
-import { isWslUncPath } from '../../../../shared/wsl-paths'
+import { isRepoOnCatalogHost } from '../../../../shared/execution-host/execution-host'
+import { isFolderRepo } from '../../../../shared/repository/repo-kind'
+import type { Repo } from '../../../../shared/repository/repo-types'
+import { isWslUncPath } from '../../../../shared/file-access/wsl-paths'
 
 /** Where a project's agent account comes from; only `pinnable` projects can choose one here. */
 export type ProjectAgentAccountRepoScope = 'pinnable' | 'folder' | 'elsewhere'

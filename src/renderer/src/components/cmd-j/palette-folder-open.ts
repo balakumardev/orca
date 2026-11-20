@@ -1,5 +1,5 @@
 import type { FolderSearchEntry } from '../../../../shared/folder-search-types'
-import type { Repo } from '../../../../shared/repo-types'
+import type { Repo } from '../../../../shared/repository/repo-types'
 import type { Worktree } from '../../../../shared/worktree/types'
 import type { ActivateAndRevealResult } from '@/lib/workspace/activation/worktree-activation-outcome'
 import { pickLinkedWorktree } from './palette-linked-worktree-match'

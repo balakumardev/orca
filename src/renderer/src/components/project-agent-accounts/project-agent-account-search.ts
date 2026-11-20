@@ -4,7 +4,7 @@ import {
   PROJECT_AGENT_ACCOUNT_PROVIDERS,
   type ProjectAgentAccountProvider
 } from '../../../../shared/project-agent-accounts'
-import type { Repo } from '../../../../shared/repo-types'
+import type { Repo } from '../../../../shared/repository/repo-types'
 import type { SettingsSearchEntry } from '../settings/search/settings-search'
 import { searchKeywordTranslator } from '../settings/search/settings-search-keywords'
 import { getProjectAgentAccountCopy } from './project-agent-account-copy'
