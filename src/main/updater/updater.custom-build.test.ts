@@ -1,4 +1,3 @@
-import { EventEmitter } from 'node:events'
 import type { getReleaseDownloadUrl } from './releases/updater-release-readiness'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as UpdaterModule from './updater-service'
@@ -123,7 +122,9 @@ describe('updater with a custom build version', () => {
   })
 })
 
-function createUpdaterMocks() {
+// vi.hoisted runs before static imports are initialized, so load EventEmitter on demand.
+async function createUpdaterMocks() {
+  const { EventEmitter } = await import('node:events')
   const appEvents = new EventEmitter()
   const updaterEvents = new EventEmitter()
 
