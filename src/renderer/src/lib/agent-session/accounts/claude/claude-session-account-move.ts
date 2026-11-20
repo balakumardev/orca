@@ -40,6 +40,7 @@ import type {
   ClaudeRateLimitAccountsState
 } from '../../../../../../shared/managed-account-types'
 import type { TerminalTab } from '../../../../../../shared/workspace-layout/terminal-tab-types'
+import { isProjectClaudeBoundPane } from '@/components/project-agent-accounts/project-claude-pin'
 
 export type ClaudeSessionMoveCandidate = {
   ptyId: string
@@ -147,14 +148,16 @@ export function findQueuedClaudeRestartsOnAccount(args: {
   const host = isHostTarget(args.target) ? args.host : undefined
   const ptyIds: string[] = []
   for (const pane of localClaudePanes(state, args.owner, args.target)) {
+    // Why pinned panes too: their restart relaunches on the project's account, so it would only interrupt.
     if (
       pane.inLane &&
       state.pendingPaneAccountRestarts[pane.ptyId] === 'claude' &&
-      isClaudePaneOnAccount(
-        resolveClaudePaneFolder(pane.transcriptPath, saved, host),
-        args.accountId,
-        host
-      )
+      (isProjectClaudeBoundPane(pane, saved) ||
+        isClaudePaneOnAccount(
+          resolveClaudePaneFolder(pane.transcriptPath, saved, host),
+          args.accountId,
+          host
+        ))
     ) {
       ptyIds.push(pane.ptyId)
     }
@@ -172,6 +175,7 @@ export type ClaudeSessionCantMoveReason =
   | 'unknown-account'
   | 'no-session'
   | 'shared-session'
+  | 'repo-bound'
 
 /** Running Claude sessions a switch can see, by what a restart would do for them. */
 export type ClaudeSwitchSessions = {
@@ -202,6 +206,9 @@ function scanPane(
     return args.hostSwitch && isWslLane(pane.laneKey)
       ? { group: 'cantMove', pane, reason: 'wsl-terminal' }
       : null
+  }
+  if (isProjectClaudeBoundPane(pane, args.saved)) {
+    return { group: 'cantMove', pane, reason: 'repo-bound' }
   }
   const folder = resolveClaudePaneFolder(pane.transcriptPath, args.saved, args.host)
   if (!folder) {

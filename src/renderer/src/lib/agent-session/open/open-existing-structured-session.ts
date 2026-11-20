@@ -218,8 +218,9 @@ async function executeDesktopStructuredSession(
             { address, ...(messageIds.length ? { messageIds } : {}) },
             {
               timeoutMs: STRUCTURED_SESSION_RESTORE_TIMEOUT_MS,
-              beforeSend,
-              expectedEnvironmentRuntimeId
+              // Unguarded callers retain their existing RPC options.
+              ...(current ? { beforeSend } : {}),
+              ...(expectedEnvironmentRuntimeId ? { expectedEnvironmentRuntimeId } : {})
             }
           )
         )

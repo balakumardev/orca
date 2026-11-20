@@ -1,5 +1,6 @@
 import { PROJECT_CREATE_SOURCE_ID } from '@/components/cmd-j/palette-project-create-source-id'
 import { getPaletteWorktreeExecutionHostId } from '@/lib/workspace/search/palette-repo-resolution'
+import type { CmdJTaskSourceUrl } from '@/lib/workspace/search/worktrees/worktree-palette-task-url-match'
 import { getUsableGitProjectRepo } from '@/components/cmd-j/palette-project-create-targets'
 import { getRepoExecutionHostId, LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host'
 import type { Repo } from '../../../../shared/repo-types'
@@ -75,7 +76,7 @@ export function getPaletteEntryNewWorktreeRepoId(
   context: {
     workspaces: readonly Worktree[]
     repos: readonly Repo[]
-    taskSourceUrl: object | null
+    taskSourceUrl: CmdJTaskSourceUrl | null
   }
 ): string | null {
   return context.taskSourceUrl ? null : getPaletteEntryProjectRepoId(entry, context)
@@ -84,7 +85,7 @@ export function getPaletteEntryNewWorktreeRepoId(
 /** What Cmd/Ctrl+Enter does on a Folders row that adds its project first; none while a pasted link owns the palette. */
 export function getPaletteEntryFolderNewWorktree(
   entry: PaletteListEntry | undefined,
-  taskSourceUrl: object | null
+  taskSourceUrl: CmdJTaskSourceUrl | null
 ): (() => void) | null {
   return !taskSourceUrl && entry?.type === 'extra' ? (entry.result.onModEnter ?? null) : null
 }

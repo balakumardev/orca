@@ -220,7 +220,7 @@ async function openHost() {
 }
 
 describe("a Codex subagent's answered approval on the settled parent's Activity row", () => {
-  it('reads done, lists the ask before the done, and leaves the answer read', async () => {
+  it('keeps the ready agent idle, lists the ask before the done, and leaves the answer read', async () => {
     const host = await openHost()
     render(createElement(StructuredAgentSessionStatusBridge))
     await waitFor(() => expect(mocks.subscribeStatus).toHaveBeenCalledOnce())
@@ -302,7 +302,8 @@ describe("a Codex subagent's answered approval on the settled parent's Activity 
     if (!row) {
       throw new Error('activity thread missing')
     }
-    expect(activityThreadStatusId(row)).toBe('done')
+    // The provider is still ready; its idle presence is separate from the completed turn below.
+    expect(activityThreadStatusId(row)).toBe('idle')
     expect(activityThreadRowCopy(row).needsAttention).toBe(false)
     expect(row.events.map((event) => event.state)).toEqual(['done', 'blocked', 'done'])
     expect(row.events.map((event) => event.unread)).toEqual([false, false, false])

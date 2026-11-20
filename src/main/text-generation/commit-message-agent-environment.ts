@@ -1,5 +1,6 @@
 import type { ClaudeRuntimeAuthPreparation } from '../claude-accounts/runtime-auth/runtime-auth-types'
 import { applyClaudeEnvPatch } from '../claude-accounts/runtime-auth/environment'
+import { projectClaudeGenerationPreparation } from '../claude-accounts/project-binding/project-claude-workspace'
 import { readShellStartupEnvVar } from '../pty/shell-startup/shell-startup-env'
 import { parseWslUncPath } from '../../shared/wsl-paths'
 import {
@@ -21,6 +22,8 @@ export type CommitMessageAgentEnvironmentResolvers = {
 export type CommitMessageAgentRuntimeTarget = {
   runtime?: 'host' | 'wsl'
   wslDistro?: string | null
+  /** The workspace being described, so a project pinned to an account is honoured. */
+  workspaceId?: string
 }
 
 function cloneProcessEnv(): Record<string, string> {
@@ -154,7 +157,8 @@ export async function prepareLocalCommitMessageAgentEnv(
     }
 
     if (agentId === 'claude' && resolvers.prepareForClaudeLaunch) {
-      const preparation = await resolvers.prepareForClaudeLaunch(target)
+      const preparation = await (projectClaudeGenerationPreparation(target) ??
+        resolvers.prepareForClaudeLaunch(target))
       const env = applyClaudeEnvPatch({ ...base }, preparation.envPatch)
       return { ok: true, env }
     }

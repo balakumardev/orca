@@ -8,6 +8,7 @@ import type { RateLimitService } from '../../rate-limits/service/rate-limit-serv
 import { claudeStateFile, readClaudeFolderLogin } from '../sign-in/claude-account-folder'
 import { savedWslClaudeAccountHome } from '../profiles/wsl/claude-profile-wsl-paths'
 import type { ClaudeRuntimeAuthService } from '../runtime-auth-service'
+import { forgetProjectAgentAccount } from '../../project-agent-accounts/project-agent-account-cleanup'
 import {
   getClaudeSelectionTargetForAccount,
   getClaudeWslSelectionKey,
@@ -154,6 +155,7 @@ export class ClaudeAccountSelection {
         settings.activeClaudeManagedAccountId === accountId ? null : nextSelection.host,
       activeClaudeManagedAccountIdsByRuntime: nextSelection
     })
+    await forgetProjectAgentAccount('claude', accountId)
     // Stop new launches from selecting the folder before deleting it.
     await this.runtimeAuth.syncForCurrentSelection(target)
     try {

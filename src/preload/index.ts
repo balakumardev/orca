@@ -18,6 +18,7 @@ import { projectsApi } from './api/projects-bridge'
 import { projectGroupsApi } from './api/project-groups-bridge'
 import { folderSearchApi } from './api/folder-search-bridge'
 import { projectTodosApi } from './api/project-todos-bridge'
+import { projectAgentAccountsApi } from './api/project-agent-accounts-bridge'
 import { folderWorkspacesApi } from './api/folder-workspaces-bridge'
 import { sparsePresetsApi } from './api/sparse-presets-bridge'
 import { worktreesApi } from './api/worktrees-bridge'
@@ -124,6 +125,7 @@ const api = {
   folderWorkspaces: folderWorkspacesApi,
   folderSearch: folderSearchApi,
   projectTodos: projectTodosApi,
+  projectAgentAccounts: projectAgentAccountsApi,
   sparsePresets: sparsePresetsApi,
   worktrees: worktreesApi,
   workspaceCleanup: workspaceCleanupApi,

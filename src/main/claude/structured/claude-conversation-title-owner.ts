@@ -1,5 +1,6 @@
 import { resolve } from 'node:path'
 import { getClaudeProfileRouter } from '../../claude-accounts/profiles/routing/claude-profile-installed-router'
+import { projectClaudePolicy } from '../../claude-accounts/project-binding/project-claude-workspace'
 import { agentSessionAccountHomesEqual } from '../../../shared/agent-session/lifecycle/agent-session-account-home'
 import { claudeNamingContextId } from '../claude-conversation-naming'
 import { CLAUDE_CACHED_FLAG_CHECK_BUDGET_MS } from '../claude-cli-flag-support'
@@ -19,7 +20,8 @@ export const captureClaudeConversationTitleOwner =
     const boundary = record.providerContextBoundary?.operationId
     const account = () => {
       try {
-        const policy = getClaudeProfileRouter()?.preparation()
+        const policy =
+          projectClaudePolicy(record.location) ?? getClaudeProfileRouter()?.preparation()
         const recipe = initialization.accountRecipe
         if (policy) {
           if ((recipe?.route ?? initialization.account) === 'managed') {

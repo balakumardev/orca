@@ -22,8 +22,10 @@ import {
 
 vi.mock('sonner', () => ({ toast: { error: vi.fn() } }))
 
+// Target fixtures omit rendering-only fields from the real palette row.
+type TargetRow = Pick<PaletteListEntry, 'id' | 'type'> & Record<string, unknown>
 // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the shortcut reads only the target fields populated here, not the row's ranking or rendering fields.
-const entry = (value: object): PaletteListEntry => value as PaletteListEntry
+const entry = (value: TargetRow): PaletteListEntry => value as PaletteListEntry
 
 function mountCreation(
   entry?: PaletteListEntry,
