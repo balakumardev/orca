@@ -1,0 +1,99 @@
+
+ RUN  v5.0.5 /home/runner/work/orca/orca/repo
+
+ ❯ src/bar.test.ts (0 test)
+ ❯ src/foo.test.ts (3 tests | 2 failed) 4ms
+   ❯ suite (3)
+     × adds 3ms
+     × matches an object 1ms
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/bar.test.ts [ src/bar.test.ts ]
+Error: Cannot find module './not-here' imported from /home/runner/work/orca/orca/repo/src/bar.test.ts
+ ❯ src/bar.test.ts:2:1
+      1| import { describe, expect, it } from 'vitest'
+      2| import { missing } from './not-here'
+       | ^
+      3|
+      4| describe('bar', () => {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/foo.test.ts > suite > adds
+AssertionError: expected 2 to be 3 // Object.is equality
+
+- Expected
++ Received
+
+- 3
++ 2
+
+ ❯ src/foo.test.ts:5:19
+      3| describe('suite', () => {
+      4|   it('adds', () => {
+      5|     expect(1 + 1).toBe(3)
+       |                   ^
+      6|   })
+      7|   it('matches an object', () => {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  src/foo.test.ts > suite > matches an object
+AssertionError: expected { a: 1, b: [ 1, 2 ] } to deeply equal { a: 1, b: [ 1, 3 ] }
+
+- Expected
++ Received
+
+  {
+    "a": 1,
+    "b": [
+      1,
+-     3,
++     2,
+    ],
+  }
+
+ ❯ src/foo.test.ts:8:33
+      6|   })
+      7|   it('matches an object', () => {
+      8|     expect({ a: 1, b: [1, 2] }).toEqual({ a: 1, b: [1, 3] })
+       |                                 ^
+      9|   })
+     10|   it('passes', () => {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯
+
+Vitest caught 1 unhandled error during the test run.
+This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.
+
+⎯⎯⎯⎯⎯ Uncaught Exception ⎯⎯⎯⎯⎯
+Error: late
+ ❯ Timeout._onTimeout src/baz.test.ts:5:11
+      3| it('unhandled', () => {
+      4|   setTimeout(() => {
+      5|     throw new Error('late')
+       |           ^
+      6|   }, 5)
+      7| })
+ ❯ listOnTimeout node:internal/timers:685:17
+ ❯ process.processTimers node:internal/timers:618:7
+
+This error originated in "src/baz.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The last test to run before this error was "wait". This means either:
+- the error was thrown while Vitest was running this test, or
+- the error was thrown after the test completed, and this was the most recent test at that point.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+
+ Test Files  2 failed | 1 passed (3)
+      Tests  2 failed | 3 passed (5)
+     Errors  1 error
+   Start at  19:31:47
+   Duration  123ms (tests 65%, transform 22%, import 8%, worker 5%)
+
