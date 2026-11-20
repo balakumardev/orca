@@ -85,7 +85,7 @@ jq -e --arg sha "$MERGE_SHA" --arg branch "$BRANCH" \
   '.state == "OPEN" and .isDraft == false and .baseRefName == "custom" and .headRefName == $branch and .headRefOid == $sha and .isCrossRepository == false' \
   <<<"$pr" >/dev/null || fail "PR #$PR_NUMBER is not the open PR this run created (not open, a draft, another base or branch, a fork, or its head is not ${MERGE_SHA:0:10}). This run merged nothing; if the PR is already merged, an earlier attempt of this job did it: check that the release was requested."
 now="$(tip)" || fail "could not read the tip of custom. This run merged nothing."
-[ "$now" = "$BASE_SHA" ] || decline "custom moved from ${BASE_SHA:0:10} to ${now:0:10} while the sync ran, so the gates ran against an old base."
+[ "$now" = "$BASE_SHA" ] || decline "custom moved from ${BASE_SHA:0:10} to ${now:0:10} while the sync ran, so the gates ran against an old base. If nobody pushes to this branch, the next scheduled sync closes this PR and syncs again from the current custom; pushing to the branch (or closing the PR) takes it over."
 
 # ---- 4. the required check -------------------------------------------------------------------------------------------------
 summary="custom-sync ran the gates on this merge commit (mode sync: static and e2e jobs of custom-gates.yml): $gates_note.${RUN_URL:+ Run: $RUN_URL}"

@@ -20,6 +20,10 @@
 #     cancelled for exceeding `timeout-minutes` has an annotation of its own and counts as real. An annotation that cannot be read
 #     counts as real.
 #   - The run was not cancelled by a newer run of its concurrency group ("higher priority waiting request" in an annotation).
+#   - custom-pr-gates only: its pull request is still OPEN and its head is still the run's head_sha. A re-run attempt joins the
+#     concurrency group of its PR (custom-pr-gates-<PR>, cancel-in-progress: true), so re-running the run of an OLD head would CANCEL
+#     the run a newer push started, leaving the newer head with no `gates / result`. A run with no PR attached is skipped.
+#     (custom-sync's group has cancel-in-progress false: a re-run can only displace a pending scheduled run, which comes back in 3 hours.)
 #   - custom-sync only: every infrastructure job is one whose re-run is coherent: detect, merge, the gates of round 0 and round 3,
 #     open-pr, land. GitHub re-runs a failed job AND every job that depends on it, and the dependents of the gates of round 1 or 2
 #     (and of the agent rounds and pick3) are PAID model rounds that would produce another candidate than the one open-pr already
@@ -72,7 +76,7 @@ candidates="$(jq -c --argjson now "$NOW_EPOCH" --argjson hours "$LOOKBACK_HOURS"
        | select((.head_repository.full_name // $repo) == $repo)
        | select((.updated_at | fromdateiso8601) >= ($now - $hours * 3600))
        | select(.run_attempt < $max)
-       | {id, name, path: $p, attempt: .run_attempt, conclusion}]' <<<"$runs")"
+       | {id, name, path: $p, attempt: .run_attempt, conclusion, head_sha, pr: (.pull_requests[0].number // null)}]' <<<"$runs")"
 
 n_runs="$(jq 'length' <<<"$candidates")"
 log "$n_runs failed or cancelled run(s) of our workflows finished in the last ${LOOKBACK_HOURS}h below attempt $MAX_ATTEMPTS"
@@ -86,7 +90,7 @@ annotation_text() {
 
 # judge_run RUN_JSON: sets verdict (rerun|skip) and why.
 judge_run() {
-  local run="$1" id path jobs failed allowed name concl jid text kind
+  local run="$1" id path jobs failed allowed name concl jid text kind pr sha cur
   local -a infra_names=() blockers=()
   id="$(jq -r '.id' <<<"$run")"; path="$(jq -r '.path' <<<"$run")"
   verdict=skip why=""
@@ -112,6 +116,14 @@ judge_run() {
       why="infrastructure fault in '$name', whose re-run would also re-run paid or non-repeatable dependents; left for a person"; return 0
     fi
   done
+  if [ "$path" = .github/workflows/custom-pr-gates.yml ]; then
+    pr="$(jq -r '.pr // empty' <<<"$run")"; sha="$(jq -r '.head_sha // empty' <<<"$run")"
+    if [ -z "$pr" ] || [ -z "$sha" ]; then why="no pull request is attached to the run"; return 0; fi
+    cur="$(gh api "repos/$REPO/pulls/$pr" --jq '.state + " " + .head.sha')" || { why="could not read PR #$pr"; return 0; }
+    if [ "$cur" != "open $sha" ]; then
+      why="PR #$pr is no longer open at ${sha:0:10} ($cur): a re-run would cancel the run of its newer head"; return 0
+    fi
+  fi
   verdict=rerun
   why="infrastructure fault in: ${infra_names[*]}"
 }

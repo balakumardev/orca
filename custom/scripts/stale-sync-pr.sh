@@ -14,7 +14,9 @@
 #     head and fails this. Why the head and not "every commit of the PR is by the automation": the PR also carries every upstream
 #     commit between the two release tags (written by upstream's people), upstream's own release commit has the SAME identity as
 #     ours (its release bot is github-actions too), and GitHub lists at most 250 commits of a PR; such a scan always refuses or
-#     proves nothing.
+#     proves nothing. The two commits are read through `git/commits/<sha>` (what land-sync-pr.sh reads too), NEVER `commits/<sha>`:
+#     that one computes the commit's files and stats against its first parent, and for a sync merge that is the whole upstream delta
+#     (26606 files on v1.4.265), which is slow or times out, and a read that fails leaves the PR alone for ever. Fields are top-level.
 #   - STALE: custom has commits the head lacks. The merge's first parent (custom when the sync started) is a proper ancestor of the
 #     current tip and not the tip. (A compare of custom...head would carry the whole upstream release as a diff; P...tip is two
 #     custom commits.)
@@ -51,11 +53,11 @@ pr_closed_by_us() {
 head_is_untouched() {
   local repo="$1" head="$2" up="$3" m link lk
   SYNC_PR_FIRST_PARENT="" SYNC_PR_WHY=""
-  m="$(gh api "repos/$repo/commits/$head")" || { SYNC_PR_WHY="its head commit ${head:0:10} could not be read"; return 1; }
+  m="$(gh api "repos/$repo/git/commits/$head")" || { SYNC_PR_WHY="its head commit ${head:0:10} could not be read"; return 1; }
   if ! jq -e --arg e "$AUTOMATION_EMAIL" --arg u "$up" '
-       (.commit.message | split("\n")) as $lines
+       (.message | split("\n")) as $lines
        | (.parents | length) == 2
-         and .commit.author.email == $e and .commit.committer.email == $e
+         and .author.email == $e and .committer.email == $e
          and ($lines[0] | startswith("Merge upstream "))
          and ($lines | any(.[]; . == "Orca-Custom-Patch: upstream-sync"))
          and ($lines | any(.[]; startswith("Upstream commit: " + $u + " ")))' <<<"$m" >/dev/null; then
@@ -63,10 +65,10 @@ head_is_untouched() {
     return 1
   fi
   link="$(jq -r '.parents[1].sha' <<<"$m")"
-  lk="$(gh api "repos/$repo/commits/$link")" || { SYNC_PR_WHY="the link commit ${link:0:10} under its head could not be read"; return 1; }
+  lk="$(gh api "repos/$repo/git/commits/$link")" || { SYNC_PR_WHY="the link commit ${link:0:10} under its head could not be read"; return 1; }
   if ! jq -e --arg e "$AUTOMATION_EMAIL" --arg u "$up" \
-       '(.parents | length) == 2 and .parents[0].sha == $u and .commit.author.email == $e and .commit.committer.email == $e
-        and (.commit.message | startswith("Link upstream "))' <<<"$lk" >/dev/null; then
+       '(.parents | length) == 2 and .parents[0].sha == $u and .author.email == $e and .committer.email == $e
+        and (.message | startswith("Link upstream "))' <<<"$lk" >/dev/null; then
     SYNC_PR_WHY="the second parent ${link:0:10} of its head is not the automation's link commit for upstream ${up:0:10}"
     return 1
   fi

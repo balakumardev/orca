@@ -70,7 +70,10 @@ case "$path" in
   repos/*/compare/*) if [ -f "$FIX/compare-fails" ]; then echo "HTTP 500" >&2; exit 1; fi; emit "$FIX/compare.json" ;;
   repos/*/issues/*/comments) emit "$FIX/comments-$(basename "$(dirname "$path")").json" ;;
   repos/*/pulls/*/commits) emit "$FIX/pr-commits.json" ;;
-  repos/*/commits/*) emit "$FIX/commit-$(basename "$path").json" ;;
+  repos/*/git/commits/*) emit "$FIX/commit-$(basename "$path").json" ;;
+  # `commits/<sha>` computes the commit's files and stats against its first parent: for a sync merge that is the whole upstream
+  # delta (26606 files on v1.4.265), slow or timing out in real life. A script that reads it is wrong even if this fixture could answer.
+  repos/*/commits/*) echo "stub gh: $path computes a diff of the whole upstream delta; read git/commits/<sha> instead" >&2; exit 1 ;;
   *) echo "stub gh: no route for: $*" >&2; exit 1 ;;
 esac
 STUB
@@ -90,7 +93,7 @@ reset() { # a fresh world: custom is at $TIP, BASE file says v1.0.0, no PRs, no 
 commit() { # SHA PARENTS(comma list) AUTHOR_EMAIL COMMITTER_EMAIL MESSAGE
   jq -n --arg sha "$1" --arg parents "$2" --arg a "$3" --arg c "$4" --arg m "$5" \
     '{sha: $sha, parents: ($parents | split(",") | map(select(. != "")) | map({sha: .})),
-      commit: {author: {email: $a}, committer: {email: $c}, message: $m}}' > "$FIX/commit-$1.json"
+      author: {email: $a}, committer: {email: $c}, message: $m}' > "$FIX/commit-$1.json"
 }
 pristine() { # the automation's merge for UP on top of P0, with its link commit
   commit "$HEAD" "$P0,$LINK" "$BOT" "$BOT" "$MSG_HEAD"
@@ -169,6 +172,10 @@ reset; pristine; pr OPEN 43; commit "$HEAD" "$P0,$LINK,$OLD" "$BOT" "$BOT" "$MSG
 run; expect_stop "a head with three parents (an octopus someone made): left alone" "left alone"
 reset; pristine; pr OPEN 43; commit "$LINK" "$UP" "$BOT" "$BOT" "$MSG_LINK"
 run; expect_stop "a link commit with one parent: left alone" "second parent"
+reset; pristine; pr OPEN 43; commit "$HEAD" "$P0,$LINK" "$BOT" "$BOT" "${MSG_HEAD/Merge upstream v1.4.258 into custom/Some other subject}"
+run; expect_stop "a head whose subject is not 'Merge upstream ...': left alone" "left alone"
+reset; pristine; pr OPEN 43; commit "$LINK" "$UP,$OLD" "$BOT" "$BOT" "Some other subject"
+run; expect_stop "a link commit whose subject is not 'Link upstream ...': left alone" "second parent"
 reset; pristine; pr OPEN 43; commit "$LINK" "$OLD,$UP" "$BOT" "$BOT" "$MSG_LINK"
 run; expect_stop "a link commit whose first parent is not the upstream commit: left alone" "second parent"
 reset; pristine; pr OPEN 43; commit "$LINK" "$UP,$OLD" "$HUMAN" "$HUMAN" "$MSG_LINK"

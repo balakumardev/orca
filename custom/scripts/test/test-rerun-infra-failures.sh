@@ -58,6 +58,7 @@ case "$path" in
     id="$(basename "$(dirname "$path")")"
     [ ! -f "$FIX/ann-$id.unreadable" ] || { echo "HTTP 500" >&2; exit 1; }
     emit "$FIX/ann-$id.json" ;;
+  repos/*/pulls/*) emit "$FIX/pull-$(basename "$path").json" ;;
   *) echo "stub gh: no route for: $*" >&2; exit 1 ;;
 esac
 STUB
@@ -66,10 +67,12 @@ chmod +x "$tmp/bin/gh"
 # ---- fixture builders ---------------------------------------------------------------------------------------------------------
 FIX="$tmp/fix"
 reset() { rm -rf "$FIX"; mkdir -p "$FIX"; echo '{"workflow_runs":[]}' > "$FIX/runs.json"; JOBSEQ=1000; }
-addrun() { # ID PATH CONCLUSION ATTEMPT AGE_HOURS [HEAD_REPO]
-  jq --argjson id "$1" --arg p "$2" --arg c "$3" --argjson a "$4" --argjson age "$5" --arg hr "${6:-balakumardev/orca}" --argjson now "$NOW" \
-    '.workflow_runs += [{id: $id, name: ($p | sub(".*/"; "") | sub(".yml$"; "")), path: $p, conclusion: $c, run_attempt: $a,
-       updated_at: (($now - ($age * 3600)) | todate), head_repository: {full_name: $hr}}]' "$FIX/runs.json" > "$FIX/r.tmp" && mv "$FIX/r.tmp" "$FIX/runs.json"
+addrun() { # ID PATH CONCLUSION ATTEMPT AGE_HOURS [HEAD_REPO]. A pull-request gate run gets PR number == ID, head sha "sha-<ID>", and an open PR at that head.
+  local prs='[]'
+  case "$2" in "$PRG"*) prs="[{\"number\": $1}]"; echo "{\"state\":\"open\",\"head\":{\"sha\":\"sha-$1\"}}" > "$FIX/pull-$1.json" ;; esac
+  jq --argjson id "$1" --arg p "$2" --arg c "$3" --argjson a "$4" --argjson age "$5" --arg hr "${6:-balakumardev/orca}" --argjson now "$NOW" --argjson prs "$prs" \
+    '.workflow_runs += [{id: $id, name: ($p | sub(".*/"; "") | sub(".yml$"; "")), path: $p, conclusion: $c, run_attempt: $a, head_sha: ("sha-" + ($id | tostring)),
+       pull_requests: $prs, updated_at: (($now - ($age * 3600)) | todate), head_repository: {full_name: $hr}}]' "$FIX/runs.json" > "$FIX/r.tmp" && mv "$FIX/r.tmp" "$FIX/runs.json"
   [ -f "$FIX/jobs-$1.json" ] || echo '{"jobs":[]}' > "$FIX/jobs-$1.json"
 }
 addjob() { # RUN_ID NAME CONCLUSION [ANNOTATION|UNREADABLE]
@@ -162,6 +165,16 @@ reset; addrun 33 "$PRG" failure 1 1 "someone-else/orca"; addjob 33 "gates / e2e"
 go; expect_none "a run of a fork's pull request is not ours to re-run"
 reset; addrun 34 "$PRG@refs/pull/12/merge" failure 1 1; addjob 34 "gates / e2e" cancelled "$NOT_ACQUIRED"
 go; expect_rerun "a run path with an @ref suffix is still recognised" 34
+
+# ---- a re-run joins the PR's concurrency group (cancel-in-progress: true) -------------------------------------------------------
+reset; addrun 60 "$PRG" failure 1 1; addjob 60 "gates / e2e" cancelled "$NOT_ACQUIRED"; echo '{"state":"open","head":{"sha":"sha-newer"}}' > "$FIX/pull-60.json"
+go; expect_none "pr-gates: the PR has a newer head (its newer run would be cancelled by a re-run of this one): nothing is re-run" "newer head"
+reset; addrun 61 "$PRG" failure 1 1; addjob 61 "gates / e2e" cancelled "$NOT_ACQUIRED"; echo '{"state":"closed","head":{"sha":"sha-61"}}' > "$FIX/pull-61.json"
+go; expect_none "pr-gates: the PR is closed or merged: nothing is re-run" "no longer open"
+reset; addrun 62 "$PRG" failure 1 1; addjob 62 "gates / e2e" cancelled "$NOT_ACQUIRED"; jq '.workflow_runs[0].pull_requests = []' "$FIX/runs.json" > "$FIX/r.tmp" && mv "$FIX/r.tmp" "$FIX/runs.json"
+go; expect_none "pr-gates: a run with no pull request attached is skipped" "no pull request is attached"
+reset; addrun 63 "$PRG" failure 1 1; addjob 63 "gates / e2e" cancelled "$NOT_ACQUIRED"; rm "$FIX/pull-63.json"
+go; expect_none "pr-gates: a pull request that cannot be read is not guessed at" "could not read PR #63"
 
 # ---- custom-sync: only the jobs whose re-run is coherent --------------------------------------------------------------------
 for name in "detect" "merge" "gates (round 0) / e2e" "gates (round 3) / e2e" "open-pr" "land"; do
