@@ -76,6 +76,7 @@ import type { WorkspaceSessionApi } from './api/workspace-session-api'
 import type { FolderWorkspacesApi, SparsePresetsApi, WorktreeApi } from './api/worktree-api'
 import type { FolderSearchApi } from './api/folder-search-api'
 import type { ProjectTodosApi } from './api/project-todos-api'
+import type { ProjectAgentAccountsApi } from './api/project-agent-accounts-api'
 
 // Flattens contracts that share one PreloadApi key: an intersection is not type-identical to the flat shape.
 type Merged<T> = { [K in keyof T]: T[K] }
@@ -91,6 +92,7 @@ export type PreloadApi = {
   folderWorkspaces: FolderWorkspacesApi
   folderSearch: FolderSearchApi
   projectTodos: ProjectTodosApi
+  projectAgentAccounts: ProjectAgentAccountsApi
   sparsePresets: SparsePresetsApi
   worktrees: WorktreeApi
   workspaceCleanup: WorkspaceCleanupApi
