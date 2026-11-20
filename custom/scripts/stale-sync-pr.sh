@@ -7,7 +7,11 @@
 # marker comment and the tag is synced again from the current custom, on the same branch name sync/<tag>.
 #
 # SAFETY: every one of these must hold, otherwise the PR is left alone and the reason is said.
-#   - The PR is OPEN, from this repository, against custom, opened by the automation, and the only open PR for the branch.
+#   - The PR is OPEN, from this repository, against custom, opened by the automation, READY (not a draft) and the only open PR for
+#     the branch. A draft is a sync PR whose gates failed or whose merge needs a person ("[gates failed]", "[needs manual merge]"),
+#     or one a person turned back into a draft: `land` declines it because it is red, not because custom moved, and a person may be
+#     working on it locally, so it is never replaced. PRs of a FORK that happen to use the same branch name are not ours: `gh pr
+#     list --head <name>` returns them too, and they are dropped before anything is counted.
 #   - Its head commit is untouched automation output: the merge commit sync-merge.sh made for THIS upstream commit (author and
 #     committer are the automation, `Orca-Custom-Patch: upstream-sync`, `Upstream commit: <sha>`), whose second parent is the link
 #     commit on top of that upstream commit. A commit a person pushes (a fix, "Update branch", a merge of custom) becomes the new
@@ -81,7 +85,8 @@ classify_sync_prs() {
   local prs attempts=0 num n_open pr head rel
   SYNC_PR_STOP="" SYNC_PR_REPLACE="" SYNC_PR_REPLACE_HEAD=""
   prs="$(gh pr list --repo "$repo" --state all --head "$branch" --limit 30 \
-    --json number,state,headRefName,headRefOid,baseRefName,isCrossRepository,author)"
+    --json number,state,headRefName,headRefOid,baseRefName,isCrossRepository,isDraft,author \
+    | jq -c '[.[] | select(.isCrossRepository != true)]')"
   [ "$(jq 'length' <<<"$prs")" -gt 0 ] || return 0
 
   # A merged PR means custom/BASE moved on.
@@ -110,10 +115,13 @@ classify_sync_prs() {
     head="$(jq -r '.headRefOid' <<<"$pr")"
     SYNC_PR_STOP="PR #$num (OPEN) already exists for $branch"
     if [ "$base_branch" != custom ]; then SYNC_PR_STOP+=" (left alone: the base branch is $base_branch, not custom)"; return 0; fi
-    if [ "$(jq -r '.isCrossRepository' <<<"$pr")" != false ]; then SYNC_PR_STOP+=" (left alone: it comes from a fork)"; return 0; fi
+    if [ "$(jq -r '.isCrossRepository' <<<"$pr")" != false ]; then SYNC_PR_STOP+=" (left alone: it does not say it comes from this repository)"; return 0; fi
     if [ "$(jq -r '.baseRefName' <<<"$pr")" != "$base_branch" ]; then SYNC_PR_STOP+=" (left alone: its base is $(jq -r '.baseRefName' <<<"$pr"), not $base_branch)"; return 0; fi
     if ! jq -e --arg re "$AUTOMATION_LOGIN_RE" '(.author.login // "") | test($re)' <<<"$pr" >/dev/null; then
       SYNC_PR_STOP+=" (left alone: it was not opened by the automation)"; return 0
+    fi
+    if [ "$(jq -r '.isDraft' <<<"$pr")" != false ]; then
+      SYNC_PR_STOP+=" (left alone: it is a draft, so its gates failed or a person is working on it; only a ready PR is replaced)"; return 0
     fi
     if ! head_is_untouched "$repo" "$head" "$up"; then SYNC_PR_STOP+=" (left alone: $SYNC_PR_WHY)"; return 0; fi
     if [ "$SYNC_PR_FIRST_PARENT" = "$base_sha" ]; then

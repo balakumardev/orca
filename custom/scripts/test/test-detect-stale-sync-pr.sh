@@ -33,6 +33,7 @@ P0="2222222222222222222222222222222222222222"   # custom when the sync started
 TIP="3333333333333333333333333333333333333333"  # custom now
 LINK="4444444444444444444444444444444444444444"
 HEAD="5555555555555555555555555555555555555555"
+BRANCH_TIP="6666666666666666666666666666666666666666" # where the sync branch points when it exists (the PR's head or an orphan's)
 MSG_HEAD=$'Merge upstream v1.4.258 into custom\n\nUpstream commit: '"$UP"$' (v1.4.258)\nPrevious BASE: v1.0.0\nConflicts: 0 file(s) conflicted\n\nOrca-Custom-Patch: upstream-sync\n'
 MSG_LINK=$'Link upstream v1.4.258 to v1.0.0\n\nSynthetic commit made by custom-sync.\n'
 
@@ -64,7 +65,10 @@ fi
 path="${2%%\?*}"
 case "$path" in
   repos/*/git/ref/heads/custom | repos/*/git/ref/heads/test/*) emit "$FIX/custom-ref.json" ;;
-  repos/*/git/ref/heads/sync/*) if [ -f "$FIX/branch-exists" ]; then echo '{"object":{"sha":"x"}}'; else echo "HTTP 404" >&2; exit 1; fi ;;
+  repos/*/git/ref/heads/sync/*)
+    if [ -f "$FIX/branch-exists" ]; then
+      echo "{\"object\":{\"sha\":\"$BRANCH_TIP\"}}" | { if [ -n "$jqprog" ]; then jq -r -c "$jqprog"; else cat; fi; }
+    else echo "HTTP 404" >&2; exit 1; fi ;;
   repos/*/contents/custom/BASE) emit "$FIX/base-file.json" ;;
   repos/stablyai/orca/commits/*) echo "{\"sha\":\"$UPSTREAM_SHA\"}" | { if [ -n "$jqprog" ]; then jq -r -c "$jqprog"; else cat; fi; } ;;
   repos/*/compare/*) if [ -f "$FIX/compare-fails" ]; then echo "HTTP 500" >&2; exit 1; fi; emit "$FIX/compare.json" ;;
@@ -99,10 +103,10 @@ pristine() { # the automation's merge for UP on top of P0, with its link commit
   commit "$HEAD" "$P0,$LINK" "$BOT" "$BOT" "$MSG_HEAD"
   commit "$LINK" "$UP,$OLD" "$BOT" "$BOT" "$MSG_LINK"
 }
-pr() { # STATE [NUMBER] [AUTHOR_LOGIN] [BASE] [CROSS] [HEAD]: add one PR for sync/v1.4.258 to the all-list
+pr() { # STATE [NUMBER] [AUTHOR_LOGIN] [BASE] [CROSS] [HEAD] [DRAFT]: add one PR for sync/v1.4.258 to the all-list
   local n="${2:-43}"
-  jq --argjson n "$n" --arg st "$1" --arg l "${3:-app/github-actions}" --arg b "${4:-custom}" --argjson x "${5:-false}" --arg h "${6:-$HEAD}" \
-    '. + [{number: $n, state: $st, headRefName: "sync/v1.4.258", headRefOid: $h, baseRefName: $b, isCrossRepository: $x, author: {login: $l}}]' \
+  jq --argjson n "$n" --arg st "$1" --arg l "${3:-app/github-actions}" --arg b "${4:-custom}" --argjson x "${5:-false}" --arg h "${6:-$HEAD}" --argjson d "${7:-false}" \
+    '. + [{number: $n, state: $st, headRefName: "sync/v1.4.258", headRefOid: $h, baseRefName: $b, isCrossRepository: $x, isDraft: $d, author: {login: $l}}]' \
     "$FIX/prs-all.json" > "$FIX/p.tmp" && mv "$FIX/p.tmp" "$FIX/prs-all.json"
 }
 comments() { # NUMBER then LOGIN BODY pairs, oldest first
@@ -117,7 +121,7 @@ closed_by_us() { pr CLOSED "$1"; comments "$1" "github-actions[bot]" "A progress
 run() { # [INPUT_REF] [INPUT_BASE_BRANCH] -> d_out d_rc
   : > "$tmp/gh.log"
   d_rc=0
-  d_out="$(env PATH="$tmp/bin:$PATH" GH_LOG="$tmp/gh.log" FIX="$FIX" UPSTREAM_SHA="$UP" \
+  d_out="$(env PATH="$tmp/bin:$PATH" GH_LOG="$tmp/gh.log" FIX="$FIX" UPSTREAM_SHA="$UP" BRANCH_TIP="$BRANCH_TIP" \
     GITHUB_REPOSITORY=balakumardev/orca GITHUB_RUN_NUMBER=7 INPUT_REF="${1:-v1.4.258}" INPUT_BASE_BRANCH="${2:-custom}" \
     bash "$scripts/detect-release.sh" 2>&1)" || d_rc=$?
 }
@@ -128,7 +132,7 @@ expect_stop() { # NAME REASON_SUBSTRING: proceeds=false, the reason says it, and
 }
 expect_replace() { # NAME NUMBER
   if [ "$d_rc" = 0 ] && [ "$(out_of proceed)" = true ] && [ "$(out_of replace_pr)" = "$2" ] && [ "$(out_of replace_head)" = "$HEAD" ] \
-     && [ "$(out_of orphan_branch)" = true ] && [ "$(out_of branch)" = sync/v1.4.258 ] && [ "$(out_of is_test)" = false ]; then ok "$1"
+     && [ "$(out_of orphan_branch)" = true ] && [ "$(out_of orphan_sha)" = "$BRANCH_TIP" ] && [ "$(out_of branch)" = sync/v1.4.258 ] && [ "$(out_of is_test)" = false ]; then ok "$1"
   else bad "$1: rc=$d_rc out=[$d_out]"; fi
 }
 reads_only() { # detect only reads: no close, comment, delete or push
@@ -138,7 +142,7 @@ reads_only() { # detect only reads: no close, comment, delete or push
 # ---- no PR at all -----------------------------------------------------------------------------------------------------------
 reset
 run
-if [ "$d_rc" = 0 ] && [ "$(out_of proceed)" = true ] && [ -z "$(out_of replace_pr)" ] && [ "$(out_of orphan_branch)" = false ] && [ "$(out_of branch)" = sync/v1.4.258 ]; then ok "no PR for the tag: sync it, nothing to replace, no orphan branch"; else bad "no PR: rc=$d_rc out=[$d_out]"; fi
+if [ "$d_rc" = 0 ] && [ "$(out_of proceed)" = true ] && [ -z "$(out_of replace_pr)" ] && [ "$(out_of orphan_branch)" = false ] && [ -z "$(out_of orphan_sha)" ] && [ "$(out_of branch)" = sync/v1.4.258 ]; then ok "no PR for the tag: sync it, nothing to replace, no orphan branch (orphan_sha empty)"; else bad "no PR: rc=$d_rc out=[$d_out]"; fi
 
 # ---- an open PR that is current stops ---------------------------------------------------------------------------------------
 reset; pristine; pr OPEN 43; commit "$HEAD" "$TIP,$LINK" "$BOT" "$BOT" "$MSG_HEAD"
@@ -182,8 +186,29 @@ reset; pristine; pr OPEN 43; commit "$LINK" "$UP,$OLD" "$HUMAN" "$HUMAN" "$MSG_L
 run; expect_stop "a link commit made by a person: left alone" "second parent"
 reset; pristine; pr OPEN 43 balakumardev
 run; expect_stop "a PR a person opened is left alone" "not opened by the automation"
+reset; pristine; pr OPEN 43 app/github-actions custom false "$HEAD" true
+run; expect_stop "a DRAFT PR (gates failed, '[needs manual merge]', or a person working on it) is left alone, and the reason says it is a draft" "it is a draft"
+reset; pristine; pr OPEN 43 app/github-actions custom false "$HEAD" true; commit "$HEAD" "$TIP,$LINK" "$BOT" "$BOT" "$MSG_HEAD"
+run; expect_stop "a draft whose custom has not moved says draft too (never 'replace')" "it is a draft"
+reset; pristine; pr OPEN 43; jq 'map(del(.isDraft))' "$FIX/prs-all.json" > "$FIX/p.tmp" && mv "$FIX/p.tmp" "$FIX/prs-all.json"
+run; expect_stop "a PR that does not say whether it is a draft is treated as one" "it is a draft"
+reset; pristine; pr OPEN 43; : > "$FIX/branch-exists"
+run; expect_replace "the same stale PR, ready (not a draft), is replaced" 43
+# A fork's PR that happens to use the branch name `sync/<tag>` comes back from `gh pr list --head` too. It is not our PR and does not
+# hold our branch, so it must neither stop the search nor count as a second open PR or an attempt.
 reset; pristine; pr OPEN 43 app/github-actions custom true
-run; expect_stop "a PR from a fork is left alone" "fork"
+run
+if [ "$d_rc" = 0 ] && [ "$(out_of proceed)" = true ] && [ -z "$(out_of replace_pr)" ] && [ "$(out_of orphan_branch)" = false ]; then ok "an open PR from a FORK with the same branch name is ignored: the tag is synced, nothing replaced"; else bad "fork open: rc=$d_rc out=[$d_out]"; fi
+reset; pristine; pr MERGED 40 balakumardev custom true
+run
+if [ "$d_rc" = 0 ] && [ "$(out_of proceed)" = true ]; then ok "a MERGED PR from a fork with the same branch name does not say custom/BASE moved on"; else bad "fork merged: rc=$d_rc out=[$d_out]"; fi
+reset; pristine; pr CLOSED 41 balakumardev custom true; comments 41 balakumardev "no thanks"
+run
+if [ "$d_rc" = 0 ] && [ "$(out_of proceed)" = true ]; then ok "a CLOSED PR from a fork (a stranger's 'no') does not stop the search"; else bad "fork closed: rc=$d_rc out=[$d_out]"; fi
+reset; pristine; pr OPEN 43; pr OPEN 44 balakumardev custom true; : > "$FIX/branch-exists"
+run; expect_replace "our stale PR next to a fork's PR of the same branch name: ours is replaced (the fork's is not a second open PR)" 43
+reset; pristine; closed_by_us 41; closed_by_us 42; closed_by_us 45; pr OPEN 43; pr CLOSED 47 balakumardev custom true; : > "$FIX/branch-exists"
+run; expect_stop "a fork's closed PR is not an automation closure either: the cap counts only our own three" "cap 3"
 reset; pristine; pr OPEN 43 app/github-actions main
 run; expect_stop "a PR against another base is left alone" "base is main"
 reset; pristine; pr OPEN 43; echo '{"status":"diverged"}' > "$FIX/compare.json"
@@ -214,7 +239,7 @@ reset; pristine; closed_by_us 41; pr OPEN 43; : > "$FIX/branch-exists"
 run; expect_replace "one earlier PR closed by the automation does not stop a stale open PR from being replaced" 43
 reset; closed_by_us 41; : > "$FIX/branch-exists"
 run
-if [ "$d_rc" = 0 ] && [ "$(out_of proceed)" = true ] && [ -z "$(out_of replace_pr)" ] && [ "$(out_of orphan_branch)" = true ]; then ok "a PR closed by the automation and nothing open: sync again (the branch it left is an orphan)"; else bad "closed, none open: $d_out"; fi
+if [ "$d_rc" = 0 ] && [ "$(out_of proceed)" = true ] && [ -z "$(out_of replace_pr)" ] && [ "$(out_of orphan_branch)" = true ] && [ "$(out_of orphan_sha)" = "$BRANCH_TIP" ]; then ok "a PR closed by the automation and nothing open: sync again (the branch it left is an orphan, orphan_sha is the commit it holds)"; else bad "closed, none open: $d_out"; fi
 reset; pristine; closed_by_us 41; closed_by_us 42; pr OPEN 43; : > "$FIX/branch-exists"
 run; expect_replace "two earlier replacements: a third is still allowed (the cap is 3 closed)" 43
 reset; pristine; closed_by_us 41; closed_by_us 42; closed_by_us 45; pr OPEN 43
