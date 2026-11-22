@@ -1,0 +1,39 @@
+ ✓  node-shared  src/shared/workspace-attachments/workspace-attachment-origins.test.ts (3 tests) 4ms
+ ✓  node-shared  src/shared/workspace-setup/setup-script-shebang.test.ts (2 tests) 4ms
+ ✓  node-shared  src/shared/terminal/links/terminal-http-url-extraction.test.ts (11 tests) 9ms
+ ↓  node-shared  config/scripts/desktop-distribution/macos/macos-shipit-scheduling.test.mjs (1 test | 1 skipped)
+ ✓  node-shared  src/shared/concurrency/keyed-serialized-operations.test.ts (2 tests) 4ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL   node-shared  src/shared/bots/bot-mcp-apps.test.ts > botMcpAppHost > refuses userinfo, other schemes, bad IDNA, bad ports and non-hosts
+AssertionError: xn--a.example: expected 'xn--a.example' to be null
+
+- Expected:
+null
+
++ Received:
+"xn--a.example"
+
+ ❯ src/shared/bots/bot-mcp-apps.test.ts:67:43
+     65|       'gitlab.acme.dev:65536'
+     66|     ]) {
+     67|       expect(botMcpAppHost(input), input).toBeNull()
+       |                                           ^
+     68|     }
+     69|   })
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 705 passed | 24 skipped (730)
+      Tests  1 failed | 4313 passed | 120 skipped (4434)
+   Start at  08:15:34
+   Duration  105.79s (import 38%, transform 37%, tests 17%, environment 5%, setup 2%)
+
+     Import   node  5804 modules were evaluated 101303 times · 100.56s total, 50% of tracked time
+             ~28.96s faster with isolate: false — shared modules are evaluated once per worker instead of once per file
+             learn more: https://vitest.dev/guide/improving-performance#test-isolation
+
+
+::error file=/home/runner/work/orca/orca/repo/src/shared/bots/bot-mcp-apps.test.ts,title=[node-shared] src/shared/bots/bot-mcp-apps.test.ts > botMcpAppHost > refuses userinfo%2C other schemes%2C bad IDNA%2C bad ports and non-hosts,line=67,column=43::AssertionError: xn--a.example: expected 'xn--a.example' to be null%0A%0A- Expected:%0Anull%0A%0A+ Received:%0A"xn--a.example"%0A%0A ❯ src/shared/bots/bot-mcp-apps.test.ts:67:43%0A%0A
