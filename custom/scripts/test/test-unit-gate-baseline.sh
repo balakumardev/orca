@@ -121,12 +121,12 @@ STUB
 chmod +x "$repo/bin/pnpm"
 
 UP_SAME="$(printf '%s\t%s' "$FILE" "$NAME")"
-run_gate() { # NAME FIRST_LOG [MODE] [OUR_FILES] -> g_status g_calls g_note g_warn g_log (env UP_FAILED, UP_NO_JSON, INSTALL_RC pass through)
-  local name="$1" out="$tmp/out-$1" mode="${3:-sync}" ours="${4:-$tmp/our-files.txt}"
+run_gate() { # NAME FIRST_LOG [MODE] [OUR_FILES] [CHANGED_BASE] -> g_status g_calls g_note g_warn g_log (env UP_FAILED, UP_NO_JSON, INSTALL_RC pass through)
+  local name="$1" out="$tmp/out-$1" mode="${3:-sync}" ours="${4:-$tmp/our-files.txt}" cbase="${5:-v1.0.0}"
   rm -rf "$out"; : > "$tmp/calls.txt"
   ( cd "$repo" && env PATH="$repo/bin:$PATH" STUB_CALLS="$tmp/calls.txt" FIRST_LOG="$2" FIRST_RC=1 \
       UP_FAILED="${UP_FAILED:-}" UP_NO_JSON="${UP_NO_JSON:-}" INSTALL_RC="${INSTALL_RC:-0}" RERUN_RC="${RERUN_RC:-0}" \
-      bash "$scripts/run-gates.sh" --out "$out" --mode "$mode" --changed-base v1.0.0 --our-files "$ours" --only unit ) > "$tmp/gate-$name.out" 2>&1 || true
+      bash "$scripts/run-gates.sh" --out "$out" --mode "$mode" --changed-base "$cbase" --our-files "$ours" --only unit ) > "$tmp/gate-$name.out" 2>&1 || true
   g_status="$(jq -r '.gates[] | select(.id == "unit") | .status' "$out/gates.json")"
   g_calls="$(wc -l < "$tmp/calls.txt" | tr -d ' ')"
   g_note="$(jq -r '.gates[] | select(.id == "unit") | .note' "$out/gates.json")"
@@ -164,8 +164,25 @@ UP_FAILED="$UP_SAME" run_gate ours "$real" sync "$tmp/our-files-incl.txt"
 rm -f "$repo/$FILE"
 if [ "$g_status" = fail ] && [ "$g_calls" = 1 ]; then ok "gate: the failing file is one of ours = red, the release is not even run"; else bad "gate ours: status=$g_status calls=$g_calls"; fi
 
+# An ordinary pull request is measured against the release its BASE COMMIT is built on (custom/BASE read from that commit).
 UP_FAILED="$UP_SAME" run_gate pr "$real" pr
-if [ "$g_status" = fail ] && [ "$g_calls" = 1 ] && grep -q 'not a sync' "$g_log"; then ok "gate: an ordinary pull request has no pristine release to compare with = red"; else bad "gate pr: status=$g_status calls=$g_calls"; fi
+if [ "$g_status" = pass ] && grep -q "also fail on pristine upstream v1.0.0" <<<"$g_note" && grep -q "$FILE" <<<"$g_warn" && grep -q 'the runner, not this change' <<<"$g_warn"; then
+  ok "gate: an ordinary pull request whose failed test fails on the pristine release too = pass, the warning names the test"
+else bad "gate pr: status=$g_status note=[$g_note] warn=[$g_warn]"; fi
+if grep -q -E '^install --frozen-lockfile \[in .*/tree\]$' "$tmp/calls.txt" && [ "$(worktrees)" = 1 ]; then ok "gate: pull request: the release is installed in a worktree that is removed afterwards"; else bad "gate pr calls: $(cat "$tmp/calls.txt")"; fi
+
+UP_FAILED="" run_gate pr-passes-upstream "$real" pr
+if [ "$g_status" = fail ] && grep -q 'pass on upstream v1.0.0, so this change broke them' "$g_log"; then ok "gate: pull request: the test passes on the pristine release = this change broke it = red"; else bad "gate pr-passes-upstream: status=$g_status"; fi
+
+printf 'v0.0.1\n' > "$repo/custom/BASE"
+UP_FAILED="$UP_SAME" run_gate pr-tree-base "$real" pr
+if [ "$g_status" = pass ] && grep -q "pristine upstream v1.0.0" <<<"$g_note"; then ok "gate: pull request: the release comes from the base commit, a changed custom/BASE in the checkout is ignored"; else bad "gate pr-tree-base: status=$g_status note=[$g_note]"; fi
+printf 'v1.0.0\n' > "$repo/custom/BASE"
+
+empty_tree="$(git -C "$repo" hash-object -t tree /dev/null)"
+git -C "$repo" tag nobase "$(git -C "$repo" commit-tree -m 'base without custom/BASE' "$empty_tree")"
+UP_FAILED="$UP_SAME" run_gate pr-no-base "$real" pr "$tmp/our-files.txt" nobase
+if [ "$g_status" = fail ] && grep -q 'custom/BASE is not a release tag' "$g_log"; then ok "gate: pull request: a base commit without a readable custom/BASE = red"; else bad "gate pr-no-base: status=$g_status"; fi
 
 printf 'not-a-tag\n' > "$repo/custom/BASE"
 UP_FAILED="$UP_SAME" run_gate bad-base "$real"
