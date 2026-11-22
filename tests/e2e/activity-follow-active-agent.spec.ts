@@ -46,7 +46,8 @@ test.use({ launchEnv: { ORCA_BACKGROUND_LAUNCH: '1' } })
 
 const NEXT_CHORD = 'ControlOrMeta+Shift+Quote'
 
-// An agent row with no terminal tab behind it: the workspace can be opened, but no pane can take focus.
+// An agent row with no terminal tab behind it: the workspace can be opened, but no pane can take focus. It has to be
+// live: a finished local agent whose tab is gone is no longer listed at all.
 async function seedRetainedAgentInWorkspace(page: Page, prompt: string): Promise<SeededAgent> {
   const paneKey = await page.evaluate((prompt) => {
     const state = window.__store?.getState()
@@ -60,10 +61,10 @@ async function seedRetainedAgentInWorkspace(page: Page, prompt: string): Promise
     state.setAgentStatus(
       paneKey,
       {
-        state: 'done',
+        state: 'working',
         prompt,
         agentType: 'codex',
-        lastAssistantMessage: 'Finished before the tab closed.'
+        lastAssistantMessage: 'Working on without a tab.'
       },
       'Retained agent',
       { updatedAt: startedAt, stateStartedAt: startedAt },

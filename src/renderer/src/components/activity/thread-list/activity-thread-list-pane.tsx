@@ -390,6 +390,7 @@ export function ActivityThreadListPane({
                     canMarkThreadUnread={canMarkThreadUnread}
                     compactMode={compactMode}
                     showJumpAction={showJumpAction}
+                    groupBy={groupBy}
                   />
                 </div>
               )

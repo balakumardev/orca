@@ -1,24 +1,21 @@
-import {
-  selectDetectedWorktreesByRepo,
-  selectFolderWorkspaces,
-  selectWorktreesByRepo
-} from '@/store/workspaces/catalog/workspace-record-fields'
-import { useDeferredValue, useMemo, useRef } from 'react'
+import { useCallback, useDeferredValue, useMemo, useSyncExternalStore } from 'react'
 import { useAppStore } from '@/store'
-import { useStructuredChatTabNames } from '@/runtime/native-chat/naming/structured-chat-name-observation'
-import { buildActivityEvents } from '../events/activity-event-builder'
-import {
-  createActivityEventBuildCache,
-  resetActivityEventBuildCache
-} from '@/components/activity/events/activity-event-build-cache'
-import { freshActivityLiveAgentState, isRunningActivityState } from '../events/activity-event-state'
+import type { AppState } from '@/store/types'
+import { useAppStoreWithHostStatuses } from '@/store/slices/runtime-status/views/use-runtime-status-view'
+import { parsePaneKey } from '../../../../../shared/workspace-layout/stable-pane-id'
+import { resolveAgentRowPaneLiveTitle } from '../../dashboard/rows/agent-row-pane-live-title'
+import { paneTitleForEntry, paneTitleForEvent } from './activity-thread-presentation'
+import { isRunningActivityState } from '../events/activity-event-state'
 import {
   useAgentPaneThreadsDefaultHostId,
-  useAllAgentPaneThreadStoreData,
-  type AgentPaneThreadsStoreData,
-  type AllAgentPaneThreadsStoreData
+  type AgentPaneThreadsStoreData
 } from './use-agent-pane-thread-store-data'
-import { buildAgentPaneThreads, createAgentPaneThreadReuseCache } from './activity-thread-builder'
+import {
+  getActivityThreadInputs,
+  readActivityThreadSnapshot,
+  subscribeActivityThreads,
+  type ActivityThreadSnapshot
+} from './activity-thread-projection'
 import { collectHiddenChildAgentPaneKeys } from './activity-thread-child-agent'
 import {
   EMPTY_PAIRED_DEVICE_IDS_BY_ENVIRONMENT,
@@ -42,110 +39,74 @@ import type { ActivityThreadGroup, AgentPaneThread } from './activity-thread-typ
 const EMPTY_PANE_KEYS: ReadonlySet<string> = new Set()
 const EMPTY_THREADS: AgentPaneThread[] = []
 const EMPTY_GROUPS: ActivityThreadGroup[] = []
-const EMPTY_ACTIVITY_BUILD: ReturnType<typeof buildActivityEvents> = {
-  events: [],
-  liveAgentByPaneKey: {},
-  paneEntryByPaneKey: {}
-}
 
-/** Every Activity thread before any view filter: store data to events and threads. */
-export function useAllAgentPaneThreads({ badgeOnly = false }: { badgeOnly?: boolean } = {}): {
-  storeData: AllAgentPaneThreadsStoreData
-  allThreads: AgentPaneThread[]
-} {
-  const storeData = useAllAgentPaneThreadStoreData()
-  // Why: agentStatusEpoch is a dep (not used in the body) so the memo recomputes when freshness boundaries expire even without new PTY data.
-  const agentStatusEpoch = useAppStore((s) => s.agentStatusEpoch)
-  const chatNames = useStructuredChatTabNames()
-
-  // Per-hook caches preserve unchanged pane/event/thread identities across status writes, including repeated StrictMode/deferred builds.
-  const eventBuildCacheRef = useRef<ReturnType<typeof createActivityEventBuildCache>>(undefined!)
-  eventBuildCacheRef.current ??= createActivityEventBuildCache()
-  const threadReuseCacheRef = useRef<ReturnType<typeof createAgentPaneThreadReuseCache>>(undefined!)
-  threadReuseCacheRef.current ??= createAgentPaneThreadReuseCache()
-
-  const {
-    events: allEvents,
-    liveAgentByPaneKey,
-    paneEntryByPaneKey
-  } = useMemo(
-    () => {
-      const now = Date.now()
-      if (
-        badgeOnly &&
-        Object.keys(storeData.migrationUnsupportedByPtyId).length === 0 &&
-        !Array.from(storeData.agentStatusByPaneKey.values()).some((entry) =>
-          freshActivityLiveAgentState(entry, now)
-        )
-      ) {
-        resetActivityEventBuildCache(eventBuildCacheRef.current)
-        return EMPTY_ACTIVITY_BUILD
-      }
-      // Global history caps affect live-thread unread and search state.
-      return buildActivityEvents(
-        {
-          chatNames,
-          agentStatusByPaneKey: storeData.agentStatusByPaneKey,
-          runtimeAgentOrchestrationByPaneKey: storeData.runtimeAgentOrchestrationByPaneKey,
-          migrationUnsupportedByPtyId: storeData.migrationUnsupportedByPtyId,
-          tabsByWorktree: storeData.tabsByWorktree,
-          ptyIdsByTabId: storeData.ptyIdsByTabId,
-          unifiedTabsByWorktree: storeData.activityTabs,
-          worktreeMap: storeData.worktreeMap,
-          repoMap: storeData.repoMap,
-          repos: storeData.repos,
-          resolveWorktree: storeData.getKnownWorktreeById,
-          resolveWorktreeInputs: [
-            selectWorktreesByRepo(storeData),
-            selectFolderWorkspaces(storeData),
-            storeData.projectGroups,
-            storeData.repos,
-            selectDetectedWorktreesByRepo(storeData),
-            storeData.floatingWorkspacePath
-          ],
-          acknowledgedAgentsByPaneKey: storeData.acknowledgedAgentsByPaneKey,
-          activityClearedAtByPaneKey: storeData.activityClearedAtByPaneKey,
-          // Why: Date.now() is read in the memo body (not a dep) so stale-decay recomputes when agentStatusEpoch ticks, not on wall-clock time.
-          now
-        },
-        eventBuildCacheRef.current
-      )
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [storeData, agentStatusEpoch, chatNames, badgeOnly]
+/** Every Activity thread before any view filter, read from the window's shared projection. */
+export function useAllAgentPaneThreads({
+  badgeOnly = false
+}: { badgeOnly?: boolean } = {}): ActivityThreadSnapshot {
+  const mode = badgeOnly ? 'live' : 'all'
+  const subscribe = useCallback(
+    (listener: () => void) => subscribeActivityThreads(mode, listener),
+    [mode]
   )
-
-  // Why: selected outside storeData so a pane title change rebuilds threads, not events.
+  const getInputs = useCallback(() => getActivityThreadInputs(mode), [mode])
+  const inputs = useSyncExternalStore(subscribe, getInputs)
+  const snapshot = readActivityThreadSnapshot(mode, inputs)
+  // Why: selected outside the shared build so a pane title change retitles the rows instead of rebuilding events.
   const terminalLayoutsByTabId = useAppStore((s) => s.terminalLayoutsByTabId)
   const runtimePaneTitlesByTabId = useAppStore((s) => s.runtimePaneTitlesByTabId)
-
   const allThreads = useMemo(
     () =>
-      buildAgentPaneThreads(
-        {
-          events: badgeOnly
-            ? allEvents.filter((event) => liveAgentByPaneKey[event.entry.paneKey])
-            : allEvents,
-          liveAgentByPaneKey,
-          paneEntryByPaneKey,
-          generatedTitlesEnabled: storeData.generatedTitlesEnabled,
-          terminalLayoutsByTabId,
-          runtimePaneTitlesByTabId
-        },
-        threadReuseCacheRef.current
-      ),
-    [
-      allEvents,
-      liveAgentByPaneKey,
-      paneEntryByPaneKey,
-      storeData.generatedTitlesEnabled,
-      terminalLayoutsByTabId,
-      runtimePaneTitlesByTabId,
-      badgeOnly
-    ]
+      withPaneLiveTitles(snapshot.allThreads, snapshot.storeData.generatedTitlesEnabled, {
+        terminalLayoutsByTabId,
+        runtimePaneTitlesByTabId
+      }),
+    [snapshot, terminalLayoutsByTabId, runtimePaneTitlesByTabId]
   )
+  return allThreads === snapshot.allThreads ? snapshot : { ...snapshot, allThreads }
+}
 
-  return { storeData, allThreads }
+/**
+ * The shared build titles a row from `tab.title`, which in a split tab belongs to the focused pane. Each row
+ * reads its own pane's live title instead, the way the sidebar's agent rows do; unchanged rows keep identity.
+ */
+function withPaneLiveTitles(
+  threads: AgentPaneThread[],
+  generatedTitlesEnabled: boolean,
+  layouts: {
+    terminalLayoutsByTabId: AppState['terminalLayoutsByTabId']
+    runtimePaneTitlesByTabId: AppState['runtimePaneTitlesByTabId']
+  }
+): AgentPaneThread[] {
+  let retitled: AgentPaneThread[] | null = null
+  threads.forEach((thread, index) => {
+    // Same pane lookup the build makes, so a row's title is the one the build would have given it.
+    const separator = thread.paneKey.indexOf(':')
+    const tabId = separator > 0 ? thread.paneKey.slice(0, separator) : ''
+    const paneLiveTitle = resolveAgentRowPaneLiveTitle(
+      layouts.terminalLayoutsByTabId[tabId],
+      layouts.runtimePaneTitlesByTabId[tabId],
+      parsePaneKey(thread.paneKey)?.leafId
+    )
+    // Same source as the build: the live turn names the row, else its newest event does.
+    const paneTitle =
+      thread.currentAgentEntry !== null
+        ? paneTitleForEntry(
+            thread.currentAgentEntry,
+            thread.tab,
+            generatedTitlesEnabled,
+            paneLiveTitle
+          )
+        : thread.latestEvent !== null
+          ? paneTitleForEvent(thread.latestEvent, generatedTitlesEnabled, paneLiveTitle)
+          : thread.paneTitle
+    if (paneTitle === thread.paneTitle) {
+      return
+    }
+    retitled ??= [...threads]
+    retitled[index] = { ...thread, paneTitle }
+  })
+  return retitled ?? threads
 }
 
 /** Shared Activity/sidebar pipeline: store data to events, threads, filters and groups. */
@@ -187,15 +148,15 @@ export function useAgentPaneThreads(args: {
   const runtimeEnvironments = useAppStore((s) =>
     s.agentsHideWorkspacesFromOtherDevices ? s.runtimeEnvironments : null
   )
-  const runtimeStatusByEnvironmentId = useAppStore((s) =>
-    s.agentsHideWorkspacesFromOtherDevices ? s.runtimeStatusByEnvironmentId : null
+  const pairedHostStatuses = useAppStoreWithHostStatuses((s, statuses) =>
+    s.agentsHideWorkspacesFromOtherDevices ? statuses : null
   )
   const pairedDeviceIdsByEnvironment = useMemo(
     () =>
-      runtimeEnvironments && runtimeStatusByEnvironmentId
-        ? getPairedDeviceIdsByEnvironment(runtimeEnvironments, runtimeStatusByEnvironmentId)
+      runtimeEnvironments && pairedHostStatuses
+        ? getPairedDeviceIdsByEnvironment(runtimeEnvironments, pairedHostStatuses)
         : EMPTY_PAIRED_DEVICE_IDS_BY_ENVIRONMENT,
-    [runtimeEnvironments, runtimeStatusByEnvironmentId]
+    [runtimeEnvironments, pairedHostStatuses]
   )
   const { storeData: unscopedStoreData, allThreads } = useAllAgentPaneThreads({ badgeOnly })
   const defaultHostId = useAgentPaneThreadsDefaultHostId()
