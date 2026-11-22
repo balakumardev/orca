@@ -103,16 +103,23 @@ unit_baseline_failures() {
 }
 
 # unit_baseline_gate LOG SCOPE_FILE...: returns 0 when every failed test of LOG is outside our scope and fails the same way on the pristine
-# upstream release this change merges (custom/BASE), measured here and now; anything else, or any doubt, returns 1 and the gate stays red.
-# Needs from run-gates.sh: MODE, SYNC_PR, with_timeout, note, warn_note. Only a sync has a release to compare with.
+# upstream release this branch is built on (custom/BASE), measured here and now; anything else, or any doubt, returns 1 and the gate stays red.
+# Needs from run-gates.sh: MODE, SYNC_PR, CHANGED_BASE, with_timeout, note, warn_note. A sync compares with the release it merges (custom/BASE of
+# the merge). An ordinary pull request compares with the release its base commit is built on: that tag is read from the base commit, never from
+# the change under test, so a change cannot name an older release to get a failure excused. Added 2026-11-22: the v1.4.269 sync merged an
+# upstream test that fails on the runner's Node 24.22 (bot-mcp-apps), which turned every later pull request red although none touched it.
 unit_baseline_gate() {
   local log="$1"; shift
-  if [ "${MODE:-}" != sync ] && [ "${SYNC_PR:-}" != 1 ]; then echo "unit baseline: not a sync, there is no pristine upstream release to compare with"; return 1; fi
+  local tag_src=""
+  if [ "${MODE:-}" = sync ] || [ "${SYNC_PR:-}" = 1 ]; then tag_src=tree
+  elif [ "${MODE:-}" = pr ] && [ -n "${CHANGED_BASE:-}" ]; then tag_src=base
+  else echo "unit baseline: neither a sync nor a pull request with a base commit, there is no pristine upstream release to compare with"; return 1; fi
   local decision tag dir tree json cand up uncovered n_files rc=0
   decision="$(unit_baseline_decide "$log" "$@")"
   if [ "$(head -n 1 <<<"$decision")" != check ]; then echo "unit baseline: the gate stays red (${decision#keep-red: })"; return 1; fi
   cand="$(tail -n +2 <<<"$decision")"
-  tag="$(tr -d '[:space:]' < custom/BASE 2>/dev/null || true)"
+  if [ "$tag_src" = base ]; then tag="$(git show "$CHANGED_BASE:custom/BASE" 2>/dev/null | tr -d '[:space:]' || true)"
+  else tag="$(tr -d '[:space:]' < custom/BASE 2>/dev/null || true)"; fi
   if ! [[ "$tag" =~ $TAG_RE ]]; then echo "unit baseline: custom/BASE is not a release tag, the gate stays red"; return 1; fi
   if ! git rev-parse -q --verify "refs/tags/$tag^{commit}" >/dev/null; then
     fetch_upstream "+refs/tags/$tag:refs/tags/$tag" || { echo "unit baseline: could not fetch upstream $tag, the gate stays red"; return 1; }
@@ -140,7 +147,7 @@ unit_baseline_gate() {
       echo "unit baseline: every one of them fails on upstream $tag as well; they are not counted:"
       sed 's/^/  /' <<<"$cand" | tr '\t' ' '
       note "$(wc -l <<<"$cand" | tr -d ' ') failed unit test(s) outside this change also fail on pristine upstream $tag in this environment and were not counted"
-      warn_note "Not counted: $(wc -l <<<"$cand" | tr -d ' ') unit test(s) that fail on pristine upstream $tag in this environment too (the runner, not this merge): $(cut -f1 <<<"$cand" | sort -u | tr '\n' ' ')"
+      warn_note "Not counted: $(wc -l <<<"$cand" | tr -d ' ') unit test(s) that fail on pristine upstream $tag in this environment too (the runner, not this change): $(cut -f1 <<<"$cand" | sort -u | tr '\n' ' ')"
     fi
   else
     echo "unit baseline: the upstream run produced no usable result (exit $rc); the gate stays red. Last lines:"
