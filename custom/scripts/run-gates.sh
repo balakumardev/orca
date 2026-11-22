@@ -19,6 +19,8 @@
 . "$(dirname "$0")/lib.sh"
 # shellcheck source=unit-flake.sh
 . "$(dirname "$0")/unit-flake.sh"
+# shellcheck source=unit-baseline.sh
+. "$(dirname "$0")/unit-baseline.sh"
 # shellcheck source=gate-details.sh
 . "$(dirname "$0")/gate-details.sh"
 
@@ -188,11 +190,14 @@ gate_unit() {
   # unhandled error that a test file outside this change's scope raised, so those files get one re-run.
   if [ "$rc" -eq 1 ]; then decision="$(unit_flake_decide "$first" "$TEST_SCOPE" "$ALL_TARGETS")"
   else decision="keep-red: vitest exited with code $rc, not a test-failure exit code"; fi
-  rm -f "$first"
   if [ "$(head -n 1 <<<"$decision")" != rerun ]; then
+    # Failed tests that are not ours and fail the same way on the pristine upstream release are the runner's, not this merge's.
+    if [ "$rc" -eq 1 ] && unit_baseline_gate "$first" "$TEST_SCOPE" "$ALL_TARGETS"; then rm -f "$first"; return 0; fi
+    rm -f "$first"
     echo "unit flake check: the gate stays red (${decision#keep-red: })"
     return "$rc"
   fi
+  rm -f "$first"
   while IFS= read -r f; do [ -z "$f" ] || rerun+=("$f"); done < <(tail -n +2 <<<"$decision")
   for f in "${rerun[@]}"; do
     [ -f "$f" ] || { echo "unit flake check: the gate stays red ($f does not exist in this checkout)"; return "$rc"; }
