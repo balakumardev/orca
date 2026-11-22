@@ -29,7 +29,16 @@ eq "a repair round deleted a file" "$(review_needed "$(facts '{"repair_deleted":
 eq "the reason lists at most four files" "$(review_needed "$(facts '{"repair_deleted":["a","b","c","d","e","f"]}')")" "a repair round deleted 6 file(s): a, b, c, d, ..."
 eq "the model resolved a conflict by deleting the file" "$(review_needed "$(facts '{"conflicts":[{"path":"src/x.ts","kind":"deleted-by-them","resolution":"agent","decision":"deleted"}]}')")" "the model resolved 1 conflict(s) by deleting the file: src/x.ts"
 eq "keeping the file of a modify/delete conflict is not a reason" "$(review_needed "$(facts '{"conflicts":[{"path":"src/x.ts","kind":"deleted-by-them","resolution":"agent","decision":"kept"}]}')")" ""
-eq "hunk-survival warnings are a reason, counted by file" "$(review_needed "$(facts "$CLEAN")" "$(gates "$HUNK_LOST")")" "lines of our customizations are missing from 2 merged file(s) (hunk-survival)"
+eq "hunk-survival warnings the model did not account for are a reason, listed by file" "$(review_needed "$(facts "$CLEAN")" "$(gates "$HUNK_LOST")")" "lines of our customizations are missing from a merged file and the model did not account for it: src/a.ts, src/b.tsx"
+lost() { printf '{"agent":{"rounds":[%s]}}\n' "$1" > "$tmp/lost.json"; echo "$tmp/lost.json"; }
+R1='{"round":1,"lost_lines":["LOST-LINES src/a.ts: restored in src/a.ts (x)","LOST-LINES src/b.tsx: already provided by src/b.tsx (y)"]}'
+R2='{"round":2,"lost_lines":["LOST-LINES src/a.ts: left, because x"]}'
+eq "the model accounted for every flagged file: nothing to review" "$(review_needed "$(lost "$R1")" "$(gates "$HUNK_LOST")")" ""
+eq "one flagged file is left by the model: only that one is listed" "$(review_needed "$(lost '{"round":2,"lost_lines":["LOST-LINES src/a.ts: restored in src/a.ts","LOST-LINES src/b.tsx: left, because it is not needed"]}')" "$(gates "$HUNK_LOST")")" "lines of our customizations are missing from a merged file and the model did not account for it: src/b.tsx"
+eq "a flagged file with no LOST-LINES line is not accounted for" "$(review_needed "$(lost '{"round":2,"lost_lines":["LOST-LINES src/a.ts: restored in src/a.ts"]}')" "$(gates "$HUNK_LOST")")" "lines of our customizations are missing from a merged file and the model did not account for it: src/b.tsx"
+eq "the last round that mentions a file decides (a later round leaves what an earlier one restored)" "$(review_needed "$(lost "$R1,$R2")" "$(gates "$HUNK_LOST")")" "lines of our customizations are missing from a merged file and the model did not account for it: src/a.ts"
+eq "a LOST-LINES line for another file does not count" "$(review_needed "$(lost '{"round":1,"lost_lines":["LOST-LINES src/a.ts.bak: restored in x","LOST-LINES src/other.ts: restored in x"]}')" "$(gates '{"gates":[{"id":"hunk-survival","warnings":["`src/a.ts`: 1 of 1 missing"]}]}')")" "lines of our customizations are missing from a merged file and the model did not account for it: src/a.ts"
+eq "a moved file is judged by its new path" "$(review_needed "$(lost '{"round":1,"lost_lines":["LOST-LINES src/new.ts: restored in src/new.ts"]}')" "$(gates '{"gates":[{"id":"hunk-survival","warnings":["`src/old.ts -> src/new.ts`: 3 of 3 missing"]}]}')")" ""
 eq "warnings of another gate are not" "$(review_needed "$(facts "$CLEAN")" "$(gates '{"gates":[{"id":"unit","warnings":["Not counted: 1"]}]}')")" ""
 two="$(review_needed "$(facts '{"repair_deleted":["src/ours.tsx"]}')" "$(gates "$HUNK_LOST")")"
 eq "both signals give both reasons, one per line" "$(wc -l <<<"$two" | tr -d ' ')" "2"
