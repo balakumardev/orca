@@ -185,6 +185,7 @@ jq -n '{checked: 1, affected: 1, files: [{old: "src/old-delta.ts", mapped: "src/
 round r2h repair repair-moved 2 pro r1 "$tmp/hs-gates"
 check "the repair prompt offers the new path of the moved file" grep -q '^- src/delta.ts (a file of ours that lost lines in the merge' "$tmp/r2h.out/agent-prompt.txt"
 check "the repair prompt shows the advisory block" grep -q 'Advisory, not a failing check: lines of ours that vanished' "$tmp/r2h.out/agent-prompt.txt"
+check "the advisory asks for one LOST-LINES line per entry and says the fix may belong in another file" grep -q -F 'LOST-LINES <file>: restored in <path>' "$tmp/r2h.out/agent-prompt.txt"
 check "allowed-edit-files names it, once" test "$(grep -c -x 'src/delta.ts' "$tmp/r2h.out/allowed-edit-files.txt")" = 1
 check "its edit was kept (not reverted as out of scope)" grep -q 'our restored hunk' <(git -C "$tmp/r2h.repo" show "$(facts r2h .merge_sha):src/delta.ts")
 check "nothing is recorded as out of scope" test "$(facts r2h '.out_of_scope // [] | length')" = 0
