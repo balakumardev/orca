@@ -37,6 +37,28 @@ branch_sha() {
 # model_api_refused STATUS: the model provider turned the call away for a reason only a person can fix (401/403: key rejected, 402: no balance).
 model_api_refused() { [[ "$1" =~ ^[0-9]+$ ]] && [ "$1" -ge 401 ] && [ "$1" -le 403 ]; }
 
+# deepinfra_prices MODEL: dollars per million tokens as DeepInfra bills them now, "IN OUT CACHED", from its public model list with the
+# promotional discount applied (the listed prices are before it; the cached price is a fraction of the input price). Prints nothing when
+# the list cannot be read or has no usable entry for the model: the caller then uses its built-in table.
+deepinfra_prices() {
+  local out
+  out="$(curl -fsS --max-time 20 "${DEEPINFRA_MODELS_URL:-https://api.deepinfra.com/models/list}" 2>/dev/null | jq -r --arg m "$1" '
+    [.[] | select(.model_name == $m and .pricing.type == "tokens") | .pricing][0]
+    | select(. != null and (.cents_per_input_token | type) == "number" and (.cents_per_output_token | type) == "number")
+    | (.discount // 0 | if type == "number" and . >= 0 and . < 1 then . else 0 end) as $d
+    | (.rate_per_input_token_cached // 1 | if type == "number" and . >= 0 and . <= 1 then . else 1 end) as $c
+    | (.cents_per_input_token * 1e4 * (1 - $d)) as $in
+    | [$in, (.cents_per_output_token * 1e4 * (1 - $d)), ($in * $c)]
+    | map(. * 1e6 | round / 1e6 | tostring) | join(" ")' 2>/dev/null)" || out=""
+  if [[ "$out" =~ ^[0-9.e-]+\ [0-9.e-]+\ [0-9.e-]+$ ]]; then printf '%s' "$out"; fi
+  return 0
+}
+
+# model_cost_usd FRESH_IN CACHED_IN OUT PRICE_IN PRICE_CACHED PRICE_OUT: dollars with 4 decimals; the prices are per million tokens.
+model_cost_usd() {
+  LC_ALL=C awk -v f="$1" -v c="$2" -v o="$3" -v pi="$4" -v pc="$5" -v po="$6" 'BEGIN { printf "%.4f", (f * pi + c * pc + o * po) / 1e6 }'
+}
+
 # Refs and branch names that come from workflow inputs are untrusted text.
 valid_ref() { [[ "$1" =~ ^[A-Za-z0-9._/-]{1,100}$ ]] && [[ "$1" != -* ]] && [[ "$1" != *..* ]]; }
 

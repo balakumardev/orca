@@ -29,8 +29,10 @@
 sync_out
 
 case "$TIER" in
-  flash) MODEL="deepseek-ai/DeepSeek-V4.1-Flash-1017"; PRICE_IN="0.20"; PRICE_OUT="0.60" ;;
-  pro) MODEL="deepseek-ai/DeepSeek-V4-Pro-0813"; PRICE_IN="1.30"; PRICE_OUT="2.60" ;;
+  # Dollars per million tokens: DeepInfra's price on 2026-11-22 (Flash with its 51% promotion). Only the fallback: `finish` reads the
+  # current prices from DeepInfra's public model list (deepinfra_prices) and uses these when that fails.
+  flash) MODEL="deepseek-ai/DeepSeek-V4.1-Flash-1017"; PRICE_IN="0.098"; PRICE_OUT="0.294"; PRICE_CACHED="0.00294" ;;
+  pro) MODEL="deepseek-ai/DeepSeek-V4-Pro-0813"; PRICE_IN="1.30"; PRICE_OUT="2.60"; PRICE_CACHED="0.10" ;;
   *) die "TIER must be flash or pro" ;;
 esac
 case "$MODE" in first|repair|retry) ;; *) die "MODE must be first, repair or retry" ;; esac
@@ -373,10 +375,11 @@ cmd_finish() {
   leaks="$(jq -r '.key_leaks // 0' <<<"$run")"; leak_files="$(jq -c '.key_leak_files // []' <<<"$run")"
   local usage_ok=false
   jq -e . "$out" >/dev/null 2>&1 && usage_ok=true
-  local report="" in_tok=0 out_tok=0 turns=0 stop="" errflag=true api_status=0
+  local report="" in_tok=0 out_tok=0 cached_tok=0 turns=0 stop="" errflag=true api_status=0
   if [ "$usage_ok" = true ]; then
-    # DeepInfra caches prompts; we count every input token at the full rate, so the dollar figure is an upper bound.
+    # in_tok is every prompt token; cached_tok is the part read from DeepInfra's cache (billed at the much lower cached price).
     in_tok="$(jq -r '((.usage.input_tokens // 0) + (.usage.cache_read_input_tokens // 0) + (.usage.cache_creation_input_tokens // 0))' "$out")"
+    cached_tok="$(jq -r '(.usage.cache_read_input_tokens // 0)' "$out")"
     out_tok="$(jq -r '(.usage.output_tokens // 0)' "$out")"
     turns="$(jq -r '(.num_turns // 0)' "$out")"
     stop="$(jq -r '(.subtype // .stop_reason // "")' "$out")"
@@ -390,18 +393,24 @@ cmd_finish() {
   fi
   # A round that leaked the key has no report: nothing the model wrote is shown, in any encoding.
   if [ "$leaks" -gt 0 ]; then report="[report withheld: this round's output contained the API key]"; fi
-  local cost
-  cost="$(awk -v i="$in_tok" -v o="$out_tok" -v pi="$PRICE_IN" -v po="$PRICE_OUT" 'BEGIN { printf "%.4f", i / 1e6 * pi + o / 1e6 * po }')"
+  # The current price comes from DeepInfra's public model list (no key); the built-in table above is the fallback.
+  local cost live="" price_src=table
+  if [ "$((in_tok + out_tok))" -gt 0 ]; then live="$(deepinfra_prices "$MODEL")"; fi # a skipped or refused round used nothing: no lookup
+  if [ -n "$live" ]; then read -r PRICE_IN PRICE_OUT PRICE_CACHED <<<"$live"; price_src=live; fi
+  cost="$(model_cost_usd "$((in_tok - cached_tok))" "$cached_tok" "$out_tok" "$PRICE_IN" "$PRICE_CACHED" "$PRICE_OUT")"
+  log "model cost of round $ROUND: \$$cost (prompt $in_tok tokens, $cached_tok of them cached; $out_tok output; per million tokens \$$PRICE_IN in, \$$PRICE_CACHED cached, \$$PRICE_OUT out; prices: $price_src)"
   local tmp
   tmp="$(mktemp)"
   jq --argjson run "$run" --argjson plan "$(cat "$plan")" --arg report "$report" --argjson in_tok "$in_tok" --argjson out_tok "$out_tok" \
      --argjson turns "$turns" --arg stop "$stop" --arg iserr "$errflag" --argjson cost "$cost" --arg usage_ok "$usage_ok" \
-     --argjson leak_files "$leak_files" --argjson api_status "$api_status" \
+     --argjson leak_files "$leak_files" --argjson api_status "$api_status" --argjson cached_tok "$cached_tok" \
+     --argjson p_in "$PRICE_IN" --argjson p_out "$PRICE_OUT" --argjson p_cached "$PRICE_CACHED" --arg p_src "$price_src" \
     '.agent = ((.agent // {rounds: []}) | .rounds += [{
         round: $plan.round, mode: $plan.mode, model: $plan.model, tier: $plan.tier,
         exit_code: $run.exit_code, wall_s: $run.wall_s, key_leaks: $run.key_leaks, key_leak_files: $leak_files, turns: $turns, stop: $stop,
         skipped: ($run.skipped // false),
         is_error: ($iserr == "true"), api_status: $api_status, output_parsed: ($usage_ok == "true"), input_tokens: $in_tok, output_tokens: $out_tok,
+        cached_tokens: $cached_tok, price_in: $p_in, price_out: $p_out, price_cached: $p_cached, price_source: $p_src,
         estimated_cost_usd: $cost, report: $report }])' "$SYNC_OUT/sync-facts.json" > "$tmp" && mv "$tmp" "$SYNC_OUT/sync-facts.json"
 
   # Fixed wording per status (never the API's own text, which is not ours to put in a workflow command).
@@ -427,8 +436,8 @@ cmd_finish() {
     elif [ "$usage_ok" != true ]; then why="no readable output; edits kept; gates decide"
     elif [ "$rc" != 0 ] || [ "$errflag" = true ]; then why="ended with an error (exit $rc, stop: ${stop_word:-none}); edits kept; gates decide"
     fi
-    printf -- '- Agent round %s (%s, %s): %s turns, exit code %s, estimated $%s. Result: %s.\n' \
-      "$ROUND" "$MODE" "$TIER" "$turns" "$rc" "$cost" "$why" >> "$GITHUB_STEP_SUMMARY"
+    printf -- '- Agent round %s (%s, %s): %s turns, exit code %s, **estimated $%s** (%s prompt tokens, %s of them cached; %s output; per million tokens $%s in, $%s cached, $%s out; prices: %s). Result: %s.\n' \
+      "$ROUND" "$MODE" "$TIER" "$turns" "$rc" "$cost" "$in_tok" "$cached_tok" "$out_tok" "$PRICE_IN" "$PRICE_CACHED" "$PRICE_OUT" "$price_src" "$why" >> "$GITHUB_STEP_SUMMARY"
   fi
 
   # AGENT_KEY_LEAK=1 makes sync-merge.sh throw away every edit of this round and mark the candidate unresolved.

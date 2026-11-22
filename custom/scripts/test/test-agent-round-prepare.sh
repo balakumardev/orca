@@ -23,6 +23,7 @@ scripts="${SCRIPTS_DIR:-$new_scripts}" # the scripts under test; a copy with the
 for tool in git jq node awk base64 od rev openssl; do command -v "$tool" >/dev/null 2>&1 || { echo "missing tool: $tool"; exit 2; }; done
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
+export DEEPINFRA_MODELS_URL="file:///nonexistent" # finish looks the prices up; never from the network in a test
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 export GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.invalid GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.invalid
 unset GITHUB_OUTPUT GITHUB_STEP_SUMMARY
