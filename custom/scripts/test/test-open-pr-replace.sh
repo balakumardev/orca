@@ -257,4 +257,28 @@ run SUPERSEDE='[]' ORPHAN_BRANCH=true REPLACE_PR=43 REPLACE_HEAD="$OLD_SHA"; unt
 if grep -qF "draft" <<<"$o_out"; then ok "draft: and the warning says it is a draft"; else bad "draft text: $o_out"; fi
 NAME_PREFIX=""
 
+# ---- the model API refused every round: no PR, a red run (a draft would block the retry) ---------------------------------------
+agent_facts() { # UNRESOLVED STATUS...: the facts as a run with one model round per STATUS left them
+  local unresolved="$1"; shift
+  jq --argjson u "$unresolved" --argjson s "$(printf '%s\n' "$@" | jq -s -c 'map(tonumber)')" \
+    '. + {unresolved: $u, agent: {rounds: ($s | map({api_status: .}))}}' "$tmp/facts.json" > "$tmp/f.tmp" && mv "$tmp/f.tmp" "$tmp/facts.json"
+}
+world none; agent_facts true 402 402 402
+run SUPERSEDE='[]' ORPHAN_BRANCH=false
+if [ "$o_rc" = 1 ] && ! called '^pr create ' && ! called '^pr close ' && ! called '-X DELETE' && [ "$(origin_sha)" = none ] && [ -z "$(out_of pr_number)" ] \
+   && grep -qF 'No PR opened: the model API refused every round::HTTP 402' <<<"$o_out"; then ok "every model round refused (402) and nothing resolved: no branch pushed, no PR, the run is red"
+else bad "refused every round: rc=$o_rc origin=$(origin_sha) log=[$(tr '\n' ';' < "$tmp/gh.log")] out=[$o_out]"; fi
+world none; agent_facts true 402 0 402
+run SUPERSEDE='[]' ORPHAN_BRANCH=false
+if [ "$o_rc" = 0 ] && called '^pr create ' && [ "$(origin_sha)" = "$MERGE_SHA" ]; then ok "one round was answered by the model: the draft PR is opened as before"
+else bad "one round answered: rc=$o_rc out=[$o_out]"; fi
+world none; agent_facts true 0
+run SUPERSEDE='[]' ORPHAN_BRANCH=false
+if [ "$o_rc" = 0 ] && called '^pr create '; then ok "an unresolved candidate whose model ran normally still gets its draft PR for a person"
+else bad "unresolved, not refused: rc=$o_rc out=[$o_out]"; fi
+world none; agent_facts false 402
+run SUPERSEDE='[]' ORPHAN_BRANCH=false
+if [ "$o_rc" = 0 ] && called '^pr create '; then ok "a resolved candidate is opened whatever a round's status says"
+else bad "resolved: rc=$o_rc out=[$o_out]"; fi
+
 exit "$([ "$fails" -eq 0 ] && echo 0 || echo 1)"

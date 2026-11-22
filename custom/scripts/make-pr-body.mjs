@@ -181,6 +181,9 @@ const exitReason = (r) => {
   if (r.skipped === true) {
     return 'skipped; no file was left that a model may resolve'
   }
+  if ([401, 402, 403].includes(Number(r.api_status))) {
+    return `ended: the model API refused the call (HTTP ${Number(r.api_status)}); any edit made before that is kept`
+  }
   if (r.stop === 'error_max_turns') {
     return 'ran out of turns; edits kept; gates decide'
   }

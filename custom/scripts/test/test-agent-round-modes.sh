@@ -87,6 +87,9 @@ case "$mode" in
     echo 'test("weakened", () => {})' > src/epsilon.test.ts
     printf '{"type":"result","subtype":"error_max_turns","is_error":true,"num_turns":81,"result":"","usage":{"input_tokens":1000000,"output_tokens":20000}}\n'
     exit 1 ;;
+  refused) # the API turns the call away at once (no balance): the CLI reports it in its JSON and exits 1, nothing is edited
+    printf '{"type":"result","subtype":"success","is_error":true,"api_error_status":402,"num_turns":1,"result":"API Error: 402 You need positive balance to do inference.","usage":{"input_tokens":0,"output_tokens":0}}\n'
+    exit 1 ;;
 esac
 STUB
 chmod +x "$tmp/bin/claude"
@@ -292,5 +295,14 @@ if command -v timeout >/dev/null 2>&1; then
 else
   echo "skip: no timeout command on this machine, the wall clock test needs it"
 fi
+
+echo "the model API refuses the call (no balance): the round records the status and says why, in words of its own"
+round f1 first refused 1 flash
+check "refused: the HTTP status is in the facts" test "$(facts f1 '.agent.rounds[-1].api_status')" = 402
+check "refused: nothing is resolved" test "$(facts f1 .unresolved)" = true
+check "refused: the job summary names the refusal" grep -q 'Result: ended: the model API refused the call (HTTP 402)' "$tmp/f1.summary"
+check "refused: an error annotation says what to fix" grep -q -F '::error title=Model API refused the call::Round 1: HTTP 402. The DeepInfra account has no balance' "$tmp/f1.finish.log"
+check "refused: the API's own text is not echoed into a workflow command" test -z "$(grep -F 'positive balance' "$tmp/f1.finish.log" || true)"
+check "an ordinary round records no refusal" test "$(facts r1 '.agent.rounds[-1].api_status')" = 0
 
 exit "$([ "$fails" -eq 0 ] && echo 0 || echo 1)"
