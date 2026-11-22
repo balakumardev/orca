@@ -21,7 +21,7 @@
 #     relies on, runs this job again) is adopted, on any attempt: title, body, draft state and labels refreshed from the new gate
 #     results, instead of failing on `gh pr create`.
 #
-# Outputs: pr_url, pr_number, merge_sha, draft (custom-sync's land job reads them).
+# Outputs: pr_url, pr_number, merge_sha, draft, needs_review, review_reasons (custom-sync's land job reads them).
 # Env: GH_TOKEN, REPO (owner/name), FACTS (sync-facts.json of the chosen round), PR_OUT (output of make-pr-body.sh),
 #      SUPERSEDE (JSON array of PR numbers), ORPHAN_BRANCH (true/false), ORPHAN_SHA (the commit the leftover branch held when detect
 #      looked), REPLACE_PR and REPLACE_HEAD (stale PR to replace), RUN_URL
@@ -183,6 +183,8 @@ gh_out pr_url "$pr_url"
 gh_out pr_number "$pr_number"
 gh_out merge_sha "$merge_sha" # for the land job: the head the gates ran on
 gh_out draft "$draft"
+gh_out needs_review "$(jq -r '.needs_review // false' "$PR_OUT/pr-meta.json")"
+gh_out review_reasons "$(jq -r '(.review_reasons // []) | join("; ")' "$PR_OUT/pr-meta.json" | tr -d '\000-\037' | cut -c1-400)"
 
 # PRs opened with the workflow token do not trigger pull_request workflows, so required checks would sit at
 # "expected" forever. A commit status under the check's name carries the result of the gates we ran ourselves.

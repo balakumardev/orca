@@ -334,6 +334,8 @@ jobs:
       pr_number: ${{ steps.open.outputs.pr_number }}
       merge_sha: ${{ steps.open.outputs.merge_sha }}
       draft: ${{ steps.open.outputs.draft }}
+      needs_review: ${{ steps.open.outputs.needs_review }}
+      review_reasons: ${{ steps.open.outputs.review_reasons }}
       round: ${{ steps.pick.outputs.round }}
     steps:
       - name: Checkout the sync scripts
@@ -454,6 +456,8 @@ jobs:
           PR_NUMBER: ${{ needs.open-pr.outputs.pr_number }}
           MERGE_SHA: ${{ needs.open-pr.outputs.merge_sha }}
           DRAFT: ${{ needs.open-pr.outputs.draft }}
+          NEEDS_REVIEW: ${{ needs.open-pr.outputs.needs_review }}
+          REVIEW_REASONS: ${{ needs.open-pr.outputs.review_reasons }}
           ROUND: ${{ needs.open-pr.outputs.round }}
           BASE_SHA: ${{ needs.detect.outputs.base_sha }}
           BASE_BRANCH: ${{ needs.detect.outputs.base_branch }}

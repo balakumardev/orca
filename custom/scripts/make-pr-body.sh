@@ -48,4 +48,10 @@ for d in ${GATES_DIRS:-}; do
 done
 [ -z "${AGENT_ROUNDS:-}" ] || gate_args+=(--agent-rounds "$AGENT_ROUNDS")
 node "$(dirname "$0")/make-pr-body.mjs" --facts "$FACTS" --raw "$PR_OUT/raw" --out "$PR_OUT" ${gate_args[@]+"${gate_args[@]}"}
+# 4. Who must read it first: land-sync-pr.sh leaves a PR that has any reason open (ready, not a draft) for a person.
+# shellcheck source=review-needed.sh
+. "$(dirname "$0")/review-needed.sh"
+gate_files=()
+for d in ${GATES_DIRS:-}; do gate_files+=("$d/gates.json"); done
+review_meta "$PR_OUT/pr-meta.json" "$FACTS" ${gate_files[@]+"${gate_files[@]}"}
 cat "$PR_OUT/pr-meta.json" >&2
