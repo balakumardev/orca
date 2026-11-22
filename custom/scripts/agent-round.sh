@@ -375,7 +375,7 @@ cmd_finish() {
   leaks="$(jq -r '.key_leaks // 0' <<<"$run")"; leak_files="$(jq -c '.key_leak_files // []' <<<"$run")"
   local usage_ok=false
   jq -e . "$out" >/dev/null 2>&1 && usage_ok=true
-  local report="" in_tok=0 out_tok=0 cached_tok=0 turns=0 stop="" errflag=true api_status=0
+  local report="" lost_lines="" in_tok=0 out_tok=0 cached_tok=0 turns=0 stop="" errflag=true api_status=0
   if [ "$usage_ok" = true ]; then
     # in_tok is every prompt token; cached_tok is the part read from DeepInfra's cache (billed at the much lower cached price).
     local u_fresh u_cached u_created
@@ -390,9 +390,12 @@ cmd_finish() {
     # grep -v exits 1 when every line was dropped (an empty report is fine); only that status is tolerated. Any other failure
     # of the pipeline leaves the report empty. trunc_bytes lets every stage finish, so no stage dies of SIGPIPE.
     report="$(jq -r '(.result // "")' "$out" | LC_ALL=C tr -d '\000-\010\013\014\016-\037' | { grep -v -F '~~~~' || [ $? -eq 1 ]; } | trunc_bytes 6000)" || report=""
+    # The report is cut at 6000 bytes and the model ends it with one LOST-LINES line per vanished-lines entry, so those lines are read from the
+    # full output. Printable, one line each, at most 300 characters and 40 lines; review-needed.sh reads them.
+    lost_lines="$(jq -r '(.result // "")' "$out" | LC_ALL=C tr -d '\000-\010\013\014\016-\037' | { grep -a -E '^[[:space:]]*LOST-LINES [^ ]+: ' || [ $? -eq 1 ]; } | sed -E 's/^[[:space:]]+//' | cut -c1-300 | sed -n '1,40p')" || lost_lines=""
   fi
   # A round that leaked the key has no report: nothing the model wrote is shown, in any encoding.
-  if [ "$leaks" -gt 0 ]; then report="[report withheld: this round's output contained the API key]"; fi
+  if [ "$leaks" -gt 0 ]; then report="[report withheld: this round's output contained the API key]"; lost_lines=""; fi
   # The current price comes from DeepInfra's public model list (no key); the built-in table above is the fallback.
   local cost live="" price_src=table
   if [ "$((in_tok + out_tok))" -gt 0 ]; then live="$(deepinfra_prices "$MODEL")"; fi # a skipped or refused round used nothing: no lookup
@@ -401,7 +404,7 @@ cmd_finish() {
   log "model cost of round $ROUND: \$$cost (prompt $in_tok tokens, $cached_tok of them cached; $out_tok output; per million tokens \$$PRICE_IN in, \$$PRICE_CACHED cached, \$$PRICE_OUT out; prices: $price_src)"
   local tmp
   tmp="$(mktemp)"
-  jq --argjson run "$run" --argjson plan "$(cat "$plan")" --arg report "$report" --argjson in_tok "$in_tok" --argjson out_tok "$out_tok" \
+  jq --argjson run "$run" --argjson plan "$(cat "$plan")" --arg report "$report" --argjson lost "$(jq -R -s -c 'split("\n") | map(select(length > 0))' <<<"$lost_lines")" --argjson in_tok "$in_tok" --argjson out_tok "$out_tok" \
      --argjson turns "$turns" --arg stop "$stop" --arg iserr "$errflag" --argjson cost "$cost" --arg usage_ok "$usage_ok" \
      --argjson leak_files "$leak_files" --argjson api_status "$api_status" --argjson cached_tok "$cached_tok" \
      --argjson p_in "$PRICE_IN" --argjson p_out "$PRICE_OUT" --argjson p_cached "$PRICE_CACHED" --arg p_src "$price_src" \
@@ -411,7 +414,7 @@ cmd_finish() {
         skipped: ($run.skipped // false),
         is_error: ($iserr == "true"), api_status: $api_status, output_parsed: ($usage_ok == "true"), input_tokens: $in_tok, output_tokens: $out_tok,
         cached_tokens: $cached_tok, price_in: $p_in, price_out: $p_out, price_cached: $p_cached, price_source: $p_src,
-        estimated_cost_usd: $cost, report: $report }])' "$SYNC_OUT/sync-facts.json" > "$tmp" && mv "$tmp" "$SYNC_OUT/sync-facts.json"
+        estimated_cost_usd: $cost, report: $report, lost_lines: $lost }])' "$SYNC_OUT/sync-facts.json" > "$tmp" && mv "$tmp" "$SYNC_OUT/sync-facts.json"
 
   # Fixed wording per status (never the API's own text, which is not ours to put in a workflow command).
   if model_api_refused "$api_status"; then
