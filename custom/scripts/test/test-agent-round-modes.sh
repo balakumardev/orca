@@ -96,6 +96,8 @@ case "$mode" in
     exit 1 ;;
   costly) # a real-sized round of the 2026-11-21 run: 4.85M prompt tokens, 97.8% of them read from the cache, 40358 output tokens
     printf '{"type":"result","subtype":"success","is_error":false,"num_turns":126,"result":"nothing to do","usage":{"input_tokens":108282,"cache_creation_input_tokens":0,"cache_read_input_tokens":4741632,"output_tokens":40358}}\n' ;;
+  lastturn) # the real round 1 of the 2026-11-22 run: `usage` is only the last turn (1 turn), modelUsage holds the whole session
+    printf '{"type":"result","subtype":"success","is_error":false,"num_turns":1,"result":"merged","usage":{"input_tokens":333,"cache_creation_input_tokens":0,"cache_read_input_tokens":22656,"output_tokens":235},"modelUsage":{"deepseek-ai/DeepSeek-V4.1-Flash-1017":{"inputTokens":92260,"outputTokens":47993,"cacheReadInputTokens":5733504,"cacheCreationInputTokens":0,"costUSD":4.527877}}}\n' ;;
   refused) # the API turns the call away at once (no balance): the CLI reports it in its JSON and exits 1, nothing is edited
     printf '{"type":"result","subtype":"success","is_error":true,"api_error_status":402,"num_turns":1,"result":"API Error: 402 You need positive balance to do inference.","usage":{"input_tokens":0,"output_tokens":0}}\n'
     exit 1 ;;
@@ -328,6 +330,9 @@ round c2 first costly 1 flash
 export DEEPINFRA_MODELS_URL="file://$tmp/models-list.json"
 check "cost: with no readable price list the built-in table is used and says so" test "$(facts c2 '.agent.rounds[-1].price_source')" = table
 check "cost: the built-in table gives the same figure for today's prices" test "$(facts c2 '.agent.rounds[-1].estimated_cost_usd')" = 0.0364
+round c4 first lastturn 1 flash
+check "cost: when usage is only the last turn the whole session is read from modelUsage (5825764 prompt tokens, 5733504 cached)" test "$(facts c4 '.agent.rounds[-1] | [.input_tokens, .cached_tokens, .output_tokens] | join(" ")')" = "5825764 5733504 47993"
+check "cost: and priced at 4 cents, not the 0.02 cents of one turn" test "$(facts c4 '.agent.rounds[-1].estimated_cost_usd')" = 0.0400
 round c3 first costly 3 pro
 check "cost: Pro is priced at 1.30 in, 0.10 cached, 2.60 out (no discount)" test "$(facts c3 '[.agent.rounds[-1] | .price_in, .price_cached, .price_out] | join(" ")')" = "1.3 0.1 2.6"
 check "cost: and a round with a refused call costs nothing and looks nothing up" test "$(facts f1 '.agent.rounds[-1].estimated_cost_usd')" = 0.0000

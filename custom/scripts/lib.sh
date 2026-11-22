@@ -55,6 +55,21 @@ deepinfra_prices() {
 }
 
 # model_cost_usd FRESH_IN CACHED_IN OUT PRICE_IN PRICE_CACHED PRICE_OUT: dollars with 4 decimals; the prices are per million tokens.
+# agent_usage_tokens FILE: the tokens of a whole model round, read from the claude CLI's final result in FILE, as
+# `<uncached input> <cached input> <cache creation> <output>`. The CLI's top-level `usage` is the whole session in most runs but only
+# the LAST turn in others (num_turns 1 next to 5.7M cached tokens in `modelUsage`, seen 2026-11-22), so each count is the larger of
+# `usage` and the sum over `modelUsage`, which always covers the session. Prints `0 0 0 0` for a file that is not JSON.
+agent_usage_tokens() {
+  jq -r '
+    def num: if type == "number" and . >= 0 then floor else 0 end;
+    def mu(k): ([(.modelUsage // {}) | if type == "object" then .[] else empty end | if type == "object" then (.[k] | num) else 0 end] | add // 0);
+    def big(a; b): if a > b then a else b end;
+    [ big((.usage.input_tokens | num); mu("inputTokens")),
+      big((.usage.cache_read_input_tokens | num); mu("cacheReadInputTokens")),
+      big((.usage.cache_creation_input_tokens | num); mu("cacheCreationInputTokens")),
+      big((.usage.output_tokens | num); mu("outputTokens")) ] | map(tostring) | join(" ")' "$1" 2>/dev/null || echo "0 0 0 0"
+}
+
 model_cost_usd() {
   LC_ALL=C awk -v f="$1" -v c="$2" -v o="$3" -v pi="$4" -v pc="$5" -v po="$6" 'BEGIN { printf "%.4f", (f * pi + c * pc + o * po) / 1e6 }'
 }

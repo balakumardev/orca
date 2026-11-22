@@ -43,6 +43,20 @@ eq "an error object instead of the list: nothing" "$(DEEPINFRA_MODELS_URL="file:
 echo 'not json' > "$tmp/junk.json"
 eq "a list that is not JSON: nothing" "$(DEEPINFRA_MODELS_URL="file://$tmp/junk.json" deepinfra_prices deepseek-ai/DeepSeek-V4-Pro-0813)" ""
 
+echo "agent_usage_tokens: the tokens of the whole round, from usage and modelUsage (real shapes of the 2026-11-21 and 2026-11-22 runs)"
+tok() { printf '%s\n' "$1" > "$tmp/out.json"; agent_usage_tokens "$tmp/out.json"; }
+eq "usage is the whole session (126 turns), modelUsage is a little more: modelUsage wins" "$(tok '{"num_turns":126,"usage":{"input_tokens":108282,"cache_read_input_tokens":4741632,"output_tokens":40358},"modelUsage":{"m":{"inputTokens":109691,"outputTokens":46886,"cacheReadInputTokens":4842624,"cacheCreationInputTokens":0}}}')" "109691 4842624 0 46886"
+eq "usage is only the last turn (1 turn), modelUsage holds the session: modelUsage wins" "$(tok '{"num_turns":1,"usage":{"input_tokens":333,"cache_read_input_tokens":22656,"output_tokens":235},"modelUsage":{"m":{"inputTokens":92260,"outputTokens":47993,"cacheReadInputTokens":5733504,"cacheCreationInputTokens":0}}}')" "92260 5733504 0 47993"
+eq "no modelUsage: usage as it is" "$(tok '{"usage":{"input_tokens":10,"cache_creation_input_tokens":3,"cache_read_input_tokens":20,"output_tokens":5}}')" "10 20 3 5"
+eq "two models in modelUsage are added up" "$(tok '{"usage":{"input_tokens":1,"output_tokens":1},"modelUsage":{"a":{"inputTokens":10,"outputTokens":4},"b":{"inputTokens":5,"outputTokens":6,"cacheReadInputTokens":7}}}')" "15 7 0 10"
+eq "no usage at all (a refused call): zeros" "$(tok '{"is_error":true,"api_error_status":402}')" "0 0 0 0"
+eq "a count that is not a number counts as zero" "$(tok '{"usage":{"input_tokens":"many","output_tokens":-4},"modelUsage":{"m":{"inputTokens":"x","outputTokens":8}}}')" "0 0 0 8"
+eq "modelUsage of the wrong type is ignored" "$(tok '{"usage":{"input_tokens":2,"output_tokens":3},"modelUsage":"oops"}')" "2 0 0 3"
+eq "a fractional count is floored" "$(tok '{"usage":{"input_tokens":2.9,"output_tokens":3}}')" "2 0 0 3"
+eq "a file that is not JSON: zeros" "$(printf 'not json' > "$tmp/out.json"; agent_usage_tokens "$tmp/out.json")" "0 0 0 0"
+eq "a file that is missing: zeros" "$(agent_usage_tokens "$tmp/missing.json")" "0 0 0 0"
+eq "round 1 of the 2026-11-22 run priced from modelUsage: 4 cents, not 0.02 cents" "$(model_cost_usd 92260 5733504 47993 0.098 0.00294 0.294)" "0.0400"
+
 echo "model_cost_usd: fresh prompt tokens, cached prompt tokens, output tokens, then the three prices"
 eq "round 1 (Flash, 126 turns): about 4 cents" "$(model_cost_usd 108282 4741632 40358 0.098 0.00294 0.294)" "0.0364"
 eq "round 2 (Flash, 128 turns)" "$(model_cost_usd 148583 6142208 42506 0.098 0.00294 0.294)" "0.0451"
