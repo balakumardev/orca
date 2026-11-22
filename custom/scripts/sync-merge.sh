@@ -372,12 +372,24 @@ cmd_finish_core() {
   #     stay are recorded (facts.repair_edits, kept across rounds): the PR's resolution diff covers only the conflicted
   #     files, and a model can make a gate pass by weakening a test, so the reviewer is told which other files it changed.
   if [ -n "$repair" ]; then
-    local kept="$SYNC_OUT/repair-edits.txt"
-    : > "$kept"
+    local kept="$SYNC_OUT/repair-edits.txt" gone="$SYNC_OUT/repair-deleted.txt"
+    : > "$kept"; : > "$gone"
     while IFS= read -r p; do
       [ -n "$p" ] || continue
       grep -qxF -- "$p" "$allowed" && continue
-      if [ ! -f "$p" ] || has_markers "$p" || { [[ "$p" == *.json ]] && ! jq empty "$p" >/dev/null 2>&1; }; then
+      if is_delete_request "$p"; then
+        # The prompt tells the model to drop an obsolete file with the delete marker, and in a repair round the file is not a
+        # conflict, so nothing else would act on it (2026-11-22: it stayed in the tree and broke typecheck, lint and format).
+        # Only a file upstream does not carry is ours alone to drop; an upstream file is only ever edited.
+        if git cat-file -e "$upstream_sha:$p" 2>/dev/null; then
+          git checkout -q HEAD -- "$p"
+          caveat "A repair edit replaced $p, a file upstream has, with the delete marker. The agent may not delete upstream files; the edit was reverted."
+        else
+          git rm --sparse -q -f -- "$p"
+          printf '%s\n' "$p" >> "$gone"
+          caveat "The agent deleted $p in a repair round: a file only our branch has, which it judged obsolete. Its report says why; check that no customization lost behaviour."
+        fi
+      elif [ ! -f "$p" ] || has_markers "$p" || { [[ "$p" == *.json ]] && ! jq empty "$p" >/dev/null 2>&1; }; then
         git checkout -q HEAD -- "$p"
         caveat "A repair edit to $p left it missing, with conflict markers or invalid JSON; the edit was reverted."
       else
@@ -386,6 +398,9 @@ cmd_finish_core() {
       fi
     done < <(git diff --name-only $diff_against | sort -u)
     facts_set repair_edits "$(jq -R -s -c --argjson prev "$(jq -c '.repair_edits // []' "$facts")" 'split("\n") | map(select(length > 0)) | $prev + . | unique' "$kept")"
+    if [ -s "$gone" ]; then
+      facts_set repair_deleted "$(jq -R -s -c --argjson prev "$(jq -c '.repair_deleted // []' "$facts")" 'split("\n") | map(select(length > 0)) | $prev + . | unique' "$gone")"
+    fi
   fi
 
   # 2. Resolution state of every file the merge left to a model/human.

@@ -113,6 +113,11 @@ gate_hygiene() {
       bad=1
     fi
   done < "$ALL_TARGETS"
+  # A file that still holds the one-line delete marker a model writes to drop a file: nothing removed it, and it breaks typecheck,
+  # lint and format with errors that do not say why.
+  while IFS= read -r p; do
+    if is_delete_request "$p"; then echo "delete marker left in $p: the file was never removed"; bad=1; fi
+  done < "$ALL_TARGETS"
   # The fork carries no upstream CI: only workflows named custom-*, no dependabot config.
   while IFS= read -r p; do
     if foreign_ci_path "$p"; then echo "upstream CI file present: $p"; bad=1; fi
@@ -186,13 +191,20 @@ gate_unit() {
   with_timeout 1500 pnpm exec vitest run --config config/vitest.config.ts $dirs 2>&1 | tee "$first" || rc=$?
   if [ "$rc" -eq 0 ]; then rm -f "$first"; return 0; fi
 
-  # Red run. Real failures stay red. The one exception is unit_flake_decide's: nothing failed, vitest only caught an
-  # unhandled error that a test file outside this change's scope raised, so those files get one re-run.
-  if [ "$rc" -eq 1 ]; then decision="$(unit_flake_decide "$first" "$TEST_SCOPE" "$ALL_TARGETS")"
+  # Red run. Real failures stay red. Two exceptions, each checked on its own, and the gate passes only when every part of the
+  # red is covered: (1) failed tests that are not ours and fail the same way on the pristine upstream release are the runner's,
+  # not this merge's (unit_baseline_gate); (2) an unhandled error that a test file outside this change's scope raised gets
+  # that file one re-run (unit_flake_decide).
+  local covered=0
+  if [ "$rc" -eq 1 ] && unit_log_has_failed_tests "$first"; then
+    if unit_baseline_gate "$first" "$TEST_SCOPE" "$ALL_TARGETS"; then covered=1
+    else rm -f "$first"; echo "unit flake check: the gate stays red (a failed test is not covered by the upstream baseline)"; return "$rc"; fi
+  fi
+  if [ "$rc" -eq 1 ]; then decision="$(UNIT_FLAKE_FAILED_COVERED="$covered" unit_flake_decide "$first" "$TEST_SCOPE" "$ALL_TARGETS")"
   else decision="keep-red: vitest exited with code $rc, not a test-failure exit code"; fi
   if [ "$(head -n 1 <<<"$decision")" != rerun ]; then
-    # Failed tests that are not ours and fail the same way on the pristine upstream release are the runner's, not this merge's.
-    if [ "$rc" -eq 1 ] && unit_baseline_gate "$first" "$TEST_SCOPE" "$ALL_TARGETS"; then rm -f "$first"; return 0; fi
+    # Covered failed tests and no unhandled error at all: nothing is left to check.
+    if [ "$covered" -eq 1 ] && [[ "$decision" == "keep-red: the log has no Unhandled Errors section" ]]; then rm -f "$first"; return 0; fi
     rm -f "$first"
     echo "unit flake check: the gate stays red (${decision#keep-red: })"
     return "$rc"
@@ -202,7 +214,7 @@ gate_unit() {
   for f in "${rerun[@]}"; do
     [ -f "$f" ] || { echo "unit flake check: the gate stays red ($f does not exist in this checkout)"; return "$rc"; }
   done
-  echo "unit flake check: vitest exited $rc with no failed test; its only complaint is an unhandled error raised while running ${rerun[*]}, which this change does not touch. Re-running just those files once."
+  echo "unit flake check: vitest exited $rc with $([ "$covered" -eq 1 ] && echo 'no failed test that the upstream baseline does not cover' || echo 'no failed test'); its only other complaint is an unhandled error raised while running ${rerun[*]}, which this change does not touch. Re-running just those files once."
   with_timeout 600 pnpm exec vitest run --config config/vitest.config.ts "${rerun[@]}" || rc2=$?
   if [ "$rc2" -ne 0 ]; then
     echo "unit flake check: the re-run exited with code $rc2, so the gate stays red"

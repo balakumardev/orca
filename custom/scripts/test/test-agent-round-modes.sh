@@ -46,6 +46,7 @@ git init -q -b main "$src"
   edit alpha "alpha CUSTOM" 5; edit gamma "gamma CUSTOM" 5; edit epsilon "epsilon CUSTOM" 7
   echo 'test("e", () => { /* ours */ })' > src/epsilon.test.ts
   for n in 5 30 55; do edit beta "beta CUSTOM $n" "$n"; done
+  echo 'export const ours = 1' > src/ours-only.ts
   mkdir custom && echo v1.0.0 > custom/BASE
   git add -A && git commit -q -m "our change
 
@@ -74,6 +75,12 @@ case "$mode" in
     printf 'DELETE-THIS-FILE\n' > src/alpha.ts
     for f in beta gamma; do resolve "$f"; done
     printf '{"type":"result","subtype":"success","is_error":false,"num_turns":4,"result":"resolved","usage":{"input_tokens":10,"output_tokens":5}}\n' ;;
+  repair-delete-ours) # a repair that drops a file only our branch has, with the delete marker
+    printf 'DELETE-THIS-FILE\n' > src/ours-only.ts
+    printf '{"type":"result","subtype":"success","is_error":false,"num_turns":5,"result":"dropped ours-only","usage":{"input_tokens":10,"output_tokens":5}}\n' ;;
+  repair-delete-upstream) # a repair that tries to drop a file upstream has (it carries our edit too)
+    printf 'DELETE-THIS-FILE\n' > src/epsilon.test.ts
+    printf '{"type":"result","subtype":"success","is_error":false,"num_turns":5,"result":"dropped upstream file","usage":{"input_tokens":10,"output_tokens":5}}\n' ;;
   noop) # edits nothing
     printf '{"type":"result","subtype":"success","is_error":false,"num_turns":1,"result":"","usage":{"input_tokens":10,"output_tokens":5}}\n' ;;
   partial) # resolves one of the three files, then runs out of turns (exit 1, like the real CLI)
@@ -163,7 +170,7 @@ check "repair on Pro: the same 1 hour wall clock" test "$(jq -r .wall_seconds "$
 check "repair prompt: the conflicted files are not given a hunk count" test -z "$(grep -F 'conflict hunk(s)' "$tmp/r2.out/agent-prompt.txt" || true)"
 check "repair prompt: the conflicted files are listed as conflicted in the merge" grep -q 'src/beta.ts (content, conflicted in the merge' "$tmp/r2.out/agent-prompt.txt"
 check "repair prompt: the owned, non-conflicted file is editable" grep -q '^- src/epsilon.ts (owned by a customization)' "$tmp/r2.out/agent-prompt.txt"
-check "allowed-edit-files: conflicted files plus owned files" test "$(tr '\n' ' ' < "$tmp/r2.out/allowed-edit-files.txt")" = "src/alpha.ts src/beta.ts src/epsilon.test.ts src/epsilon.ts src/gamma.ts "
+check "allowed-edit-files: conflicted files plus owned files" test "$(tr '\n' ' ' < "$tmp/r2.out/allowed-edit-files.txt")" = "src/alpha.ts src/beta.ts src/epsilon.test.ts src/epsilon.ts src/gamma.ts src/ours-only.ts "
 check "the round record says why it stopped" test "$(facts r2 '.agent.rounds[-1].stop')" = error_max_turns
 check "the round record keeps the CLI's exit code" test "$(facts r2 '.agent.rounds[-1].exit_code')" = 1
 check "its edits were kept (not reverted)" grep -q 'epsilon repaired' <(git -C "$tmp/r2.repo" show "$(facts r2 .merge_sha):src/epsilon.ts")
@@ -190,6 +197,17 @@ FORGE_EXTRA="$(printf 'src/not-in-release.ts\n../outside.ts\nCLAUDE.md\nsrc')" r
 check "a path that is not a file of the new release is not made editable" test -z "$(grep -E 'not-in-release|outside|CLAUDE|^src$' "$tmp/r2x.out/allowed-edit-files.txt" || true)"
 check "...while the real one still is" test "$(grep -c -x 'src/delta.ts' "$tmp/r2x.out/allowed-edit-files.txt")" = 1
 check "finish says which path it ignored" grep -q -F 'ignoring src/not-in-release.ts in extra-edit-files.txt' "$tmp/r2x.finish.log"
+
+echo "round 2 (repair): the delete marker removes a file only our branch has, and is reverted on a file upstream has"
+round rd1 repair repair-delete-ours 2 flash r1
+check "marker on a fork-only file: the file is gone from the candidate" test -z "$(git -C "$tmp/rd1.repo" ls-tree -r --name-only "$(facts rd1 .merge_sha)" -- src/ours-only.ts)"
+check "marker on a fork-only file: the deletion is recorded in the facts" test "$(facts rd1 '.repair_deleted | join(",")')" = "src/ours-only.ts"
+check "marker on a fork-only file: it is not listed as an edit that stays" test "$(facts rd1 '(.repair_edits // []) | index("src/ours-only.ts")')" = null
+check "marker on a fork-only file: the reviewer is told" test "$(facts rd1 '.caveats | map(select(contains("deleted src/ours-only.ts in a repair round"))) | length')" = 1
+round rd2 repair repair-delete-upstream 2 flash r1
+check "marker on a file upstream has: our version is back" grep -q 'ours' <(git -C "$tmp/rd2.repo" show "$(facts rd2 .merge_sha):src/epsilon.test.ts")
+check "marker on a file upstream has: no deletion is recorded" test "$(facts rd2 '(.repair_deleted // []) | length')" = 0
+check "marker on a file upstream has: the reviewer is told it was reverted" test "$(facts rd2 '.caveats | map(select(contains("src/epsilon.test.ts, a file upstream has"))) | length')" = 1
 
 echo "every mode and tier gets the same wall clock and no turn count"
 round r2f repair repair-max-turns 2 flash r1

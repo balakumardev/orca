@@ -13,6 +13,8 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 scripts="$(cd "$here/.." && pwd)"
 real="$here/fixtures/unit-baseline-real.txt"
+combined="$here/fixtures/unit-failed-plus-unhandled-real.txt"
+ORIGIN="src/shared/git/branches/git-branch-cleanup-real-git.test.ts"
 for tool in git jq perl; do command -v "$tool" >/dev/null 2>&1 || { echo "missing tool: $tool"; exit 2; }; done
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
@@ -65,9 +67,9 @@ decide "no Tests line: red" "$tmp/no-tests-line.txt" "keep-red: the log has no T
 grep -v -E 'Failed Tests' "$real" > "$tmp/no-section.txt"
 decide "no Failed Tests section: red" "$tmp/no-section.txt" "keep-red: the log has no Failed Tests section"
 { cat "$real"; printf ' Unhandled Errors \n Vitest caught 1 unhandled error during the test run.\n'; } > "$tmp/unhandled.txt"
-decide "an unhandled error next to the failure: red" "$tmp/unhandled.txt" "keep-red: the log has unhandled errors"
+decide "an unhandled error next to the failure is not judged here (the flake re-run does that): check" "$tmp/unhandled.txt" check
 { cat "$real"; printf ' Failed Suites 1\n'; } > "$tmp/suites.txt"
-decide "a failed suite: red" "$tmp/suites.txt" "keep-red: the log has unhandled errors, failed suites or type errors"
+decide "a failed suite: red" "$tmp/suites.txt" "keep-red: the log has failed suites or type errors"
 sed -E 's#src/shared/bots/bot-mcp-apps.test.ts > .*#src/shared/bots/bot-mcp-apps.test.ts [ src/shared/bots/bot-mcp-apps.test.ts ]#' "$real" > "$tmp/suite-shape.txt"
 decide "a FAIL line of another shape (a suite that did not load): red" "$tmp/suite-shape.txt" "keep-red: a FAIL line has a shape this check does not read"
 sed -E 's#src/shared/bots/bot-mcp-apps.test.ts#tests/e2e/some.test.ts#' "$real" > "$tmp/e2e.txt"
@@ -81,14 +83,16 @@ decide "an empty log: red" "$tmp/empty.txt" "keep-red: the log has no Test Files
 
 # two failed tests in two files (one in a describe chain, one at top level)
 perl -0pe 's/ Test Files  1 failed/ Test Files  2 failed/; s/ Tests  1 failed/ Tests  2 failed/; s/Failed Tests 1/Failed Tests 2/; s/(\n FAIL   node-shared  src\/shared\/bots\/bot-mcp-apps.test.ts > [^\n]*\n)/$1AssertionError: x\n\n FAIL   node-shared  src\/shared\/other\/thing.test.ts > top level test\n/' "$real" > "$tmp/two.txt"
+decide "the real log with a failed test AND an EPIPE unhandled error (run 45004282909): check the failed test" "$combined" check
 decide "two failed tests in two files are both listed" "$tmp/two.txt" "check $(printf '%s\t%s\n%s\t%s' "$FILE" "$NAME" 'src/shared/other/thing.test.ts' 'top level test')"
 
 # ---- part 2: the gate itself, with a stub pnpm --------------------------------------------------------------------
 repo="$tmp/repo"
-mkdir -p "$repo/src/mine" "$repo/bin" "$repo/custom"
+mkdir -p "$repo/src/mine" "$repo/src/shared/git/branches" "$repo/bin" "$repo/custom"
 git -C "$repo" init -q
 printf 'v1.0.0\n' > "$repo/custom/BASE"
 : > "$repo/src/upstream-only.txt"
+: > "$repo/$ORIGIN"
 git -C "$repo" add -A && git -C "$repo" commit -q -m "upstream release"
 git -C "$repo" tag v1.0.0
 : > "$repo/src/mine/mine.test.ts"
@@ -110,6 +114,7 @@ if [[ " $* " == *" --reporter=json "* ]]; then
   [ -z "${UP_FAILED:-}" ] || exit 1
   exit 0
 fi
+for a in "$@"; do case "$a" in *.test.ts) echo "[stub] re-run of $a"; exit "${RERUN_RC:-0}" ;; esac; done
 cat "$FIRST_LOG"
 exit "${FIRST_RC:-1}"
 STUB
@@ -120,7 +125,7 @@ run_gate() { # NAME FIRST_LOG [MODE] [OUR_FILES] -> g_status g_calls g_note g_wa
   local name="$1" out="$tmp/out-$1" mode="${3:-sync}" ours="${4:-$tmp/our-files.txt}"
   rm -rf "$out"; : > "$tmp/calls.txt"
   ( cd "$repo" && env PATH="$repo/bin:$PATH" STUB_CALLS="$tmp/calls.txt" FIRST_LOG="$2" FIRST_RC=1 \
-      UP_FAILED="${UP_FAILED:-}" UP_NO_JSON="${UP_NO_JSON:-}" INSTALL_RC="${INSTALL_RC:-0}" \
+      UP_FAILED="${UP_FAILED:-}" UP_NO_JSON="${UP_NO_JSON:-}" INSTALL_RC="${INSTALL_RC:-0}" RERUN_RC="${RERUN_RC:-0}" \
       bash "$scripts/run-gates.sh" --out "$out" --mode "$mode" --changed-base v1.0.0 --our-files "$ours" --only unit ) > "$tmp/gate-$name.out" 2>&1 || true
   g_status="$(jq -r '.gates[] | select(.id == "unit") | .status' "$out/gates.json")"
   g_calls="$(wc -l < "$tmp/calls.txt" | tr -d ' ')"
@@ -166,6 +171,23 @@ printf 'not-a-tag\n' > "$repo/custom/BASE"
 UP_FAILED="$UP_SAME" run_gate bad-base "$real"
 if [ "$g_status" = fail ] && grep -q 'custom/BASE is not a release tag' "$g_log"; then ok "gate: a custom/BASE that is no release tag = red"; else bad "gate bad-base: status=$g_status"; fi
 printf 'v1.0.0\n' > "$repo/custom/BASE"
+
+# A failed upstream test AND an unhandled error of an unrelated flaky file in the same run (run 45004282909): each part is checked on its own.
+UP_FAILED="$UP_SAME" RERUN_RC=0 run_gate combo "$combined"
+if [ "$g_status" = pass ] && [ "$g_calls" = 4 ] && grep -q "also fail on pristine upstream v1.0.0" <<<"$g_note" && grep -q 'did not reproduce' <<<"$g_note"; then
+  ok "gate: failed upstream test + unhandled error: both covered (baseline, then one re-run of the flaky file) = pass"
+else bad "gate combo: status=$g_status calls=$g_calls note=[$g_note]"; fi
+if grep -q -- "$ORIGIN" <<<"$(sed -n '4p' "$tmp/calls.txt")" && ! grep -q -- "$FILE" <<<"$(sed -n '4p' "$tmp/calls.txt")"; then ok "gate: the re-run names only the flaky file, not the failed upstream test"; else bad "combo re-run call: $(sed -n '4p' "$tmp/calls.txt")"; fi
+
+UP_FAILED="$UP_SAME" RERUN_RC=1 run_gate combo-rerun-fails "$combined"
+if [ "$g_status" = fail ] && [ "$g_calls" = 4 ]; then ok "gate: the flaky file fails again on its re-run = red"; else bad "gate combo-rerun-fails: status=$g_status calls=$g_calls"; fi
+
+UP_FAILED="" RERUN_RC=0 run_gate combo-passes-upstream "$combined"
+if [ "$g_status" = fail ] && [ "$g_calls" = 3 ]; then ok "gate: the failed test passes on upstream = red, and the flaky file is not re-run"; else bad "gate combo-passes-upstream: status=$g_status calls=$g_calls"; fi
+
+printf 'src/mine/mine.test.ts\n%s\n' "$ORIGIN" > "$tmp/our-files-origin.txt"
+UP_FAILED="$UP_SAME" RERUN_RC=0 run_gate combo-origin-ours "$combined" sync "$tmp/our-files-origin.txt"
+if [ "$g_status" = fail ] && [ "$g_calls" = 3 ]; then ok "gate: the unhandled error comes from a file of ours = red even when the failed test is covered"; else bad "gate combo-origin-ours: status=$g_status calls=$g_calls"; fi
 
 printf '%s\n' ' Test Files  1 passed (1)' '      Tests  3 passed (3)' > "$tmp/green.txt"
 run_gate green "$tmp/green.txt"
