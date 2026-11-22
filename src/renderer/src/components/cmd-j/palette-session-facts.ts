@@ -11,6 +11,7 @@ import {
   resolveAiVaultSessionWorktreeInfo
 } from '../../../../shared/ai-vault/session-display/ai-vault-session-worktree'
 import { selectAgentLaunchRouteView } from '@/lib/agent-session/launch/routing/agent-launch-route-input'
+import { readRuntimeStatuses } from '@/store/slices/runtime-status/views/runtime-status-owner'
 import { getIndexedAllWorktrees } from '@/store/slices/worktrees/listing/worktree-catalog-index'
 import {
   selectFolderWorkspaces,
@@ -63,7 +64,7 @@ export function readPaletteSessionFacts(
     worktrees,
     repos: state.repos,
     targetState: state,
-    settings: selectAgentLaunchRouteView(state).settings
+    settings: selectAgentLaunchRouteView(state, readRuntimeStatuses()).settings
   })
   const originalPane = findOriginalAiVaultSessionPane(state, session)
   return {

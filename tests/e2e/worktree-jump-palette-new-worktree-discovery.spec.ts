@@ -52,12 +52,9 @@ async function arrowToRow(input: Locator, row: Locator): Promise<void> {
   await expect(row).toHaveAttribute('aria-selected', 'true')
 }
 
-// Where each row sits and how wide its title is: a chip on the highlighted row must change neither. The palette's
-// open animation scales it, so a read has to wait for the animations to end.
-async function rowGeometry(palette: Locator): Promise<unknown[]> {
-  await palette.evaluate((element) =>
-    Promise.all(element.getAnimations({ subtree: true }).map((animation) => animation.finished))
-  )
+type RowGeometry = { top: number; height: number; titleWidth: number | null }
+
+function measureRows(palette: Locator): Promise<RowGeometry[]> {
   return worktreeRows(palette).evaluateAll((rows) =>
     rows.map((row) => {
       const box = row.getBoundingClientRect()
@@ -65,6 +62,28 @@ async function rowGeometry(palette: Locator): Promise<unknown[]> {
       return { top: box.top, height: box.height, titleWidth: title?.width ?? null }
     })
   )
+}
+
+// Where each row sits and how wide its title is: a chip on the highlighted row must change neither. The palette's
+// open animation scales it, so a read has to wait for the animations to end, and for every row to be laid out:
+// a row mounted by the last list update reads as a zero-height box until the frame after it.
+async function rowGeometry(palette: Locator): Promise<RowGeometry[]> {
+  await palette.evaluate((element) =>
+    Promise.all(element.getAnimations({ subtree: true }).map((animation) => animation.finished))
+  )
+  let previous = ''
+  await expect
+    .poll(async () => {
+      const current = await measureRows(palette)
+      const settled =
+        current.length > 0 &&
+        current.every((row) => row.height > 0) &&
+        JSON.stringify(current) === previous
+      previous = JSON.stringify(current)
+      return settled
+    })
+    .toBe(true)
+  return measureRows(palette)
 }
 
 test('Cmd+J shows where a new worktree can be made: footer, key hint on the highlighted row, Create group, Folders', async ({

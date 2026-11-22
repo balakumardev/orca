@@ -42,8 +42,7 @@ export function useWorktreeJumpPaletteListEntries({
   handleExpandSection,
   middleLeadsSections,
   taskItems,
-  botScopeEntries,
-  botScopeTrailingEntries
+  botScopeEntries
 }: WorktreeJumpPaletteListEntriesInput) {
   const t = useTranslate()
   const languageRevision = useUiLanguageRevision()
@@ -218,7 +217,6 @@ export function useWorktreeJumpPaletteListEntries({
       if (showCreateAction) {
         entries.push({ id: CREATE_WORKTREE_ITEM_ID, type: 'create-worktree' })
       }
-      entries.push(...botScopeTrailingEntries)
       return { listEntries: entries, defaultSelectionStart: 0 }
     }
     if (middleLeadsSections) {
@@ -242,12 +240,10 @@ export function useWorktreeJumpPaletteListEntries({
     if (showCreateAction) {
       entries.push({ id: CREATE_WORKTREE_ITEM_ID, type: 'create-worktree' })
     }
-    entries.push(...botScopeTrailingEntries)
     return { listEntries: entries, defaultSelectionStart: 0 }
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- translate() reads the UI language implicitly.
   }, [
     botScopeEntries,
-    botScopeTrailingEntries,
     handleExpandSection,
     hasQuery,
     middleLeadsSections,
