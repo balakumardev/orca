@@ -68,7 +68,7 @@ case "$path" in
   repos/*/git/ref/heads/sync/*)
     if [ -f "$FIX/branch-exists" ]; then
       echo "{\"object\":{\"sha\":\"$BRANCH_TIP\"}}" | { if [ -n "$jqprog" ]; then jq -r -c "$jqprog"; else cat; fi; }
-    else echo "HTTP 404" >&2; exit 1; fi ;;
+    else echo '{"message":"Not Found","documentation_url":"https://docs.github.com/rest/git/refs#get-a-reference","status":"404"}'; echo "gh: Not Found (HTTP 404)" >&2; exit 1; fi ;; # the real gh prints the body on stdout
   repos/*/contents/custom/BASE) emit "$FIX/base-file.json" ;;
   repos/stablyai/orca/commits/*) echo "{\"sha\":\"$UPSTREAM_SHA\"}" | { if [ -n "$jqprog" ]; then jq -r -c "$jqprog"; else cat; fi; } ;;
   repos/*/compare/*) if [ -f "$FIX/compare-fails" ]; then echo "HTTP 500" >&2; exit 1; fi; emit "$FIX/compare.json" ;;

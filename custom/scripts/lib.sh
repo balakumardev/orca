@@ -25,6 +25,15 @@ gh_out() {
   fi
 }
 
+# branch_sha REPO BRANCH: the commit the branch points at, or nothing when it does not exist. For a missing branch `gh api` prints the
+# 404 JSON on STDOUT (stderr only gets "gh: Not Found"), so `|| true` alone turns "missing" into a value; only a 40-hex sha is accepted.
+branch_sha() {
+  local out
+  out="$(gh api "repos/$1/git/ref/heads/$2" --jq .object.sha 2>/dev/null)" || return 0
+  if [[ "$out" =~ ^[0-9a-f]{40}$ ]]; then printf '%s' "$out"; fi
+  return 0
+}
+
 # Refs and branch names that come from workflow inputs are untrusted text.
 valid_ref() { [[ "$1" =~ ^[A-Za-z0-9._/-]{1,100}$ ]] && [[ "$1" != -* ]] && [[ "$1" != *..* ]]; }
 

@@ -59,7 +59,7 @@ case "$1 $2" in
     case "$method $path" in
       "DELETE repos/"*/git/refs/heads/*) git --git-dir="$ORIGIN" update-ref -d "refs/heads/${path#*/git/refs/heads/}" ;;
       "GET repos/"*/git/ref/heads/*)
-        sha="$(git --git-dir="$ORIGIN" rev-parse -q --verify "refs/heads/${path#*/git/ref/heads/}")" || { echo "HTTP 404" >&2; exit 1; }
+        sha="$(git --git-dir="$ORIGIN" rev-parse -q --verify "refs/heads/${path#*/git/ref/heads/}")" || { echo '{"message":"Not Found","documentation_url":"https://docs.github.com/rest/git/refs#get-a-reference","status":"404"}'; echo "gh: Not Found (HTTP 404)" >&2; exit 1; } # the real gh prints the body on stdout
         if [ -n "$jqprog" ]; then jq -n -r --arg s "$sha" '{object: {sha: $s}}' | jq -r "$jqprog"; else echo "$sha"; fi ;;
       "GET repos/"*/issues/*/comments) emit "$FIX/comments-$(basename "$(dirname "$path")").json" ;;
       "POST repos/"*/statuses/*) ;;
