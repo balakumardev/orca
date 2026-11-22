@@ -51,14 +51,6 @@ The highlighted row in Activity follows the agent in the pane you are working in
 
 An Activity card is titled with the agent session name instead of the last prompt you typed. When the session has no real name yet, the card keeps showing the prompt. In a split tab, each card uses the title of its own pane. This is a port of an upstream change (stablyai/orca#31802).
 
-### Project name on Activity cards (`activity-row-project`)
-
-Each Activity card shows the project next to the workspace name, as a small coloured chip. The workspace name was already on the card. When the sidebar is narrow the project shrinks first (it never takes more than 45% of the line), so the workspace name keeps its space. Hover either one to see the full name. A workspace named like its project shows the name once.
-
-<p>
-  <img src="readme/activity-row-project.png" alt="Three Activity cards in dark and light theme, each with a project chip and the workspace name under the title" width="560">
-</p>
-
 ### Cmd+J: a new worktree in a project (`project-jump`)
 
 Cmd+J opens the worktree palette. Its action name in Settings is "Switch worktree". Orca's own default for it is Cmd+K on a new profile and Cmd+J on a profile that existed before Orca moved it. This README says Cmd+J.
