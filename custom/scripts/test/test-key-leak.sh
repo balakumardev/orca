@@ -22,6 +22,7 @@ done
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
+export DEEPINFRA_MODELS_URL="file:///nonexistent" # finish looks the prices up; never from the network in a test
 
 # Keep the user's git configuration (signing, hooks, pull.rebase) out of the picture.
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1

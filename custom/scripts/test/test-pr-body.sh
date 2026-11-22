@@ -166,6 +166,15 @@ jq '[.[0], (.[1] | .stop = "success" | .exit_code = 1 | .turns = 1 | .api_status
 ROUNDS_FILE="$tmp/rounds3.json" render refused "$tmp/dispatch-only.yml"
 has "$body" '1: ended: the model API refused the call (HTTP 402); any edit made before that is kept' && has "$body" 'Agent round 2 ended: the model API refused the call (HTTP 402)' && ok "a refused round is worded as such in the table and the caveats" || bad "refused wording: $(grep -E '^\| 2 \|' "$body")"
 
+# the cost of the model rounds: cached tokens shown, and the basis of the estimate named
+jq '[(.[0] | .model = "deepseek-ai/DeepSeek-V4.1-Flash-1017" | .cached_tokens = 90 | .price_in = 0.098 | .price_cached = 0.00294 | .price_out = 0.294 | .price_source = "live")]' "$tmp/rounds.json" > "$tmp/rounds4.json"
+ROUNDS_FILE="$tmp/rounds4.json" render priced "$tmp/dispatch-only.yml"
+has "$body" '| 100 (90 cached) / 10 |' && ok "the table shows how many prompt tokens were cached" || bad "cached column: $(grep -E '^\| 1 \|' "$body")"
+has "$body" "per-million-token prices of DeepInfra's current price list (DeepSeek-V4.1-Flash-1017: \$0.098 in / \$0.00294 cached / \$0.294 out), cached input at the cached rate. The exact bill is on DeepInfra's usage page." && ok "the total names its prices and where they came from" || bad "cost basis: $(grep 'Estimated total' "$body")"
+! has "$body" 'upper bound' && ok "no 'upper bound' claim is left" || bad "upper bound still there"
+ROUNDS_FILE="$tmp/rounds.json" render unpriced "$tmp/dispatch-only.yml"
+has "$body" 'Estimated total: $0.800.' && ok "facts from before the prices were recorded still render, with the total alone" || bad "old facts: $(grep 'Estimated total' "$body")"
+
 # a modify/delete conflict shows what the agent decided
 has "$body" '| `src/gone.ts` | deleted-by-them | 0 | agent (deleted the file) |' && ok "the conflict table says the agent deleted the file" || bad "decision column: $(grep 'src/gone.ts' "$body")"
 

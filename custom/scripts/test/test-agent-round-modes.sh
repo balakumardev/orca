@@ -9,6 +9,13 @@ scripts="${SCRIPTS_DIR:-$(cd "$here/.." && pwd)}" # the scripts under test; a co
 for tool in git jq node awk base64 od rev openssl; do command -v "$tool" >/dev/null 2>&1 || { echo "missing tool: $tool"; exit 2; }; done
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
+# The prices finish looks up: a made-up copy of DeepInfra's public model list (never the network in a test). The values are the real ones of
+# 2026-11-22: Flash-1017 listed at 0.00002 / 0.00006 cents per token with a 0.51 discount, Pro at 0.00013 / 0.00026 with none.
+cat > "$tmp/models-list.json" <<'JSON'
+[{"model_name":"deepseek-ai/DeepSeek-V4.1-Flash-1017","type":"text-generation","pricing":{"type":"tokens","discount":0.51,"cents_per_input_token":0.00002,"cents_per_output_token":0.00006,"rate_per_input_token_cached":0.03}},
+ {"model_name":"deepseek-ai/DeepSeek-V4-Pro-0813","type":"text-generation","pricing":{"type":"tokens","discount":null,"cents_per_input_token":0.00013,"cents_per_output_token":0.00026,"rate_per_input_token_cached":0.07692308}}]
+JSON
+export DEEPINFRA_MODELS_URL="file://$tmp/models-list.json"
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 export GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.invalid GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.invalid
 unset GITHUB_OUTPUT GITHUB_STEP_SUMMARY
@@ -87,6 +94,8 @@ case "$mode" in
     echo 'test("weakened", () => {})' > src/epsilon.test.ts
     printf '{"type":"result","subtype":"error_max_turns","is_error":true,"num_turns":81,"result":"","usage":{"input_tokens":1000000,"output_tokens":20000}}\n'
     exit 1 ;;
+  costly) # a real-sized round of the 2026-11-21 run: 4.85M prompt tokens, 97.8% of them read from the cache, 40358 output tokens
+    printf '{"type":"result","subtype":"success","is_error":false,"num_turns":126,"result":"nothing to do","usage":{"input_tokens":108282,"cache_creation_input_tokens":0,"cache_read_input_tokens":4741632,"output_tokens":40358}}\n' ;;
   refused) # the API turns the call away at once (no balance): the CLI reports it in its JSON and exits 1, nothing is edited
     printf '{"type":"result","subtype":"success","is_error":true,"api_error_status":402,"num_turns":1,"result":"API Error: 402 You need positive balance to do inference.","usage":{"input_tokens":0,"output_tokens":0}}\n'
     exit 1 ;;
@@ -304,5 +313,23 @@ check "refused: the job summary names the refusal" grep -q 'Result: ended: the m
 check "refused: an error annotation says what to fix" grep -q -F '::error title=Model API refused the call::Round 1: HTTP 402. The DeepInfra account has no balance' "$tmp/f1.finish.log"
 check "refused: the API's own text is not echoed into a workflow command" test -z "$(grep -F 'positive balance' "$tmp/f1.finish.log" || true)"
 check "an ordinary round records no refusal" test "$(facts r1 '.agent.rounds[-1].api_status')" = 0
+
+echo "what a round costs: cached input at the cached price, the discount applied, the prices read from DeepInfra"
+round c1 first costly 1 flash
+check "cost: the cached tokens are recorded" test "$(facts c1 '.agent.rounds[-1].cached_tokens')" = 4741632
+check "cost: the prompt tokens are all of them" test "$(facts c1 '.agent.rounds[-1].input_tokens')" = 4849914
+check "cost: Flash is priced at the discounted rates DeepInfra lists (per million: 0.098 in, 0.00294 cached, 0.294 out)" test "$(facts c1 '[.agent.rounds[-1] | .price_in, .price_cached, .price_out] | join(" ")')" = "0.098 0.00294 0.294"
+check "cost: the price source is the live list" test "$(facts c1 '.agent.rounds[-1].price_source')" = live
+check "cost: about 4 cents, not the 99 cents of pricing every cached token in full" test "$(facts c1 '.agent.rounds[-1].estimated_cost_usd')" = 0.0364
+check "cost: the job summary shows it in bold with its basis" grep -q -F '**estimated $0.0364** (4849914 prompt tokens, 4741632 of them cached; 40358 output; per million tokens $0.098 in, $0.00294 cached, $0.294 out; prices: live)' "$tmp/c1.summary"
+check "cost: and the job log has a line for it" grep -q -F 'model cost of round 1: $0.0364' "$tmp/c1.finish.log"
+export DEEPINFRA_MODELS_URL="file:///nonexistent"
+round c2 first costly 1 flash
+export DEEPINFRA_MODELS_URL="file://$tmp/models-list.json"
+check "cost: with no readable price list the built-in table is used and says so" test "$(facts c2 '.agent.rounds[-1].price_source')" = table
+check "cost: the built-in table gives the same figure for today's prices" test "$(facts c2 '.agent.rounds[-1].estimated_cost_usd')" = 0.0364
+round c3 first costly 3 pro
+check "cost: Pro is priced at 1.30 in, 0.10 cached, 2.60 out (no discount)" test "$(facts c3 '[.agent.rounds[-1] | .price_in, .price_cached, .price_out] | join(" ")')" = "1.3 0.1 2.6"
+check "cost: and a round with a refused call costs nothing and looks nothing up" test "$(facts f1 '.agent.rounds[-1].estimated_cost_usd')" = 0.0000
 
 exit "$([ "$fails" -eq 0 ] && echo 0 || echo 1)"

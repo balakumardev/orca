@@ -406,9 +406,29 @@ if (agentRounds.length > 0) {
   modelBlock +=
     '| Round | Mode | Model | Turns | Tokens in / out | Est. cost | Wall | Exit |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n'
   for (const r of agentRounds) {
-    modelBlock += `| ${r.round} | ${r.mode} | \`${r.model}\` | ${r.turns}${r.max_turns ? `/${r.max_turns}` : ''} | ${r.input_tokens} / ${r.output_tokens} | $${Number(r.estimated_cost_usd).toFixed(3)} | ${r.wall_s}s | ${esc(exitCell(r))} |\n`
+    modelBlock += `| ${r.round} | ${r.mode} | \`${r.model}\` | ${r.turns}${r.max_turns ? `/${r.max_turns}` : ''} | ${r.input_tokens}${r.cached_tokens === undefined ? '' : ` (${r.cached_tokens} cached)`} / ${r.output_tokens} | $${Number(r.estimated_cost_usd).toFixed(3)} | ${r.wall_s}s | ${esc(exitCell(r))} |\n`
   }
-  modelBlock += `\nEstimated total: $${total.toFixed(3)}, an upper bound (every input token, cached or not, priced at the full list rate: Flash $0.20 in / $0.60 out per million, Pro $1.30 in / $2.60 out).\n\n`
+  const priced = agentRounds.filter(
+    (r) => r.price_in !== undefined && Number(r.input_tokens) + Number(r.output_tokens) > 0
+  )
+  if (priced.length > 0) {
+    const rates = [...new Map(priced.map((r) => [r.model, r])).values()]
+      .map(
+        (r) =>
+          `${esc(String(r.model).split('/').pop())}: $${r.price_in} in / $${r.price_cached} cached / $${r.price_out} out`
+      )
+      .join('; ')
+    const sources = [
+      ...new Set(
+        priced.map((r) =>
+          r.price_source === 'live' ? "DeepInfra's current price list" : 'the built-in price table'
+        )
+      )
+    ].join(' and ')
+    modelBlock += `\nEstimated total: $${total.toFixed(3)}, from the tokens the CLI reported, at per-million-token prices of ${sources} (${rates}), cached input at the cached rate. The exact bill is on DeepInfra's usage page.\n\n`
+  } else {
+    modelBlock += `\nEstimated total: $${total.toFixed(3)}.\n\n`
+  }
   const last = agentRounds.at(-1)
   const unsure = agentRounds.flatMap((r) =>
     (r.report || '')
