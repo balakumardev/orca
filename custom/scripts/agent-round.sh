@@ -378,9 +378,9 @@ cmd_finish() {
   local report="" in_tok=0 out_tok=0 cached_tok=0 turns=0 stop="" errflag=true api_status=0
   if [ "$usage_ok" = true ]; then
     # in_tok is every prompt token; cached_tok is the part read from DeepInfra's cache (billed at the much lower cached price).
-    in_tok="$(jq -r '((.usage.input_tokens // 0) + (.usage.cache_read_input_tokens // 0) + (.usage.cache_creation_input_tokens // 0))' "$out")"
-    cached_tok="$(jq -r '(.usage.cache_read_input_tokens // 0)' "$out")"
-    out_tok="$(jq -r '(.usage.output_tokens // 0)' "$out")"
+    local u_fresh u_cached u_created
+    read -r u_fresh u_cached u_created out_tok <<<"$(agent_usage_tokens "$out")"
+    in_tok=$((u_fresh + u_cached + u_created)); cached_tok="$u_cached"
     turns="$(jq -r '(.num_turns // 0)' "$out")"
     stop="$(jq -r '(.subtype // .stop_reason // "")' "$out")"
     errflag="$(jq -r '(.is_error // false)' "$out")"
