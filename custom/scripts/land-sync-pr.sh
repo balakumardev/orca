@@ -21,6 +21,7 @@
 # summary and to a PR comment, and the PR stays open for a human. An unexpected error exits non-zero and never dispatches.
 #
 # Env: GH_TOKEN REPO PR_NUMBER MERGE_SHA BASE_SHA ROUND BRANCH BASE_BRANCH IS_TEST TAG_IS_RELEASE INPUT_REF DRAFT
+#      NEEDS_REVIEW ("true" = a person reads the PR first) REVIEW_REASONS (one line)
 #      GATES_RESULT ("0=success 1=skipped ..." job results by round) GATES_FAILED ("0=0 1= ..." failed outputs by round)
 #      RUN_URL TAG; from the runner: GITHUB_EVENT_NAME GITHUB_REF GITHUB_STEP_SUMMARY. LAND_NAP = seconds between polls (default 5).
 # shellcheck source=lib.sh
@@ -76,6 +77,12 @@ failed="$(pick "$GATES_FAILED" "$ROUND")"
 gates_note="gate round $ROUND: job result '${result:-none}', failed gates '${failed:-none}'"
 if [ "$result" != success ] || ! [[ "$failed" =~ ^[0-9]+$ ]] || [ "$failed" -ne 0 ]; then
   decline "the gates did not all pass ($gates_note)."
+fi
+
+# A model decided something the gates cannot judge (it deleted a file of ours, or lines of our customizations are missing from a
+# merged file): a person reads the PR first. review-needed.sh decides, make-pr-body.sh records it, open-pr.sh passes it on.
+if [ "${NEEDS_REVIEW:-}" = true ]; then
+  decline "a person must read this PR before it merges (${REVIEW_REASONS:-see the caveats in the PR body}). Every gate passed; this is not a failure. Merge it with a merge commit when it is right, then run the custom-release workflow on custom with sign, notarize and publish set to true."
 fi
 
 # ---- 3. the PR and the tip of custom ---------------------------------------------------------------------------------------

@@ -15,7 +15,9 @@
 # joined by single spaces, as vitest's json reporter spells fullName), or one line `keep-red: <reason>`. Always returns 0.
 #
 # `check` only when ALL of these hold; any doubt keeps the gate red:
-#   a. the last summary reports failed tests and failed test files, and the log has no Unhandled Errors, Failed Suites or Type Errors;
+#   a. the last summary reports failed tests and failed test files, and the log has no Failed Suites or Type Errors. An Unhandled Errors
+#      section is NOT judged here: gate_unit (run-gates.sh) gives each unhandled error its own check, the flake re-run, and the gate passes
+#      only when both checks pass;
 #   b. the `Failed Tests N` section holds exactly N ` FAIL ` lines, N equals the failed-tests count of the summary, every line has the
 #      shape `FAIL [project] <file> > <name>`, and the distinct files are as many as the summary's failed test files;
 #   c. every file is a plain repo path with a unit-test suffix outside tests/e2e, and none is listed in a SCOPE_FILE.
@@ -34,7 +36,7 @@ unit_baseline_decide() {
   n_fail_tests="$(sed -n -E 's/^[[:space:]]*Tests[[:space:]]+([0-9]+) failed.*/\1/p' <<<"$ts")"
   if [ -z "$tf" ] || [ -z "$ts" ]; then reason="the log has no Test Files / Tests summary (the run did not finish)"
   elif [ -z "$n_fail_tests" ] || [ -z "$n_fail_files" ]; then reason="the summary reports no failed tests"
-  elif grep -q -E 'Unhandled Errors|Failed Suites|^[[:space:]]*Type Errors[[:space:]]+[0-9]+' "$txt"; then reason="the log has unhandled errors, failed suites or type errors"
+  elif grep -q -E 'Failed Suites|^[[:space:]]*Type Errors[[:space:]]+[0-9]+' "$txt"; then reason="the log has failed suites or type errors"
   fi
 
   if [ -z "$reason" ]; then
@@ -82,6 +84,13 @@ unit_baseline_decide() {
   printf 'check\n'
   printf '%s\n' "${rows[@]}"
   return 0
+}
+
+# unit_log_has_failed_tests LOG: returns 0 when the last `Tests` line of the log reports failed tests.
+unit_log_has_failed_tests() {
+  local line
+  line="$(strip_ansi < "$1" | grep -E '^[[:space:]]*Tests[[:space:]]' | tail -n 1 || true)"
+  [[ "$line" =~ [0-9]+\ failed ]]
 }
 
 # unit_baseline_failures RESULT_JSON TREE: the failed tests of a vitest json report as `<file relative to TREE><TAB><fullName>` lines.

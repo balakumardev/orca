@@ -132,6 +132,13 @@ declined "no gate values at all" GATES_RESULT= GATES_FAILED=
 declined "failed output is not a number" GATES_FAILED="0= 1=3 2=none 3="
 declined "round 0 red although round 2 is green" ROUND=0 GATES_RESULT="0=success 1=skipped 2=success 3=skipped" GATES_FAILED="0=2 1= 2=0 3="
 declined "custom moved during the sync" TIP_BEFORE="$OTHER"
+declined "a person must read the PR first" NEEDS_REVIEW=true REVIEW_REASONS="a repair round deleted 1 file(s): src/x.tsx"
+if [ "$(calls 'a repair round deleted 1 file(s): src/x.tsx')" = 1 ] && [ "$(calls 'pr comment')" = 1 ]; then ok "the PR comment names the reason a person must read it"; else bad "needs-review comment: $(cat "$l_log")"; fi
+declined "needs review with no reason given" NEEDS_REVIEW=true
+run "needs_review false" NEEDS_REVIEW=false
+if [ "$l_rc" = 0 ] && [ "$(calls 'pr merge')" = 1 ]; then ok "needs_review=false lands"; else bad "needs_review=false: rc=$l_rc out=[$l_out]"; fi
+run "needs_review absent" NEEDS_REVIEW=
+if [ "$l_rc" = 0 ] && [ "$(calls 'pr merge')" = 1 ]; then ok "an empty needs_review (a run from before this output existed) lands"; else bad "needs_review empty: rc=$l_rc out=[$l_out]"; fi
 run "draft PR" DRAFT=true
 if [ "$l_rc" = 0 ] && no_writes && [ "$(calls 'pr comment')" = 0 ]; then ok "a draft PR is left alone (exit 0, no calls)"; else bad "draft: rc=$l_rc calls=[$(cat "$l_log")]"; fi
 run "green round 0 clean merge" ROUND=0 GATES_RESULT="0=success 1=skipped 2=skipped 3=skipped" GATES_FAILED="0=0 1= 2= 3="

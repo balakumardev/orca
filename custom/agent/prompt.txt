@@ -26,6 +26,7 @@ SITUATION
 - Read each version of a file with `git show <rev>:<path>`: ours = `{{BASE_SHA}}`, theirs (upstream {{TAG}}) = `{{UPSTREAM_SHA}}`, ancestor (upstream {{OLD_TAG}}) = `{{OLD_COMMIT}}`. The current resolution is the file in the working tree.
 - Find the cause of each failure in the files listed below and fix it there. If a failure cannot be fixed inside those files, say so in your report instead of touching other files: name the file, what is wrong and what the fix would be.
 - Upstream's behaviour and UI win when our customization is only a test or a selector that no longer matches upstream's new UI; the intent of our customization must still hold.
+- To drop an obsolete file that ONLY our branch has (`git cat-file -e {{UPSTREAM_SHA}}:<path>` fails), replace its WHOLE content with the single line DELETE-THIS-FILE and say in the report why upstream already covers it. A script then removes the file. A file upstream has can only be edited, never deleted: such an edit is reverted.
 #@ resume
 SITUATION
 - The merge of upstream release {{TAG}} into our branch `{{BASE_BRANCH}}` was started by an earlier attempt that stopped before it finished: some conflicted files are resolved, and the files listed below still hold conflict markers. The current directory holds that state as plain files. Finish those files; do not redo the resolved ones.
