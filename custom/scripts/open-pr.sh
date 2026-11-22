@@ -58,7 +58,7 @@ bail() {
 }
 # The commit the branch points at right now; empty when it does not exist (or the read failed: then nothing is ever deleted, and a
 # plain push is rejected when the branch does exist).
-branch_tip() { gh api "repos/$REPO/git/ref/heads/$branch" --jq .object.sha 2>/dev/null || true; }
+branch_tip() { branch_sha "$REPO" "$branch"; }
 # Open PRs of THIS repository whose head is the sync branch, against any base. `gh pr list --head` also returns a fork's PR that uses
 # the same branch name; it is not ours and does not hold our branch, so it is dropped.
 open_prs_of_branch() {

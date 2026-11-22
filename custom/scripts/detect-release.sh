@@ -95,7 +95,7 @@ else
   # The branch may already exist: the head of the PR being replaced, or a leftover of an interrupted run with no PR. open-pr.sh
   # deletes it only while it still points at the commit seen here (orphan_sha), so a push or a PR that came in since is never lost.
   ORPHAN=false
-  ORPHAN_SHA="$(gh api "repos/$REPO/git/ref/heads/$BRANCH" --jq .object.sha 2>/dev/null || true)"
+  ORPHAN_SHA="$(branch_sha "$REPO" "$BRANCH")"
   [ -z "$ORPHAN_SHA" ] || ORPHAN=true
   # Open sync PRs for older tags opened by this automation (bot author, same repo, same base).
   SUPERSEDE="$(gh pr list --repo "$REPO" --state open --base "$BASE_BRANCH" --limit 50 \
