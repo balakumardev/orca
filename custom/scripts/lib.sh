@@ -34,6 +34,9 @@ branch_sha() {
   return 0
 }
 
+# model_api_refused STATUS: the model provider turned the call away for a reason only a person can fix (401/403: key rejected, 402: no balance).
+model_api_refused() { [[ "$1" =~ ^[0-9]+$ ]] && [ "$1" -ge 401 ] && [ "$1" -le 403 ]; }
+
 # Refs and branch names that come from workflow inputs are untrusted text.
 valid_ref() { [[ "$1" =~ ^[A-Za-z0-9._/-]{1,100}$ ]] && [[ "$1" != -* ]] && [[ "$1" != *..* ]]; }
 

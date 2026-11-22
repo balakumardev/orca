@@ -87,6 +87,19 @@ check_branch_may_go() {
   fi
 }
 
+# ---- the model API turned every round away and nothing is resolved: no PR, a red run ----------------------------------------
+# A draft PR for this tag would end the search of every later sync (an open PR is the answer, a draft is never replaced), so after the
+# balance or the key is fixed nothing would retry it. With no PR the next scheduled sync starts the tag over by itself.
+if jq -e '.unresolved == true and ((.agent.rounds // []) | length > 0) and all(.agent.rounds[]; ((.api_status // 0) >= 401 and (.api_status // 0) <= 403))' "$FACTS" >/dev/null; then
+  refused="$(jq -r '[.agent.rounds[].api_status] | max' "$FACTS")"
+  model_api_refused "$refused" || die "the facts of $branch carry an api_status that is not a refusal: '$refused'"
+  printf '::error title=No PR opened: the model API refused every round::HTTP %s on every model round of %s, nothing was resolved. Fix the DeepInfra balance or DEEPINFRA_API_KEY; the next scheduled sync starts this tag over by itself.\n' "$refused" "$branch" >&2
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+    printf '### custom-sync: no PR opened for %s\nThe model API refused every round (HTTP %s) and nothing was resolved. A draft PR would block the retry, so none was opened. Fix the DeepInfra balance or DEEPINFRA_API_KEY; the next scheduled sync starts this tag over.\n' "$branch" "$refused" >>"$GITHUB_STEP_SUMMARY"
+  fi
+  exit 1
+fi
+
 # ---- an open PR for this very commit: a first attempt opened it, adopt it ----------------------------------------------------
 adopted=""
 if [ "$(branch_tip)" = "$merge_sha" ]; then

@@ -161,6 +161,11 @@ jq '[.[0], (.[1] | .stop = "" | .exit_code = 124), {"round":3,"mode":"repair","m
 ROUNDS_FILE="$tmp/rounds2.json" render exits "$tmp/dispatch-only.yml"
 has "$body" '124: hit the wall-clock limit; edits kept; gates decide' && has "$body" '2: ended with an error (exit 2, error_during_execution); edits kept; gates decide' && ok "wall-clock and other error exits are explained too" || bad "other exit reasons"
 
+# a round the model API turned away (no balance) says so, and is not left as a bare error
+jq '[.[0], (.[1] | .stop = "success" | .exit_code = 1 | .turns = 1 | .api_status = 402)]' "$tmp/rounds.json" > "$tmp/rounds3.json"
+ROUNDS_FILE="$tmp/rounds3.json" render refused "$tmp/dispatch-only.yml"
+has "$body" '1: ended: the model API refused the call (HTTP 402); any edit made before that is kept' && has "$body" 'Agent round 2 ended: the model API refused the call (HTTP 402)' && ok "a refused round is worded as such in the table and the caveats" || bad "refused wording: $(grep -E '^\| 2 \|' "$body")"
+
 # a modify/delete conflict shows what the agent decided
 has "$body" '| `src/gone.ts` | deleted-by-them | 0 | agent (deleted the file) |' && ok "the conflict table says the agent deleted the file" || bad "decision column: $(grep 'src/gone.ts' "$body")"
 

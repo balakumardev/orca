@@ -373,7 +373,7 @@ cmd_finish() {
   leaks="$(jq -r '.key_leaks // 0' <<<"$run")"; leak_files="$(jq -c '.key_leak_files // []' <<<"$run")"
   local usage_ok=false
   jq -e . "$out" >/dev/null 2>&1 && usage_ok=true
-  local report="" in_tok=0 out_tok=0 turns=0 stop="" errflag=true
+  local report="" in_tok=0 out_tok=0 turns=0 stop="" errflag=true api_status=0
   if [ "$usage_ok" = true ]; then
     # DeepInfra caches prompts; we count every input token at the full rate, so the dollar figure is an upper bound.
     in_tok="$(jq -r '((.usage.input_tokens // 0) + (.usage.cache_read_input_tokens // 0) + (.usage.cache_creation_input_tokens // 0))' "$out")"
@@ -381,6 +381,8 @@ cmd_finish() {
     turns="$(jq -r '(.num_turns // 0)' "$out")"
     stop="$(jq -r '(.subtype // .stop_reason // "")' "$out")"
     errflag="$(jq -r '(.is_error // false)' "$out")"
+    # The HTTP status the model API answered with, when the CLI could not get an answer at all (a number, or 0).
+    api_status="$(jq -r '(.api_error_status // 0) | if type == "number" then floor else 0 end' "$out" 2>/dev/null || echo 0)"
     # Untrusted text: keep printable characters, bound the size, and drop anything that could close a markdown fence.
     # grep -v exits 1 when every line was dropped (an empty report is fine); only that status is tolerated. Any other failure
     # of the pipeline leaves the report empty. trunc_bytes lets every stage finish, so no stage dies of SIGPIPE.
@@ -394,13 +396,22 @@ cmd_finish() {
   tmp="$(mktemp)"
   jq --argjson run "$run" --argjson plan "$(cat "$plan")" --arg report "$report" --argjson in_tok "$in_tok" --argjson out_tok "$out_tok" \
      --argjson turns "$turns" --arg stop "$stop" --arg iserr "$errflag" --argjson cost "$cost" --arg usage_ok "$usage_ok" \
-     --argjson leak_files "$leak_files" \
+     --argjson leak_files "$leak_files" --argjson api_status "$api_status" \
     '.agent = ((.agent // {rounds: []}) | .rounds += [{
         round: $plan.round, mode: $plan.mode, model: $plan.model, tier: $plan.tier,
         exit_code: $run.exit_code, wall_s: $run.wall_s, key_leaks: $run.key_leaks, key_leak_files: $leak_files, turns: $turns, stop: $stop,
         skipped: ($run.skipped // false),
-        is_error: ($iserr == "true"), output_parsed: ($usage_ok == "true"), input_tokens: $in_tok, output_tokens: $out_tok,
+        is_error: ($iserr == "true"), api_status: $api_status, output_parsed: ($usage_ok == "true"), input_tokens: $in_tok, output_tokens: $out_tok,
         estimated_cost_usd: $cost, report: $report }])' "$SYNC_OUT/sync-facts.json" > "$tmp" && mv "$tmp" "$SYNC_OUT/sync-facts.json"
+
+  # Fixed wording per status (never the API's own text, which is not ours to put in a workflow command).
+  if model_api_refused "$api_status"; then
+    if [ "$api_status" = 402 ]; then
+      printf '::error title=Model API refused the call::Round %s: HTTP 402. The DeepInfra account has no balance. Add balance or set up top-up; the next scheduled sync starts over by itself.\n' "$ROUND"
+    else
+      printf '::error title=Model API refused the call::Round %s: HTTP %s. DeepInfra rejected DEEPINFRA_API_KEY. Replace the secret; the next scheduled sync starts over by itself.\n' "$ROUND" "$api_status"
+    fi
+  fi
 
   # The job summary says why the round stopped, from the CLI's own numbers (the stop word is reduced to a-z 0-9 _ . -).
   # make-pr-body.mjs words the same reasons for the PR; keep the two in step.
@@ -410,6 +421,7 @@ cmd_finish() {
     rc="$(jq -r '.exit_code // -1' <<<"$run")"
     if [ "$leaks" -gt 0 ]; then why="the output contained the API key; edits discarded"
     elif [ "$(jq -r '.skipped // false' <<<"$run")" = true ]; then why="skipped; no file was left that a model may resolve"
+    elif model_api_refused "$api_status"; then why="ended: the model API refused the call (HTTP $api_status); any edit made before that is kept"
     elif [ "$stop_word" = error_max_turns ]; then why="ran out of turns; edits kept; gates decide"
     elif [ "$rc" = 124 ]; then why="hit the wall-clock limit; edits kept; gates decide"
     elif [ "$usage_ok" != true ]; then why="no readable output; edits kept; gates decide"
