@@ -179,6 +179,16 @@ gate_format() {
   return "$rc"
 }
 
+# unit_rerun_alone FILE...: one run of just these test files on this checkout, outside the shared worker pool's order; returns 0 when they
+# all pass. A file that does not exist here is never judged.
+unit_rerun_alone() {
+  local f
+  for f in "$@"; do
+    [ -f "$f" ] || { echo "unit rerun alone: $f does not exist in this checkout"; return 1; }
+  done
+  with_timeout 600 pnpm exec vitest run --config config/vitest.config.ts "$@"
+}
+
 # unit_red_verdict FIRST_LOG RC: what a red vitest run (`unit` or `unit-related`) means; prints the reasons, returns 0 only when all of it is covered.
 unit_red_verdict() {
   local first="$1" rc="$2" decision f rc2=0 suite_decision

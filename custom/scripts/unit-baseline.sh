@@ -109,7 +109,7 @@ unit_baseline_failures() {
 
 # unit_baseline_gate LOG SCOPE_FILE...: returns 0 when every failed test of LOG is outside our scope and fails the same way on the pristine
 # upstream release this branch is built on (custom/BASE), measured here and now; anything else, or any doubt, returns 1 and the gate stays red.
-# Needs from run-gates.sh: MODE, SYNC_PR, CHANGED_BASE, with_timeout, note, warn_note. A sync compares with the release it merges (custom/BASE of
+# Needs from run-gates.sh: MODE, SYNC_PR, CHANGED_BASE, with_timeout, note, warn_note, unit_rerun_alone. A sync compares with the release it merges (custom/BASE of
 # the merge). An ordinary pull request compares with the release its base commit is built on: that tag is read from the base commit, never from
 # the change under test, so a change cannot name an older release to get a failure excused. Added 2026-11-22: the v1.4.269 sync merged an
 # upstream test that fails on the runner's Node 24.22 (bot-mcp-apps), which turned every later pull request red although none touched it.
@@ -143,16 +143,32 @@ unit_baseline_gate() {
   fi
   if up="$(unit_baseline_failures "$json" "$tree")"; then
     uncovered="$(comm -23 <(sort -u <<<"$cand") <(sort -u <<<"$up"))"
+    local covered_up
+    covered_up="$(comm -12 <(sort -u <<<"$cand") <(sort -u <<<"$up"))"
+    rc=0
     if [ -n "$uncovered" ]; then
-      echo "unit baseline: these tests pass on upstream $tag, so this change broke them, and the gate stays red:"
+      # They pass on the pristine release, but the same file may pass on this change too when it runs alone: a test that an earlier
+      # file in the same worker left a stub or a half-loaded module for fails only in the shared run (pull request 70: a store test
+      # that reads window.api). Only a file that fails alone is this change's doing.
+      local -a ufiles=()
+      while IFS= read -r f; do ufiles+=("$f"); done < <(cut -f1 <<<"$uncovered" | sort -u)
+      echo "unit baseline: these tests pass on upstream $tag; running their file(s) alone once on this change (${ufiles[*]}):"
       sed 's/^/  /' <<<"$uncovered" | tr '\t' ' '
-      rc=1
-    else
-      rc=0
-      echo "unit baseline: every one of them fails on upstream $tag as well; they are not counted:"
-      sed 's/^/  /' <<<"$cand" | tr '\t' ' '
-      note "$(wc -l <<<"$cand" | tr -d ' ') failed unit test(s) outside this change also fail on pristine upstream $tag in this environment and were not counted"
-      warn_note "Not counted: $(wc -l <<<"$cand" | tr -d ' ') unit test(s) that fail on pristine upstream $tag in this environment too (the runner, not this change): $(cut -f1 <<<"$cand" | sort -u | tr '\n' ' ')"
+      if unit_rerun_alone "${ufiles[@]}"; then
+        echo "unit baseline: they pass when run alone, so the shared run left them broken, not this change; they are not counted"
+        note "$(wc -l <<<"$uncovered" | tr -d ' ') failed unit test(s) outside this change passed when their file ran alone: ${ufiles[*]}"
+        warn_note "Not counted: $(wc -l <<<"$uncovered" | tr -d ' ') unit test(s) failed only in the shared run and passed when their file ran alone (an earlier file in the same worker left them broken, not this change): ${ufiles[*]}"
+      else
+        echo "unit baseline: these tests pass on upstream $tag, so this change broke them, and the gate stays red:"
+        sed 's/^/  /' <<<"$uncovered" | tr '\t' ' '
+        rc=1
+      fi
+    fi
+    if [ "$rc" -eq 0 ] && [ -n "$covered_up" ]; then
+      echo "unit baseline: every $([ -n "$uncovered" ] && echo other failed test || echo one of them) fails on upstream $tag as well; they are not counted:"
+      sed 's/^/  /' <<<"$covered_up" | tr '\t' ' '
+      note "$(wc -l <<<"$covered_up" | tr -d ' ') failed unit test(s) outside this change also fail on pristine upstream $tag in this environment and were not counted"
+      warn_note "Not counted: $(wc -l <<<"$covered_up" | tr -d ' ') unit test(s) that fail on pristine upstream $tag in this environment too (the runner, not this change): $(cut -f1 <<<"$covered_up" | sort -u | tr '\n' ' ')"
     fi
   else
     echo "unit baseline: the upstream run produced no usable result (exit $rc); the gate stays red. Last lines:"
