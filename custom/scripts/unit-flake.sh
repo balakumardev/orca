@@ -83,3 +83,69 @@ unit_flake_decide() {
   printf 'rerun\n'
   printf '%s\n' "${files[@]}"
 }
+
+# unit_suite_decide LOG SCOPE_FILE...
+# Why: with the shared worker pool one test file can leave a module half-loaded for the next ones in its worker (a lazy import that ran while
+# a test had stubbed `window` stays failed in the module cache), so a file this change never touches fails to LOAD with a TypeError and
+# vitest reports it under `Failed Suites`. Which files it hits depends on how the pool splits the files, so it comes and goes between runs of
+# the same code (pull request 45: three such files in one run, one in the re-run of the same commit). The rule below gives every such file
+# one re-run on its own, where nothing is left over from another file: a file that fails alone is broken by this change and keeps the gate red.
+# stdout: `none` when the log has no failed suite, first line `rerun` + one test file per line, or one line `keep-red: <reason>`. Returns 0.
+#
+# `rerun` only when ALL of these hold; any doubt keeps the gate red:
+#   a. the log has the usual summary, no `Type Errors` line, and `Failed Suites N` is followed by exactly N ` FAIL ` lines, each of the
+#      shape `FAIL [project] <file> [ <file> ]` (what vitest prints for a file that did not load), before the next section;
+#   b. every file is a plain repo path with a unit-test suffix outside tests/e2e, none is listed in a SCOPE_FILE, and the summary counts
+#      at least N failed test files.
+unit_suite_decide() {
+  local log="$1"; shift
+  local LC_ALL=C
+  local txt reason="" sec n_sec tf n_fail_files line f sf in_section=0 seen=0 start
+  local -a files=()
+  txt="$(mktemp)"
+  strip_ansi < "$log" > "$txt"
+  sec="$(grep -n -E 'Failed Suites[[:space:]]+[0-9]+' "$txt" | tail -n 1 || true)"
+  if [ -z "$sec" ]; then rm -f "$txt"; echo none; return 0; fi
+  start="${sec%%:*}"
+  n_sec="$(sed -n -E 's/.*Failed Suites[[:space:]]+([0-9]+).*/\1/p' <<<"$sec")"
+  tf="$(grep -E '^[[:space:]]*Test Files[[:space:]]' "$txt" | tail -n 1 || true)"
+  n_fail_files="$(sed -n -E 's/^[[:space:]]*Test Files[[:space:]]+([0-9]+) failed.*/\1/p' <<<"$tf")"
+  if [ -z "$n_sec" ] || [ "$n_sec" -lt 1 ]; then reason="the Failed Suites header carries no count"
+  elif [ -z "$tf" ] || [ -z "$n_fail_files" ]; then reason="the log has no Test Files summary with failed files"
+  elif [ "$n_fail_files" -lt "$n_sec" ]; then reason="the summary counts $n_fail_files failed file(s), fewer than the $n_sec failed suite(s)"
+  elif grep -q -E '^[[:space:]]*Type Errors[[:space:]]+[0-9]+' "$txt"; then reason="the log reports type errors"
+  fi
+
+  if [ -z "$reason" ]; then
+    # Only the lines of this section count: they end at the Failed Tests section or at the summary.
+    while IFS= read -r line; do
+      if [ "$in_section" -eq 0 ]; then in_section=1; continue; fi # the header line itself
+      if [[ "$line" =~ Failed\ Tests[[:space:]]+[0-9]+ ]] || [[ "$line" =~ ^[[:space:]]*Test\ Files[[:space:]] ]]; then break; fi
+      [[ "$line" == " FAIL "* ]] || continue
+      if [[ "$line" =~ ^\ FAIL\ +(.+\ +)?([^\ ]+\.(test|spec)\.(ts|tsx|mts|cts|js|jsx|mjs|cjs))\ \[\ ([^\ ]+)\ \]$ ]] && [ "${BASH_REMATCH[2]}" = "${BASH_REMATCH[5]}" ]; then
+        files+=("${BASH_REMATCH[2]}"); seen=$((seen + 1))
+      else
+        reason="a FAIL line of the Failed Suites section has a shape this check does not read: ${line:0:120}"; break
+      fi
+    done < <(sed -n "${start},\$p" "$txt")
+  fi
+  if [ -z "$reason" ] && [ "$seen" -ne "$n_sec" ]; then reason="$seen FAIL line(s) read, the header says $n_sec failed suite(s)"; fi
+
+  if [ -z "$reason" ]; then
+    local names=()
+    while IFS= read -r f; do names+=("$f"); done < <(printf '%s\n' "${files[@]}" | sort -u)
+    for f in "${names[@]}"; do
+      if ! [[ "$f" =~ ^[A-Za-z0-9_@+][A-Za-z0-9_@+./-]*$ ]] || [[ "$f" == *..* ]]; then reason="a failed suite's path is not a plain repo path"; break; fi
+      if [[ "$f" == tests/e2e/* ]]; then reason="$f is an e2e spec"; break; fi
+      for sf in "$@"; do
+        if [ -f "$sf" ] && grep -q -x -F -- "$f" "$sf"; then reason="$f is in the scope of this change"; break 2; fi
+      done
+    done
+    [ -n "$reason" ] || files=("${names[@]}")
+  fi
+
+  rm -f "$txt"
+  if [ -n "$reason" ]; then printf 'keep-red: %s\n' "$reason"; return 0; fi
+  printf 'rerun\n'
+  printf '%s\n' "${files[@]}"
+}
