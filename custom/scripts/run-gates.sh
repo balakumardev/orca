@@ -179,18 +179,10 @@ gate_format() {
   return "$rc"
 }
 
-gate_unit() {
-  [ -s "$TEST_TARGETS" ] || skip_gate "no unit test files in scope" || return $?
-  local dirs first rc=0 decision f rc2=0
+# unit_red_verdict FIRST_LOG RC: what a red vitest run (`unit` or `unit-related`) means; prints the reasons, returns 0 only when all of it is covered.
+unit_red_verdict() {
+  local first="$1" rc="$2" decision f rc2=0
   local -a rerun=()
-  dirs="$(while IFS= read -r p; do dirname "$p"; done < "$TEST_TARGETS" | sort -u)"
-  note "test directories: $(printf '%s' "$dirs" | tr '\n' ' ')"
-  first="$(mktemp)"
-  # tee keeps the whole run in this gate's log; `|| rc=$?` keeps vitest's own exit code (pipefail) without ending the gate.
-  # shellcheck disable=SC2086
-  with_timeout 1500 pnpm exec vitest run --config config/vitest.config.ts $dirs 2>&1 | tee "$first" || rc=$?
-  if [ "$rc" -eq 0 ]; then rm -f "$first"; return 0; fi
-
   # Red run. Real failures stay red. Two exceptions, each checked on its own, and the gate passes only when every part of the
   # red is covered: (1) failed tests that are not ours and fail the same way on the pristine upstream release are the runner's,
   # not this merge's (unit_baseline_gate); (2) an unhandled error that a test file outside this change's scope raised gets
@@ -224,14 +216,32 @@ gate_unit() {
   warn_note "The first unit run threw an unhandled error that did not reproduce: ${rerun[*]} (a test file this change does not touch) passed on a re-run. The gate passed on that re-run."
 }
 
+gate_unit() {
+  [ -s "$TEST_TARGETS" ] || skip_gate "no unit test files in scope" || return $?
+  local dirs first rc=0
+  dirs="$(while IFS= read -r p; do dirname "$p"; done < "$TEST_TARGETS" | sort -u)"
+  note "test directories: $(printf '%s' "$dirs" | tr '\n' ' ')"
+  first="$(mktemp)"
+  # tee keeps the whole run in this gate's log; `|| rc=$?` keeps vitest's own exit code (pipefail) without ending the gate.
+  # shellcheck disable=SC2086
+  with_timeout 1500 pnpm exec vitest run --config config/vitest.config.ts $dirs 2>&1 | tee "$first" || rc=$?
+  if [ "$rc" -eq 0 ]; then rm -f "$first"; return 0; fi
+  unit_red_verdict "$first" "$rc"
+}
+
 gate_unit_related() { # pr mode only: tests that import the changed source files
   [ "$MODE" = pr ] || skip_gate "only runs on pull requests" || return $?
   local src
   src="$(grep -v -E '\.(test|spec)\.' "$CODE_TARGETS" | grep -E '^(src|config/scripts)/' || true)"
   [ -n "$src" ] || skip_gate "no changed source files" || return $?
   [ "$(printf '%s\n' "$src" | wc -l)" -le 150 ] || skip_gate "more than 150 changed source files; run the full suite locally" || return $?
+  local first rc=0
+  first="$(mktemp)"
+  # A test of upstream's that the changed sources reach can fail on the runner whatever this change does: it gets the same verdict as `unit`.
   # shellcheck disable=SC2086
-  with_timeout 1500 pnpm exec vitest related --run --passWithNoTests --config config/vitest.config.ts $src
+  with_timeout 1500 pnpm exec vitest related --run --passWithNoTests --config config/vitest.config.ts $src 2>&1 | tee "$first" || rc=$?
+  if [ "$rc" -eq 0 ]; then rm -f "$first"; return 0; fi
+  unit_red_verdict "$first" "$rc"
 }
 
 gate_localization() { pnpm run verify:localization-coverage; }
