@@ -96,6 +96,7 @@ printf 'v1.0.0\n' > "$repo/custom/BASE"
 git -C "$repo" add -A && git -C "$repo" commit -q -m "upstream release"
 git -C "$repo" tag v1.0.0
 : > "$repo/src/mine/mine.test.ts"
+: > "$repo/src/mine/mine.ts" # a changed source file: the `unit-related` gate runs only when one exists
 git -C "$repo" add -A && git -C "$repo" commit -q -m "our customization"
 printf 'src/mine/mine.test.ts\n' > "$tmp/our-files.txt"
 
@@ -121,17 +122,17 @@ STUB
 chmod +x "$repo/bin/pnpm"
 
 UP_SAME="$(printf '%s\t%s' "$FILE" "$NAME")"
-run_gate() { # NAME FIRST_LOG [MODE] [OUR_FILES] [CHANGED_BASE] -> g_status g_calls g_note g_warn g_log (env UP_FAILED, UP_NO_JSON, INSTALL_RC pass through)
-  local name="$1" out="$tmp/out-$1" mode="${3:-sync}" ours="${4:-$tmp/our-files.txt}" cbase="${5:-v1.0.0}"
+run_gate() { # NAME FIRST_LOG [MODE] [OUR_FILES] [CHANGED_BASE] -> g_status g_calls g_note g_warn g_log (env GATE, UP_FAILED, UP_NO_JSON, INSTALL_RC pass through)
+  local name="$1" out="$tmp/out-$1" mode="${3:-sync}" ours="${4:-$tmp/our-files.txt}" cbase="${5:-v1.0.0}" gate="${GATE:-unit}"
   rm -rf "$out"; : > "$tmp/calls.txt"
   ( cd "$repo" && env PATH="$repo/bin:$PATH" STUB_CALLS="$tmp/calls.txt" FIRST_LOG="$2" FIRST_RC=1 \
       UP_FAILED="${UP_FAILED:-}" UP_NO_JSON="${UP_NO_JSON:-}" INSTALL_RC="${INSTALL_RC:-0}" RERUN_RC="${RERUN_RC:-0}" \
-      bash "$scripts/run-gates.sh" --out "$out" --mode "$mode" --changed-base "$cbase" --our-files "$ours" --only unit ) > "$tmp/gate-$name.out" 2>&1 || true
-  g_status="$(jq -r '.gates[] | select(.id == "unit") | .status' "$out/gates.json")"
+      bash "$scripts/run-gates.sh" --out "$out" --mode "$mode" --changed-base "$cbase" --our-files "$ours" --only "$gate" ) > "$tmp/gate-$name.out" 2>&1 || true
+  g_status="$(jq -r '.gates[] | select(.id == "'"$gate"'") | .status' "$out/gates.json")"
   g_calls="$(wc -l < "$tmp/calls.txt" | tr -d ' ')"
-  g_note="$(jq -r '.gates[] | select(.id == "unit") | .note' "$out/gates.json")"
-  g_warn="$(jq -r '.gates[] | select(.id == "unit") | .warnings | join(" / ")' "$out/gates.json")"
-  g_log="$out/logs/unit.log"
+  g_note="$(jq -r '.gates[] | select(.id == "'"$gate"'") | .note' "$out/gates.json")"
+  g_warn="$(jq -r '.gates[] | select(.id == "'"$gate"'") | .warnings | join(" / ")' "$out/gates.json")"
+  g_log="$out/logs/$gate.log"
 }
 worktrees() { git -C "$repo" worktree list | wc -l | tr -d ' '; }
 
@@ -209,5 +210,24 @@ if [ "$g_status" = fail ] && [ "$g_calls" = 3 ]; then ok "gate: the unhandled er
 printf '%s\n' ' Test Files  1 passed (1)' '      Tests  3 passed (3)' > "$tmp/green.txt"
 run_gate green "$tmp/green.txt"
 if [ "$g_status" = fail ]; then ok "gate: a first run that exits red with a green log never passes by the baseline"; else bad "gate green log: status=$g_status"; fi
+
+# `unit-related` (a pull request's tests that import the changed sources) gets the same verdict: a test of upstream's that fails on the
+# runner and on the pristine release is not counted (v1.4.271 sync merged into #45: BotWebhooksCard, ephemeral-vm and two more failed there).
+GATE=unit-related UP_FAILED="$UP_SAME" run_gate related-same "$real" pr
+if [ "$g_status" = pass ] && grep -q "also fail on pristine upstream v1.0.0" <<<"$g_note" && grep -q "$FILE" <<<"$g_warn"; then
+  ok "gate unit-related: a failed upstream test that fails on the pristine release too = pass, named in the warning"
+else bad "gate related-same: status=$g_status note=[$g_note] warn=[$g_warn]"; fi
+if grep -q -- "vitest related" "$tmp/calls.txt" && grep -q -E '^install --frozen-lockfile \[in .*/tree\]$' "$tmp/calls.txt" && [ "$(worktrees)" = 1 ]; then ok "gate unit-related: the related run, then the release installed in a worktree that is removed"; else bad "gate related calls: $(cat "$tmp/calls.txt")"; fi
+
+GATE=unit-related UP_FAILED="" run_gate related-passes-upstream "$real" pr
+if [ "$g_status" = fail ] && grep -q 'pass on upstream v1.0.0, so this change broke them' "$g_log"; then ok "gate unit-related: the test passes on the pristine release = this change broke it = red"; else bad "gate related-passes-upstream: status=$g_status"; fi
+
+mkdir -p "$repo/$(dirname "$FILE")"; : > "$repo/$FILE"
+GATE=unit-related UP_FAILED="$UP_SAME" run_gate related-ours "$real" pr "$tmp/our-files-incl.txt"
+rm -f "$repo/$FILE"
+if [ "$g_status" = fail ] && [ "$g_calls" = 1 ]; then ok "gate unit-related: the failing file is one of ours = red, the release is not even run"; else bad "gate related-ours: status=$g_status calls=$g_calls"; fi
+
+GATE=unit-related run_gate related-green "$tmp/green.txt" pr
+if [ "$g_status" = fail ]; then ok "gate unit-related: a red exit with a green log never passes by the baseline"; else bad "gate related-green: status=$g_status"; fi
 
 exit "$([ "$fails" -eq 0 ] && echo 0 || echo 1)"
