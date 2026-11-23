@@ -15,7 +15,8 @@
 # joined by single spaces, as vitest's json reporter spells fullName), or one line `keep-red: <reason>`. Always returns 0.
 #
 # `check` only when ALL of these hold; any doubt keeps the gate red:
-#   a. the last summary reports failed tests and failed test files, and the log has no Failed Suites or Type Errors. An Unhandled Errors
+#   a. the last summary reports failed tests and failed test files, and the log has no Failed Suites (unless the caller covered them, see
+#      UNIT_SUITES_COVERED below) or Type Errors. An Unhandled Errors
 #      section is NOT judged here: gate_unit (run-gates.sh) gives each unhandled error its own check, the flake re-run, and the gate passes
 #      only when both checks pass;
 #   b. the `Failed Tests N` section holds exactly N ` FAIL ` lines, N equals the failed-tests count of the summary, every line has the
@@ -36,8 +37,12 @@ unit_baseline_decide() {
   n_fail_tests="$(sed -n -E 's/^[[:space:]]*Tests[[:space:]]+([0-9]+) failed.*/\1/p' <<<"$ts")"
   if [ -z "$tf" ] || [ -z "$ts" ]; then reason="the log has no Test Files / Tests summary (the run did not finish)"
   elif [ -z "$n_fail_tests" ] || [ -z "$n_fail_files" ]; then reason="the summary reports no failed tests"
-  elif grep -q -E 'Failed Suites|^[[:space:]]*Type Errors[[:space:]]+[0-9]+' "$txt"; then reason="the log has failed suites or type errors"
+  elif grep -q -E '^[[:space:]]*Type Errors[[:space:]]+[0-9]+' "$txt"; then reason="the log has failed suites or type errors"
+  elif [ "${UNIT_SUITES_COVERED:-0}" -eq 0 ] && grep -q 'Failed Suites' "$txt"; then reason="the log has failed suites or type errors"
   fi
+  # UNIT_SUITES_COVERED=N: the caller re-ran the N failed suites (test files that did not load) alone and they passed (unit_suite_decide in
+  # unit-flake.sh), so they are not this check's business; the summary counts each of them as a failed test file.
+  if [ -n "$n_fail_files" ]; then n_fail_files=$((n_fail_files - ${UNIT_SUITES_COVERED:-0})); fi
 
   if [ -z "$reason" ]; then
     sec="$(grep -n -E 'Failed Tests[[:space:]]+[0-9]+' "$txt" | tail -n 1 || true)"

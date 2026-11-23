@@ -1,0 +1,44 @@
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL   node-shared  src/renderer/src/components/bots/bot-connector-entries.test.ts [ src/renderer/src/components/bots/bot-connector-entries.test.ts ]
+ FAIL   node-shared  src/renderer/src/components/editor/markdown/render-mode/markdown-rich-mode.test.ts [ src/renderer/src/components/editor/markdown/render-mode/markdown-rich-mode.test.ts ]
+ FAIL   node-shared  src/renderer/src/components/editor/rich-markdown/schema/rich-markdown-prose-entities.test.ts [ src/renderer/src/components/editor/rich-markdown/schema/rich-markdown-prose-entities.test.ts ]
+TypeError: window.addEventListener is not a function
+ ❯ src/renderer/src/components/editor/document-images/local-image-src-cache.ts:177:10
+    175| // Every shown image, including one whose read failed, reads again whe…
+    176| if (typeof window !== 'undefined') {
+    177|   window.addEventListener('focus', invalidateLocalImageCache)
+       |          ^
+    178|   document.addEventListener('visibilitychange', invalidateWhenShownUnf…
+    179| }
+ ❯ src/renderer/src/components/editor/document-images/useLocalImageSrc.ts:6:1
+ ❯ src/renderer/src/components/native-chat/attachments/chips/NativeChatImageAttachmentPreview.tsx:6:1
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL   node-shared  src/main/ipc/ephemeral-vm/ephemeral-vm.test.ts > registerEphemeralVmHandlers > uses an immutable plugin recipe snapshot after the plugin is removed
+TypeError: Cannot read properties of undefined (reading 'id')
+ ❯ src/main/ipc/ephemeral-vm/ephemeral-vm.test.ts:168:38
+    166|     registrations.splice(0)
+    167|     const cleaned = await handlers.get('ephemeralVm:cleanup')?.(null, {
+    168|       runtimeId: provisioned.runtime.id
+       |                                      ^
+    169|     } as never)
+    170|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+
+ Test Files  4 failed | 1230 passed | 9 skipped (1243)
+   Affected  1243 of 5320 test files (related to 126 files)
+      Tests  1 failed | 5479 passed | 21 skipped (5501)
+   Start at  06:54:10
+   Duration  991.85s (import 68%, tests 21%, environment 6%, transform 4%, setup 1%)
+
+     Import   node  19543 modules were evaluated 66784 times · 1622.28s total, 68% of tracked time
+             ~229.44s faster with isolate: false — shared modules are evaluated once per worker instead of once per file
+             learn more: https://vitest.dev/guide/improving-performance#test-isolation
