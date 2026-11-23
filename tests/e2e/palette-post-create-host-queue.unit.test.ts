@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import '../../src/shared/remote-runtime/host-store/environment-store-worker-test-fixture'
 import { expect, it, vi } from 'vitest'
 import { runQueuedPaletteAction } from './palette-post-create-host-queue.test-fixture'
 import { useAppStore } from '@/store/index'

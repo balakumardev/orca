@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import '../../src/shared/remote-runtime/host-store/environment-store-worker-test-fixture'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
