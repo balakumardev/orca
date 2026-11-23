@@ -181,15 +181,37 @@ gate_format() {
 
 # unit_red_verdict FIRST_LOG RC: what a red vitest run (`unit` or `unit-related`) means; prints the reasons, returns 0 only when all of it is covered.
 unit_red_verdict() {
-  local first="$1" rc="$2" decision f rc2=0
-  local -a rerun=()
-  # Red run. Real failures stay red. Two exceptions, each checked on its own, and the gate passes only when every part of the
-  # red is covered: (1) failed tests that are not ours and fail the same way on the pristine upstream release are the runner's,
-  # not this merge's (unit_baseline_gate); (2) an unhandled error that a test file outside this change's scope raised gets
-  # that file one re-run (unit_flake_decide).
-  local covered=0
+  local first="$1" rc="$2" decision f rc2=0 suite_decision
+  local -a rerun=() suites=()
+  # Red run. Real failures stay red. Three exceptions, each checked on its own, and the gate passes only when every part of the
+  # red is covered: (1) a test file outside this change's scope that failed to LOAD gets one re-run alone, because a file an earlier
+  # one in the same worker left half-loaded passes on its own (unit_suite_decide); (2) failed tests that are not ours and fail the same
+  # way on the pristine upstream release are the runner's, not this merge's (unit_baseline_gate); (3) an unhandled error that a test
+  # file outside this change's scope raised gets that file one re-run (unit_flake_decide).
+  local covered=0 n_suites=0
+  if [ "$rc" -eq 1 ]; then
+    suite_decision="$(unit_suite_decide "$first" "$TEST_SCOPE" "$ALL_TARGETS")"
+    case "$(head -n 1 <<<"$suite_decision")" in
+      none) ;;
+      rerun)
+        while IFS= read -r f; do [ -z "$f" ] || suites+=("$f"); done < <(tail -n +2 <<<"$suite_decision")
+        for f in "${suites[@]}"; do
+          [ -f "$f" ] || { rm -f "$first"; echo "unit suite check: the gate stays red ($f does not exist in this checkout)"; return "$rc"; }
+        done
+        echo "unit suite check: ${#suites[@]} test file(s) outside this change failed to load in the shared run (${suites[*]}); running them alone once"
+        with_timeout 600 pnpm exec vitest run --config config/vitest.config.ts "${suites[@]}" || rc2=$?
+        if [ "$rc2" -ne 0 ]; then
+          rm -f "$first"; echo "unit suite check: the re-run exited with code $rc2, so the gate stays red"; return "$rc"
+        fi
+        rc2=0; n_suites="${#suites[@]}"; covered=1
+        note "${#suites[@]} test file(s) failed to load in the shared run and passed alone: ${suites[*]}"
+        warn_note "${#suites[@]} test file(s) this change does not touch failed to load in the shared unit run and passed when run alone (an earlier file in the same worker left them broken, not this change): ${suites[*]}"
+        ;;
+      *) rm -f "$first"; echo "unit suite check: the gate stays red (${suite_decision#keep-red: })"; return "$rc" ;;
+    esac
+  fi
   if [ "$rc" -eq 1 ] && unit_log_has_failed_tests "$first"; then
-    if unit_baseline_gate "$first" "$TEST_SCOPE" "$ALL_TARGETS"; then covered=1
+    if UNIT_SUITES_COVERED="$n_suites" unit_baseline_gate "$first" "$TEST_SCOPE" "$ALL_TARGETS"; then covered=1
     else rm -f "$first"; echo "unit flake check: the gate stays red (a failed test is not covered by the upstream baseline)"; return "$rc"; fi
   fi
   if [ "$rc" -eq 1 ]; then decision="$(UNIT_FLAKE_FAILED_COVERED="$covered" unit_flake_decide "$first" "$TEST_SCOPE" "$ALL_TARGETS")"

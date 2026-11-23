@@ -4,6 +4,8 @@
 #
 # Part 1 feeds unit_baseline_decide the REAL log of the red unit gate of the v1.4.269 sync (fixtures/unit-baseline-real.txt: an upstream
 # test of the URL parser that the runner's Node release fails, 1 failed test of 4434) and synthetic variants of it.
+# Part 1b feeds unit_suite_decide (unit-flake.sh) the REAL log of pull request 45's unit-related gate (fixtures/unit-failed-suites-real.txt:
+# three test files that did not load, `window.addEventListener is not a function`, plus one failed upstream test) and variants of it.
 # Part 2 runs the real run-gates.sh (`--only unit`) in a scratch git repository that has an upstream release tag, with a stub `pnpm`: the
 # stub replays the log of the first run, and for the run on the pristine release (a git worktree of the tag) it writes a vitest json report
 # from $UP_FAILED. That proves the wiring: the gate passes only when every failed test is outside our scope and fails the same way on the
@@ -13,6 +15,7 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 scripts="$(cd "$here/.." && pwd)"
 real="$here/fixtures/unit-baseline-real.txt"
+suitesreal="$here/fixtures/unit-failed-suites-real.txt"
 combined="$here/fixtures/unit-failed-plus-unhandled-real.txt"
 ORIGIN="src/shared/git/branches/git-branch-cleanup-real-git.test.ts"
 for tool in git jq perl; do command -v "$tool" >/dev/null 2>&1 || { echo "missing tool: $tool"; exit 2; }; done
@@ -26,6 +29,8 @@ unset GITHUB_OUTPUT GITHUB_STEP_SUMMARY
 . "$scripts/lib.sh"
 # shellcheck source=../unit-baseline.sh
 . "$scripts/unit-baseline.sh"
+# shellcheck source=../unit-flake.sh
+. "$scripts/unit-flake.sh"
 
 fails=0
 ok() { printf 'ok   %s\n' "$1"; }
@@ -85,6 +90,49 @@ decide "an empty log: red" "$tmp/empty.txt" "keep-red: the log has no Test Files
 perl -0pe 's/ Test Files  1 failed/ Test Files  2 failed/; s/ Tests  1 failed/ Tests  2 failed/; s/Failed Tests 1/Failed Tests 2/; s/(\n FAIL   node-shared  src\/shared\/bots\/bot-mcp-apps.test.ts > [^\n]*\n)/$1AssertionError: x\n\n FAIL   node-shared  src\/shared\/other\/thing.test.ts > top level test\n/' "$real" > "$tmp/two.txt"
 decide "the real log with a failed test AND an EPIPE unhandled error (run 45004282909): check the failed test" "$combined" check
 decide "two failed tests in two files are both listed" "$tmp/two.txt" "check $(printf '%s\t%s\n%s\t%s' "$FILE" "$NAME" 'src/shared/other/thing.test.ts' 'top level test')"
+
+# ---- part 1b: failed suites (test files that did not load) -----------------------------------------------------------------
+S1='src/renderer/src/components/bots/bot-connector-entries.test.ts'
+S2='src/renderer/src/components/editor/markdown/render-mode/markdown-rich-mode.test.ts'
+S3='src/renderer/src/components/editor/rich-markdown/schema/rich-markdown-prose-entities.test.ts'
+EV='src/main/ipc/ephemeral-vm/ephemeral-vm.test.ts'
+EVNAME='registerEphemeralVmHandlers uses an immutable plugin recipe snapshot after the plugin is removed'
+suite() { # NAME LOG WANT [SCOPE_FILE...]: WANT is "none", "rerun <files joined by space>" or "keep-red: <substring>"
+  local name="$1" log="$2" want="$3" out; shift 3
+  out="$(unit_suite_decide "$log" "$@")"
+  case "$want" in
+    none) if [ "$out" = none ]; then ok "$name"; else bad "$name: got [$out]"; fi ;;
+    rerun\ *) if [ "$out" = "$(printf 'rerun\n%s' "$(tr ' ' '\n' <<<"${want#rerun }")")" ]; then ok "$name"; else bad "$name: got [$out]"; fi ;;
+    *) if [[ "$out" == "keep-red: "*"${want#keep-red: }"* ]]; then ok "$name"; else bad "$name: got [$out], want [$want]"; fi ;;
+  esac
+}
+suite "no failed suite in the log: nothing to re-run" "$real" none
+suite "the real log: the three files that did not load are re-run" "$suitesreal" "rerun $S1 $S2 $S3" "$tmp/scope-empty.txt" "$tmp/scope-ours.txt"
+printf '%s\n' "$S2" > "$tmp/scope-suite.txt"
+suite "one of them is in our scope: red" "$suitesreal" "keep-red: $S2 is in the scope" "$tmp/scope-suite.txt"
+sed -E 's/Failed Suites 3/Failed Suites 2/' "$suitesreal" > "$tmp/suites-count.txt"
+suite "the header says 2, three FAIL lines: red" "$tmp/suites-count.txt" "keep-red: 3 FAIL line(s) read, the header says 2"
+sed -E "s# \[ $S1 \]##" "$suitesreal" > "$tmp/suites-shape.txt"
+suite "a FAIL line without the [ file ] suffix is not a suite that did not load: red" "$tmp/suites-shape.txt" "keep-red: a FAIL line of the Failed Suites section has a shape"
+sed -E "s#$S3#tests/e2e/some.test.ts#g" "$suitesreal" > "$tmp/suites-e2e.txt"
+suite "an e2e spec is never re-run this way: red" "$tmp/suites-e2e.txt" "keep-red: tests/e2e/some.test.ts is an e2e spec"
+sed -E "s#$S3#src/x/../../etc/x.test.ts#g" "$suitesreal" > "$tmp/suites-dotdot.txt"
+suite "a path with .. is refused: red" "$tmp/suites-dotdot.txt" "keep-red: a failed suite's path is not a plain repo path"
+sed -E 's/^( Test Files +)4 failed/\12 failed/' "$suitesreal" > "$tmp/suites-fewer.txt"
+suite "the summary counts fewer failed files than suites: red" "$tmp/suites-fewer.txt" "keep-red: the summary counts 2 failed file(s), fewer than the 3 failed suite(s)"
+{ cat "$suitesreal"; printf '    Type Errors  1 error\n'; } > "$tmp/suites-types.txt"
+suite "type errors in the log: red" "$tmp/suites-types.txt" "keep-red: the log reports type errors"
+grep -v -E '^ +Tests +|^ Test Files' "$suitesreal" > "$tmp/suites-nosummary.txt"
+suite "no summary: red" "$tmp/suites-nosummary.txt" "keep-red: the log has no Test Files summary"
+
+# The baseline reads a log with covered suites: without UNIT_SUITES_COVERED the failed suites keep it red; with the number of suites that were
+# re-run it judges the one failed test, and a wrong number is caught by the file count.
+out="$(unit_baseline_decide "$suitesreal")"
+if [[ "$out" == "keep-red: the log has failed suites or type errors" ]]; then ok "baseline: failed suites that nobody re-ran keep the log red"; else bad "baseline without covered suites: [$out]"; fi
+out="$(UNIT_SUITES_COVERED=3 unit_baseline_decide "$suitesreal")"
+if [ "$out" = "$(printf 'check\n%s\t%s' "$EV" "$EVNAME")" ]; then ok "baseline: with the 3 suites re-run, the one failed test is what is left to check"; else bad "baseline with 3 covered: [$out]"; fi
+out="$(UNIT_SUITES_COVERED=2 unit_baseline_decide "$suitesreal")"
+if [[ "$out" == "keep-red: 1 failing file(s) read, the summary says 2" ]]; then ok "baseline: a wrong count of re-run suites is caught by the file count"; else bad "baseline with 2 covered: [$out]"; fi
 
 # ---- part 2: the gate itself, with a stub pnpm --------------------------------------------------------------------
 repo="$tmp/repo"
@@ -229,5 +277,40 @@ if [ "$g_status" = fail ] && [ "$g_calls" = 1 ]; then ok "gate unit-related: the
 
 GATE=unit-related run_gate related-green "$tmp/green.txt" pr
 if [ "$g_status" = fail ]; then ok "gate unit-related: a red exit with a green log never passes by the baseline"; else bad "gate related-green: status=$g_status"; fi
+
+# Test files that failed to LOAD in the shared run (pull request 45: three of them in one run, one in the re-run of the same commit): each is
+# re-run alone once, and the gate passes only when they pass alone AND the rest of the red is covered as before.
+for f in "$S1" "$S2" "$S3"; do mkdir -p "$repo/$(dirname "$f")"; : > "$repo/$f"; done
+EVUP="$(printf '%s\t%s' "$EV" "$EVNAME")"
+UP_FAILED="$EVUP" RERUN_RC=0 run_gate suites "$suitesreal"
+if [ "$g_status" = pass ] && [ "$g_calls" = 4 ] && grep -q 'failed to load in the shared run and passed alone' <<<"$g_note" && grep -q "also fail on pristine upstream v1.0.0" <<<"$g_note" && grep -q "$S2" <<<"$g_warn"; then
+  ok "gate: three files that did not load pass alone, the failed test fails on the pristine release too = pass, all of it in the note and the warning"
+else bad "gate suites: status=$g_status calls=$g_calls note=[$g_note] warn=[$g_warn]"; fi
+if grep -q -- "$S1" <<<"$(sed -n '2p' "$tmp/calls.txt")" && grep -q -- "$S3" <<<"$(sed -n '2p' "$tmp/calls.txt")" && ! grep -q -- "$EV" <<<"$(sed -n '2p' "$tmp/calls.txt")"; then
+  ok "gate: the re-run names exactly the files that did not load"
+else bad "gate suites re-run call: $(sed -n '2p' "$tmp/calls.txt")"; fi
+if [ "$(worktrees)" = 1 ]; then ok "gate: no worktree is left behind"; else bad "worktrees left: $(git -C "$repo" worktree list)"; fi
+
+UP_FAILED="$EVUP" RERUN_RC=1 run_gate suites-fail-alone "$suitesreal"
+if [ "$g_status" = fail ] && [ "$g_calls" = 2 ] && grep -q 'the re-run exited with code 1, so the gate stays red' "$g_log"; then ok "gate: a file that also fails alone is broken for real = red, the release is not even run"; else bad "gate suites-fail-alone: status=$g_status calls=$g_calls"; fi
+
+UP_FAILED="" RERUN_RC=0 run_gate suites-test-passes-upstream "$suitesreal"
+if [ "$g_status" = fail ] && grep -q 'pass on upstream v1.0.0, so this change broke them' "$g_log"; then ok "gate: the suites pass alone but the failed test passes on the pristine release = this change broke it = red"; else bad "gate suites-test-passes-upstream: status=$g_status"; fi
+
+printf 'src/mine/mine.test.ts\n%s\n' "$S2" > "$tmp/our-files-suite.txt"
+UP_FAILED="$EVUP" RERUN_RC=0 run_gate suites-ours "$suitesreal" sync "$tmp/our-files-suite.txt"
+if [ "$g_status" = fail ] && [ "$g_calls" = 1 ]; then ok "gate: a file that did not load is one of ours = red, nothing is re-run"; else bad "gate suites-ours: status=$g_status calls=$g_calls"; fi
+
+# Only suites failed (no failed test, no unhandled error): a summary of three failed test files and no failed test.
+sed -n '1,20p' "$suitesreal" | grep -v -E '^ *$|^⎯{4,}.*Failed Tests' | sed -e '/Failed Tests/,$d' > "$tmp/suites-only.txt"
+printf '\n Test Files  3 failed | 1230 passed | 9 skipped (1242)\n      Tests  5479 passed | 21 skipped (5500)\n' >> "$tmp/suites-only.txt"
+UP_FAILED="" RERUN_RC=0 run_gate suites-only "$tmp/suites-only.txt"
+if [ "$g_status" = pass ] && [ "$g_calls" = 2 ] && grep -q 'failed to load in the shared run and passed alone' <<<"$g_note"; then ok "gate: only files that did not load, and they pass alone = pass, with no run on the pristine release"; else bad "gate suites-only: status=$g_status calls=$g_calls note=[$g_note]"; fi
+UP_FAILED="" RERUN_RC=1 run_gate suites-only-fail "$tmp/suites-only.txt"
+if [ "$g_status" = fail ] && [ "$g_calls" = 2 ]; then ok "gate: only files that did not load, and one fails alone = red"; else bad "gate suites-only-fail: status=$g_status calls=$g_calls"; fi
+
+GATE=unit-related UP_FAILED="$EVUP" RERUN_RC=0 run_gate related-suites "$suitesreal" pr
+if [ "$g_status" = pass ] && grep -q 'failed to load in the shared run and passed alone' <<<"$g_note"; then ok "gate unit-related: the same verdict for a pull request's related tests"; else bad "gate related-suites: status=$g_status note=[$g_note]"; fi
+for f in "$S1" "$S2" "$S3"; do rm -f "$repo/$f"; done
 
 exit "$([ "$fails" -eq 0 ] && echo 0 || echo 1)"
