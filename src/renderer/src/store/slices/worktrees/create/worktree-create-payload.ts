@@ -16,12 +16,15 @@ import type {
 } from '../../../../../../shared/worktree/lineage-types'
 import type { TaskSourceContext } from '../../../../../../shared/work-items/task-source-context'
 import type { WorkspaceLinkedItem } from '../../../../../../shared/worktree/types'
+import type { RuntimeTargetGuard } from '../../../../runtime/rpc/targets/runtime-target-guard'
 
 /** Trailing bag for `createWorktree` args that outgrew its positional list. */
 export type CreateWorktreeCallOptions = {
   branchIntent?: CreateWorktreeArgs['branchIntent']
   /** Captured before background preparation so navigation cannot retarget creation. */
   executionHostId?: ExecutionHostId
+  /** A search-owned create retains its authority through preparation, RPC queuing, and Retry. */
+  targetGuard?: RuntimeTargetGuard
   linkedWorkItem?: WorkspaceLinkedItem | null
   linkedTaskSourceContext?: TaskSourceContext | null
   /** Lets the owning runtime launch and prefill a task agent without first creating an idle shell. */

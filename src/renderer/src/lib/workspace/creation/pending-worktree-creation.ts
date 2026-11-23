@@ -30,6 +30,7 @@ import type { Translate } from '@/i18n/use-translate'
 import type { EnvironmentDoctorCheck } from '../../../../../shared/workspace-setup/environment-doctor/environment-doctor-types'
 import type { NativeChatComposerDraftImage } from '@/components/native-chat/drafts/native-chat-composer-draft-storage'
 import type { AgentJournalSkillRef } from '../../../../../shared/agent-session/journal/agent-session-journal-types'
+import type { CreateWorktreeCallOptions } from '@/store/slices/worktrees/create/worktree-create-payload'
 
 /** Creation phases include renderer preflight, base fetch and worktree add; remote/runtime can skip git phases, while VM recipes provision before runtime creation. */
 export type WorktreeCreationPhase = 'preparing' | 'provisioning-vm' | 'fetching' | 'creating'
@@ -41,6 +42,8 @@ export type WorktreeCreationRequest = {
   repoId: string
   /** Execution owner retained after script preparation, including retries. */
   executionHostId?: ExecutionHostId
+  /** Retry must retain the original search authority rather than capture a replacement pairing. */
+  targetGuard?: CreateWorktreeCallOptions['targetGuard']
   // Preserve linked-task source ownership separately from execution context so Retry never infers account from run host.
   taskSourceContext?: TaskSourceContext | null
   linkedWorkItem?: WorkspaceLinkedItem | null

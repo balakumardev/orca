@@ -11,7 +11,12 @@ function target(id: string, label: string): ProjectCreateTarget {
     badgeColor: '#000',
     addedAt: 0
   }
-  return { repo, label, exact: false }
+  return {
+    repo,
+    label,
+    exact: false,
+    workspaceTarget: { projectId: `repo:${id}`, hostId: 'local' }
+  }
 }
 
 describe('buildProjectCreatePaletteResults', () => {

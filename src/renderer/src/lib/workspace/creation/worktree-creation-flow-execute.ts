@@ -30,12 +30,15 @@ import {
 import { completeWorktreeCreation } from '@/lib/workspace/creation/worktree-creation-completion'
 import { showWorktreeCreationReadyToast } from '@/lib/workspace/creation/worktree-creation-ready-toast'
 import { mountCreatedWorktreeStartupTabsInBackground } from '@/lib/workspace/creation/worktree-creation-background-mount'
-import { ensureWebRuntimeWorktreeTerminalAfterWake } from '@/runtime/hosted-terminals/restoration/web-runtime-worktree-terminal-after-wake'
 import {
   isCreatedWorkspaceInView,
   showWorktreeCreationError
 } from '@/lib/workspace/creation/worktree-creation-surface'
-import { prepareCreatedWorktreeActivation } from '@/lib/workspace/creation/worktree-creation-initial-tabs'
+import {
+  prepareCreatedWorktreeActivation,
+  seedCreatedWorktreeHostTerminal,
+  worktreeCreationHostOptions
+} from '@/lib/workspace/creation/worktree-creation-initial-tabs'
 import type { UISlice } from '@/store/slices/ui/ui-slice-contract'
 
 export async function executeWorktreeCreation(
@@ -46,6 +49,7 @@ export async function executeWorktreeCreation(
   const trustedRequest = request.hookPreparation
     ? await prepareWorktreeCreationHooks(creationId, request)
     : request
+  trustedRequest?.targetGuard?.assertCurrent()
   const preparedRequest =
     trustedRequest && (await prepareRequestForCreate(creationId, trustedRequest))
   if (!preparedRequest) {
@@ -55,7 +59,7 @@ export async function executeWorktreeCreation(
   const structuredLaunch = preparedRequest.agentLaunchRoute === 'structured-native-chat'
   const creationHostId =
     preparedRequest.workspaceRunContext?.hostId ?? preparedRequest.executionHostId
-  const onCreationHost = creationHostId ? { executionHostId: creationHostId } : {}
+  const onCreationHost = worktreeCreationHostOptions(preparedRequest, creationHostId)
   const hostAgentLaunch = hostPlannableAgentLaunch(preparedRequest)
   let result: CreatedWorktreeResult
   try {
@@ -95,7 +99,8 @@ export async function executeWorktreeCreation(
           ...(preparedRequest.branchIntent ? { branchIntent: preparedRequest.branchIntent } : {}),
           ...(hostAgentLaunch ? { hostAgentLaunch } : {}),
           ...worktreeCreationAgentLaunchOptions(preparedRequest),
-          executionHostId: creationHostId,
+          // Dispatch uses the saved pairing/runtime fence, not the host current after preparation.
+          ...onCreationHost,
           ...(preparedRequest.nameWasGenerated ? { nameWasGenerated: true } : {}),
           ...(preparedRequest.displayNameKind
             ? { displayNameKind: preparedRequest.displayNameKind }
@@ -215,11 +220,7 @@ export async function executeWorktreeCreation(
       }
       if (!backendSpawned) {
         try {
-          ensureWebRuntimeWorktreeTerminalAfterWake(worktree.id, {
-            startup: startupOpt,
-            agent: windowStartup.agent,
-            unknownHostCountIsEmpty: true
-          })
+          seedCreatedWorktreeHostTerminal(worktree.id, windowStartup, onCreationHost)
         } catch (recoveryError) {
           console.error('worktree create: after-wake recovery failed', worktree.id, recoveryError)
         }
@@ -258,13 +259,7 @@ export async function executeWorktreeCreation(
     }
     if (!structuredLaunch && !backendSpawned) {
       try {
-        ensureWebRuntimeWorktreeTerminalAfterWake(worktree.id, {
-          startup: startupOpt,
-          agent: windowStartup.agent,
-          activate: false,
-          // Why: this client just created the workspace, so it starts empty.
-          unknownHostCountIsEmpty: true
-        })
+        seedCreatedWorktreeHostTerminal(worktree.id, windowStartup, onCreationHost, false)
       } catch (error) {
         console.error('worktree create: after-wake terminal seeding failed', worktree.id, error)
       }

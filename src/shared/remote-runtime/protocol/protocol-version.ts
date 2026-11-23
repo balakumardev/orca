@@ -23,6 +23,7 @@ import {
 import { PAIRING_TICKET_EXCHANGE_RUNTIME_CAPABILITIES } from '../pairing/ticket-exchange-capability'
 import { PAIRING_OFFER_CREATOR_RUNTIME_CAPABILITY } from '../pairing/pairing-offer-creator-capability'
 import { FILES_RUNTIME_CAPABILITIES } from '../../file-access/files-runtime-capabilities'
+import { FOLDER_SEARCH_CAPABILITY } from '../../folder-search-types'
 import { HOST_RUNTIME_CAPABILITIES } from './host-runtime-capabilities'
 import { MOBILE_RUNTIME_CAPABILITIES } from './mobile-runtime-capabilities'
 import { ORCAD_RUNTIME_CAPABILITIES } from './orcad-runtime-capabilities'
@@ -97,6 +98,7 @@ export const RUNTIME_CAPABILITIES = /* @__PURE__ */ (() =>
     ...SESSION_TABS_RUNTIME_CAPABILITIES,
     ...TERMINAL_RUNTIME_CAPABILITIES,
     ...FILES_RUNTIME_CAPABILITIES,
+    FOLDER_SEARCH_CAPABILITY,
     ...BROWSER_RUNTIME_CAPABILITIES,
     ...SOURCE_CONTROL_RUNTIME_CAPABILITIES,
     ...TASK_SOURCE_RUNTIME_CAPABILITIES,

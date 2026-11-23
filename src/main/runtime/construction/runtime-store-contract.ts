@@ -143,6 +143,8 @@ export type RuntimeStore = {
     workspaceDir: string
     nestWorkspaces: boolean
     workspaceDirHistory?: GlobalSettings['workspaceDirHistory']
+    // Discovery always reads roots saved on this runtime's own host.
+    folderSearchLocations?: GlobalSettings['folderSearchLocations']
     // Read by worktree placement: decides whether this project's worktrees
     // mirror into a WSL distro instead of the Windows drive.
     localWindowsRuntimeDefault?: GlobalSettings['localWindowsRuntimeDefault']

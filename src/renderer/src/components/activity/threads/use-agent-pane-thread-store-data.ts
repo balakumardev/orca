@@ -13,6 +13,10 @@ import {
 } from '../../../../../shared/execution-host/execution-host'
 import { advanceActivityTabs, type ActivityTabProjection } from '../events/activity-tab-projection'
 import {
+  selectActivityPresenceInputs,
+  type ActivityPresenceInputs
+} from './activity-presence-inputs'
+import {
   selectDetectedWorktreesByRepo,
   selectFolderWorkspaces,
   selectWorktreesByRepo
@@ -41,6 +45,8 @@ export type AllAgentPaneThreadsStoreData = Pick<
   activityTabs: ActivityTabProjection
   /** Same list while no chat tab changes; the builder indexes it by pane key only when a pane needs it. */
   structuredTabs: readonly StructuredTab[]
+  /** Evidence behind idle agents, narrowed so other panes' title writes do not rebuild Activity. */
+  presence: ActivityPresenceInputs
   worktreeMap: ReturnType<typeof getIndexedWorktreeMap>
   repoMap: ReturnType<typeof getIndexedRepoMap>
   generatedTitlesEnabled: boolean
@@ -87,6 +93,7 @@ export function selectAllAgentPaneThreadStoreData(s: AppState): AllAgentPaneThre
     ptyIdsByTabId: s.ptyIdsByTabId,
     activityTabs: selectActivityTabs(s.unifiedTabsByWorktree),
     structuredTabs: getStructuredAgentSessionTabs(s.unifiedTabsByWorktree),
+    presence: selectActivityPresenceInputs(s),
     repos: s.repos,
     // Read by getKnownWorktreeById for folder owners, so a change must rebuild Activity owners.
     projectGroups: s.projectGroups,

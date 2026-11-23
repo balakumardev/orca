@@ -7,6 +7,7 @@ import type { ExecutionHostId } from '../../../../../shared/execution-host/execu
 import type { PendingSidebarWorktreeReveal } from '@/store/slices/ui/ui-slice-contract-core'
 import type { WorktreeStartupPayload } from '@/lib/workspace/creation/worktree-startup-payload'
 import type { IssueCommandLaunch } from '@/lib/workspace/activation/initial-surface/worktree-setup-issue-command-queue'
+import type { RuntimeTargetGuard } from '@/runtime/rpc/targets/runtime-target-guard'
 
 export type WorktreeActivationSurfaceSelection = {
   /** The create picker's selection; null means Blank Terminal. */
@@ -18,6 +19,7 @@ export type WorktreeActivationSurfaceSelection = {
 }
 
 export type WorktreeActivationOptions = WorktreeActivationSurfaceSelection & {
+  targetGuard?: RuntimeTargetGuard
   worktreeCreationId?: string
   startup?: WorktreeStartupPayload
   initialCwd?: string

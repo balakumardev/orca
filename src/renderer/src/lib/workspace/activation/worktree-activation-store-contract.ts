@@ -9,6 +9,7 @@ import type { WorktreeRuntimeOwnerState } from '@/lib/workspace/ownership/worktr
 import type { AgentStartedTelemetry } from '@/lib/workspace/creation/worktree-startup-payload'
 import type { ClosedTerminalTabTombstonesByTabId } from '../../../../../shared/workspace-layout/terminal-surfaces/closed-terminal-tab-tombstones'
 import type { PendingWorktreeCreation } from '../creation/pending-worktree-creation'
+import type { RuntimeTargetGuard } from '@/runtime/rpc/targets/runtime-target-guard'
 
 export type WorktreeActivationStore = Partial<WorktreeRuntimeOwnerState> & {
   tabsByWorktree: Record<string, { id: string }[]>
@@ -56,6 +57,8 @@ export type WorktreeActivationStore = Partial<WorktreeRuntimeOwnerState> & {
 }
 
 export type InitialTerminalOptions = {
+  /** Recovery must keep the same authority as the activation it is replacing. */
+  targetGuard?: RuntimeTargetGuard
   /** Only the creation owner may seed a plain surface before its pending entry is cleared. */
   worktreeCreationId?: string
   activateCreatedTabs?: boolean

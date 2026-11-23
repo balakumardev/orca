@@ -12,7 +12,7 @@ type ChildAgentLineageEntry = Pick<AgentStatusEntry, 'terminalHandle' | 'orchest
 /** Accept full threads or synthetic structural rows without casts; classifier tests pin compatibility. */
 export type ChildAgentClassifiableThread = {
   paneKey: string
-  /** Running while the pane's own turn is live (working, monitoring or waiting on the user); unverifiable is not. */
+  /** Includes confirmed idle presence; unverifiable is not proof of a live agent. */
   currentAgentState?: ActivityLiveAgentState | null
   currentAgentEntry?: ChildAgentLineageEntry | null
   latestEvent?: { entry: ChildAgentLineageEntry } | null
@@ -110,7 +110,11 @@ export function classifyChildAgents(threads: readonly ChildAgentClassifiableThre
 
   const livePaneKeys = new Set(
     threads
-      .filter((thread) => isRunningActivityState(thread.currentAgentState))
+      // A confirmed idle child is still an agent the user can return to.
+      .filter(
+        (thread) =>
+          thread.currentAgentState === 'idle' || isRunningActivityState(thread.currentAgentState)
+      )
       .map((thread) => thread.paneKey)
   )
   const tree = buildAgentRowLineageTree(rows)

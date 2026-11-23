@@ -7,6 +7,7 @@ import { SESSION_TERMINAL_SCROLLBACK_METHODS } from './terminal/session-terminal
 import { AI_VAULT_METHODS } from './history/ai-vault'
 import { AUTOMATION_METHODS } from './automations/automations'
 import { REPO_METHODS } from './projects/repo'
+import { FOLDER_SEARCH_METHODS } from './projects/folder-search'
 import { WORKTREE_METHODS } from './workspaces/worktree'
 import { WORKSPACE_CLEANUP_RUNNER_METHODS } from './workspaces/workspace-cleanup-runner-methods'
 import { WORKTREE_ARCHIVE_METHODS } from './workspaces/worktree-archive-methods'
@@ -136,6 +137,7 @@ const CORE_RPC_METHODS = [
   ...ARTIFACT_METHODS,
   ...AUTOMATION_METHODS,
   ...REPO_METHODS,
+  ...FOLDER_SEARCH_METHODS,
   ...WORKTREE_METHODS,
   ...WORKSPACE_CLEANUP_RUNNER_METHODS,
   ...WORKTREE_ARCHIVE_METHODS,

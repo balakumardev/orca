@@ -41,7 +41,18 @@ export async function createWorktreeOnRuntimeHost(
         // Why: an older host's own store defaults would otherwise override the user's choices.
         ...(hostOwnsCreateSettings ? {} : clientCreateSettings)
       },
-      { timeoutMs: 10 * 60_000 }
+      {
+        timeoutMs: 10 * 60_000,
+        // Validate after capability reads; main also enforces these fences after RPC dequeue.
+        ...(request.options?.targetGuard
+          ? {
+              beforeSend: request.options.targetGuard.assertCurrent,
+              expectedEnvironmentPairingRevision:
+                request.options.targetGuard.expectedEnvironmentPairingRevision,
+              expectedEnvironmentRuntimeId: request.options.targetGuard.expectedEnvironmentRuntimeId
+            }
+          : {})
+      }
     )),
     ...(hostOwnsCreateSettings ? { hostOwnsCreateSettings: true as const } : {})
   })

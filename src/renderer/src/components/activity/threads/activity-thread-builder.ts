@@ -162,7 +162,9 @@ function buildPaneThread(
       live.entry.state,
       thread.responsePreview
     )
-    thread.latestTimestamp = live.timestamp
+    // Idle presence is not a new turn; Clear must still cover every later historical event.
+    thread.latestTimestamp =
+      live.state === 'idle' ? Math.max(thread.latestTimestamp, live.timestamp) : live.timestamp
   }
   // Every listed pane has an event or a live turn.
   const built = thread!

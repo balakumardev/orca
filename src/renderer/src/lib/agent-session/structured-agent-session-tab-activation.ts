@@ -32,7 +32,12 @@ export function activateStructuredAgentSessionTab(args: {
   worktreeId: string
   tabId: string
   target?: RuntimeClientTarget
+  current?: () => boolean
+  expectedEnvironmentRuntimeId?: string
 }): boolean {
+  if (args.current?.() === false) {
+    return false
+  }
   const state = useAppStore.getState()
   const tab = (state.unifiedTabsByWorktree[args.worktreeId] ?? []).find(
     (candidate) =>
@@ -49,7 +54,10 @@ export function activateStructuredAgentSessionTab(args: {
   state.activateTab(tab.id, { worktreeId: args.worktreeId })
   state.setActiveTabType('agent-session', args.worktreeId)
   requestNativeChatComposerFocus(tab.id)
-  activateStructuredAgentSessionTabOnOwner(args.worktreeId, tab.entityId, args.target)
+  activateStructuredAgentSessionTabOnOwner(args.worktreeId, tab.entityId, args.target, {
+    current: args.current,
+    expectedEnvironmentRuntimeId: args.expectedEnvironmentRuntimeId
+  })
   return true
 }
 
@@ -58,11 +66,20 @@ export function activateStructuredAgentSessionTabOnOwner(
   worktreeId: string,
   sessionId: string,
   target?: RuntimeClientTarget,
-  options?: { callerOnly?: boolean }
+  options?: {
+    callerOnly?: boolean
+    current?: () => boolean
+    expectedEnvironmentRuntimeId?: string
+  }
 ): void {
-  const environmentId = runtimeEnvironmentIdOrLocalUnlessTwin(useAppStore.getState(), worktreeId)
-  void callRuntimeRpc(
-    target ?? runtimeTargetForOwnerEnvironment(environmentId),
+  if (options?.current?.() === false) {
+    return
+  }
+  const request = [
+    target ??
+      runtimeTargetForOwnerEnvironment(
+        runtimeEnvironmentIdOrLocalUnlessTwin(useAppStore.getState(), worktreeId)
+      ),
     'session.tabs.activate',
     {
       worktree: toRuntimeWorktreeSelector(worktreeId),
@@ -70,13 +87,32 @@ export function activateStructuredAgentSessionTabOnOwner(
       // Why both: navigation scopes new hosts to this client; notifyClients:false protects old hosts.
       ...(options?.callerOnly ? { notifyClients: false, navigation: 'caller' as const } : {})
     }
-  )
+  ] as const
+  // Search-owned activations retain their runtime until the main queue sends the request.
+  const activation =
+    options?.current || options?.expectedEnvironmentRuntimeId
+      ? callRuntimeRpc(...request, {
+          expectedEnvironmentRuntimeId: options.expectedEnvironmentRuntimeId,
+          beforeSend: () => {
+            if (options.current?.() === false) {
+              throw new Error('structured_session_host_changed')
+            }
+          }
+        })
+      : callRuntimeRpc(...request)
+  void activation.catch((error: unknown) => {
+    if (options?.current?.() !== false) {
+      console.warn('[native-chat] could not activate session on host', error)
+    }
+  })
 }
 
 export function activateStructuredAgentSessionById(args: {
   worktreeId: string
   sessionId: string
   target?: RuntimeClientTarget
+  current?: () => boolean
+  expectedEnvironmentRuntimeId?: string
 }): boolean {
   const tab = findStructuredAgentSessionTab(useAppStore.getState().unifiedTabsByWorktree, {
     workspaceId: args.worktreeId,
@@ -87,7 +123,9 @@ export function activateStructuredAgentSessionById(args: {
     ? activateStructuredAgentSessionTab({
         worktreeId: args.worktreeId,
         tabId: tab.id,
-        target: args.target
+        target: args.target,
+        current: args.current,
+        expectedEnvironmentRuntimeId: args.expectedEnvironmentRuntimeId
       })
     : false
 }

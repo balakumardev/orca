@@ -1,48 +1,65 @@
 import { PROJECT_CREATE_SOURCE_ID } from '@/components/cmd-j/palette-project-create-source-id'
 import { getPaletteWorktreeExecutionHostId } from '@/lib/workspace/search/palette-repo-resolution'
-import { getNewWorkspaceDialogEligibleRepos } from '../../../../shared/new-workspace/new-workspace-dialog-repo'
-import { isGitRepoKind } from '../../../../shared/repository/repo-kind'
+import type { CmdJTaskSourceUrl } from '@/lib/workspace/search/worktrees/worktree-palette-task-url-match'
+import { getUsableGitProjectRepo } from '@/components/cmd-j/palette-project-create-targets'
+import {
+  getRepoExecutionHostId,
+  LOCAL_EXECUTION_HOST_ID
+} from '../../../../shared/execution-host/execution-host'
 import type { Repo } from '../../../../shared/repository/repo-types'
 import type { Worktree } from '../../../../shared/worktree/types'
 import type { PaletteListEntry } from './worktree-jump-palette-model'
 
-function getEntryRepoId(
+/** The exact git checkout a palette row belongs to; host mismatches never use a sole local copy. */
+export function getPaletteEntryProjectRepo(
   entry: PaletteListEntry | undefined,
-  workspaces: readonly Worktree[]
-): string | null {
+  { workspaces, repos }: { workspaces: readonly Worktree[]; repos: readonly Repo[] }
+): Repo | null {
   if (entry?.type === 'worktree') {
-    return entry.worktree.repoId
+    return getUsableGitProjectRepo(
+      entry.worktree.repoId,
+      repos,
+      getPaletteWorktreeExecutionHostId(entry.worktree) ?? LOCAL_EXECUTION_HOST_ID
+    )
   }
   if (entry?.type === 'project-target') {
-    return entry.result.kind === 'project' ? entry.result.repo.id : null
+    return entry.result.kind === 'project'
+      ? getUsableGitProjectRepo(
+          entry.result.repo.id,
+          repos,
+          getRepoExecutionHostId(entry.result.repo)
+        )
+      : null
   }
   if (entry?.type === 'workspace-tab') {
-    // A tab names its workspace by id and host; a spelling of the host that differs (local, unqualified) still
-    // finds the workspace when its id is unique.
+    // Runtime ownership outranks the physical host in the workspace snapshot.
     const sameId = workspaces.filter((worktree) => worktree.id === entry.result.worktreeId)
-    const sameHost = sameId.find(
-      (worktree) => getPaletteWorktreeExecutionHostId(worktree) === entry.result.executionHostId
-    )
-    return (sameHost ?? (sameId.length === 1 ? sameId[0] : undefined))?.repoId ?? null
+    const workspace = entry.result.executionHostId
+      ? sameId.find(
+          (worktree) =>
+            (getPaletteWorktreeExecutionHostId(worktree) ?? LOCAL_EXECUTION_HOST_ID) ===
+            entry.result.executionHostId
+        )
+      : sameId.length === 1
+        ? sameId[0]
+        : undefined
+    return workspace
+      ? getUsableGitProjectRepo(
+          workspace.repoId,
+          repos,
+          getPaletteWorktreeExecutionHostId(workspace) ?? LOCAL_EXECUTION_HOST_ID
+        )
+      : null
   }
-  if (entry?.type === 'extra') {
-    return entry.sourceId === PROJECT_CREATE_SOURCE_ID ? entry.result.id : null
+  if (entry?.type === 'extra' && entry.sourceId === PROJECT_CREATE_SOURCE_ID) {
+    const target = entry.result.projectCreateTarget
+    return getUsableGitProjectRepo(
+      target?.repoId ?? entry.result.id,
+      repos,
+      target?.workspaceTarget.hostId
+    )
   }
   return null
-}
-
-/** The id when it names a git project the new-workspace composer can target, else null. */
-export function getUsableGitProjectRepoId(
-  repoId: string | null,
-  repos: readonly Repo[]
-): string | null {
-  const usable = repos.some(
-    (repo) =>
-      repo.id === repoId &&
-      isGitRepoKind(repo) &&
-      getNewWorkspaceDialogEligibleRepos([repo]).length > 0
-  )
-  return usable ? repoId : null
 }
 
 /** The git project a palette row belongs to, when a worktree can be started in it. */
@@ -50,7 +67,7 @@ export function getPaletteEntryProjectRepoId(
   entry: PaletteListEntry | undefined,
   context: { workspaces: readonly Worktree[]; repos: readonly Repo[] }
 ): string | null {
-  return getUsableGitProjectRepoId(getEntryRepoId(entry, context.workspaces), context.repos)
+  return getPaletteEntryProjectRepo(entry, context)?.id ?? null
 }
 
 /**
@@ -62,7 +79,7 @@ export function getPaletteEntryNewWorktreeRepoId(
   context: {
     workspaces: readonly Worktree[]
     repos: readonly Repo[]
-    taskSourceUrl: object | null
+    taskSourceUrl: CmdJTaskSourceUrl | null
   }
 ): string | null {
   return context.taskSourceUrl ? null : getPaletteEntryProjectRepoId(entry, context)
@@ -71,7 +88,7 @@ export function getPaletteEntryNewWorktreeRepoId(
 /** What Cmd/Ctrl+Enter does on a Folders row that adds its project first; none while a pasted link owns the palette. */
 export function getPaletteEntryFolderNewWorktree(
   entry: PaletteListEntry | undefined,
-  taskSourceUrl: object | null
+  taskSourceUrl: CmdJTaskSourceUrl | null
 ): (() => void) | null {
   return !taskSourceUrl && entry?.type === 'extra' ? (entry.result.onModEnter ?? null) : null
 }

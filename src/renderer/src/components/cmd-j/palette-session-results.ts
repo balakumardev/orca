@@ -4,9 +4,14 @@ import { matchPaletteExtraFields, type PaletteExtraResult } from './palette-extr
 /** The section previews the best transcript hits only; the palette's own cap of 50 would bury Workspaces and Create. */
 const SESSION_SECTION_ROW_LIMIT = 5
 
-/** One row per conversation: a transcript can be listed under more than one hit key. */
+/** Recording hosts keep same-ID transcripts separate, including copies with the same path. */
 export function paletteSessionHitId(hit: AiVaultSearchHit): string {
-  return JSON.stringify([hit.agent, hit.sessionId, hit.source.filePath ?? ''])
+  return JSON.stringify([
+    hit.executionHostId ?? 'local',
+    hit.agent,
+    hit.sessionId,
+    hit.source.filePath ?? ''
+  ])
 }
 
 /** The title, or the given placeholder when the transcript has none. */
@@ -14,16 +19,16 @@ export function paletteSessionTitle(hit: AiVaultSearchHit, untitled: string): st
   return hit.title.trim() || untitled
 }
 
-export function buildSessionPaletteResults(
-  hits: readonly AiVaultSearchHit[],
+export function buildSessionPaletteResults<THit extends AiVaultSearchHit>(
+  hits: readonly THit[],
   query: string,
   actions: {
     untitled: string
-    onOpen: (hit: AiVaultSearchHit) => void
+    onOpen: (hit: THit) => void
     /** True when Enter on the row has nowhere to go. */
-    isInert: (hit: AiVaultSearchHit) => boolean
+    isInert: (hit: THit) => boolean
     /** Row ornaments (icon, project line, snippet) stay with the React code. */
-    decorate: (hit: AiVaultSearchHit) => Pick<PaletteExtraResult, 'leading' | 'line'>
+    decorate: (hit: THit) => Pick<PaletteExtraResult, 'leading' | 'line'>
   },
   rowLimit = SESSION_SECTION_ROW_LIMIT
 ): PaletteExtraResult[] {

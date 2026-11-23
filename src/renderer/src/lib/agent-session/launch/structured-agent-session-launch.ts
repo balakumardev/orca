@@ -195,6 +195,7 @@ function structuredAgentLaunchState(
     !options.forkFrom && options.launchOptions ? { ...options.launchOptions } : undefined
   intent.forkRequiresInheritedOriginal = options.forkRequiresInheritedOriginal
   intent.beforeCreate = options.beforeCreate
+  intent.targetGuard = options.targetGuard
   intent.createAfter = options.createAfter
   intent.surfaceAddress = options.surfaceAddress
   const text = launchPromptText(options)

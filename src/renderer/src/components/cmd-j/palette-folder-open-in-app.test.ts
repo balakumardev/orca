@@ -136,11 +136,12 @@ describe('addFolderAndBeginNameStepInApp', () => {
       executionHostId: 'local'
     })
     expect(openProjectDefaultCheckout).not.toHaveBeenCalled()
-    expect(getProjectNameStep()).toEqual({
+    expect(getProjectNameStep()).toMatchObject({
       repoId: 'repo-app',
       projectLabel: 'app',
       projectPath: '/code/app',
-      name: ''
+      name: '',
+      workspaceTarget: { hostId: 'local', projectId: 'repo:repo-app' }
     })
   })
 

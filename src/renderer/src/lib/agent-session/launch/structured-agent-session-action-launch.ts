@@ -30,7 +30,7 @@ import type { RuntimeClientTarget } from '../../../../../shared/remote-runtime/h
 export function openDeclinedTerminal(
   args: ProvisionalLaunchArgs,
   worktreeId: string,
-  target: RuntimeClientTarget,
+  { executionHostId, target }: { executionHostId: ExecutionHostId; target: RuntimeClientTarget },
   activate?: false
 ): Promise<StructuredLaunchTerminal> | StructuredLaunchTerminal {
   if (args.onHostDeclined) {
@@ -40,6 +40,9 @@ export function openDeclinedTerminal(
   return openDeclinedStructuredLaunchTerminal({
     plan: args.plan,
     worktreeId,
+    // A declined chat keeps the owner that answered admission, even after selection changes.
+    executionHostId,
+    targetGuard: args.hooks.targetGuard,
     ...(args.targetGroupId ? { targetGroupId: args.targetGroupId } : {}),
     terminal
   })
@@ -91,7 +94,7 @@ export async function openTerminalForDeclinedChat(
   const scopeKey = structuredAgentSessionDraftScopeKey(tab.entityId)
   const typed = nativeChatComposerHasUserContent(scopeKey)
   const attempt = launchState?.callers
-  const terminal = await openDeclinedTerminal(args, worktreeId, target, false)
+  const terminal = await openDeclinedTerminal(args, worktreeId, { executionHostId, target }, false)
   const completed = terminal.completion
     ? await terminal.completion
     : {

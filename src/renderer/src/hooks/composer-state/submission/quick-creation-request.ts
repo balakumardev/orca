@@ -12,6 +12,7 @@ import { toFolderWorkspaceLinkedTask } from '@/components/sidebar/workspace-crea
 
 export type QuickCreationRequestInput = {
   repoId: string
+  targetGuard?: WorktreeCreationRequest['targetGuard']
   ephemeralVmRecipe: WorktreeCreationRequest['ephemeralVmRecipe']
   indeterminateProgress: boolean
   taskSourceContext: TaskSourceContext | null
@@ -61,6 +62,7 @@ export type QuickCreationRequestInput = {
 }
 
 export type QuickSubmitOptions = {
+  targetGuard?: WorktreeCreationRequest['targetGuard']
   onLegacyPreparationFailure?: (error: unknown) => void
   setupOnly?: boolean
   launchChoice?: AgentLaunchChoice
@@ -73,6 +75,8 @@ export function buildQuickCreationRequest(
 ): WorktreeCreationRequest {
   return {
     repoId: input.repoId,
+    // Pending requests retain the selection fence when the composer closes.
+    ...(input.targetGuard ? { targetGuard: input.targetGuard } : {}),
     ...(input.ephemeralVmRecipe ? { ephemeralVmRecipe: input.ephemeralVmRecipe } : {}),
     worktreeCreateProgressMode: input.indeterminateProgress ? 'indeterminate' : 'stepped',
     ...(input.taskSourceContext ? { taskSourceContext: input.taskSourceContext } : {}),

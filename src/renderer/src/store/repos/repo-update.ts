@@ -9,6 +9,7 @@ import { sanitizeAgentWorkspaceTrustDecision } from '../../../../shared/agent-la
 import { findRepoForHost, repoMatchesHostIdentity } from './repo-host-identity'
 import { getRepoHostIdentityForParts } from '../../../../shared/repository/repo-host-identity'
 import { callRuntimeRpc } from '../../runtime/rpc/calls/runtime-rpc-call'
+import { runtimeTargetGuardRequestOptions } from '../../runtime/rpc/targets/runtime-target-guard'
 import { getRepoExecutionHostId } from '../../../../shared/execution-host/execution-host'
 import {
   normalizeCustomWorktreeVisibilitySources,
@@ -127,6 +128,7 @@ export function createRepoUpdateActions(
       // Why: a row with no stamp is this app's own; ingest stamps every server row.
       const ownerHostId = getRepoExecutionHostId(ownerRepo)
       const ownerTarget = getProjectSetupRuntimeTarget(ownerHostId)
+      const guard = options?.targetGuard
       const updateChainKey = getRepoHostIdentityForParts(projectId, ownerHostId)
       const applyRepoUpdate = async () => {
         // Why at dispatch: an earlier queued update (an account change) may legitimately replace the owner.
@@ -134,6 +136,8 @@ export function createRepoUpdateActions(
           get().repos.find((r) => repoMatchesHostIdentity(r, projectId, ownerHostId)) ?? ownerRepo
         )
         try {
+          // A serialized update keeps the authority selected before any earlier write settled.
+          guard?.assertCurrent(ownerHostId)
           const sanitizedUpdates = sanitizeRepoUpdate(updates)
           const target = ownerTarget
           const updatedRepo =
@@ -148,9 +152,11 @@ export function createRepoUpdateActions(
                     target,
                     'repo.update',
                     { repo: projectId, updates: sanitizedUpdates },
-                    { timeoutMs: 15_000 }
+                    { timeoutMs: 15_000, ...runtimeTargetGuardRequestOptions(guard, ownerHostId) }
                   )
                 ).repo
+          // A late reply from the retired owner must not replace the current host's catalog.
+          guard?.assertCurrent(ownerHostId)
           if (
             sanitizedUpdates.projectGroupOrder !== undefined &&
             (!updatedRepo ||

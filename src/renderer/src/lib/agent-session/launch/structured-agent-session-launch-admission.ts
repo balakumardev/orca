@@ -31,6 +31,7 @@ import { notifyHostPermissionRefused } from '@/lib/agent-session/launch/structur
 import { readAgentInventoryForTarget } from '@/lib/agent-session/launch/inventory/agent-detection-target-inventory'
 import type { WebRuntimeTerminalCreateOutcome } from '@/runtime/hosted-terminals/creation/terminal-create-contracts'
 import { structuredLaunchTerminalFromOutcome } from './structured-launch-terminal-outcome'
+import type { RuntimeTargetGuard } from '@/runtime/rpc/targets/runtime-target-guard'
 
 export type AgentTerminalLaunchCompletion = {
   outcome: WebRuntimeTerminalCreateOutcome
@@ -85,6 +86,8 @@ export type DeclinedStructuredLaunchTerminalOptions = Pick<
 export async function openDeclinedStructuredLaunchTerminal(args: {
   plan: AgentSessionLaunchPlan
   worktreeId: string
+  executionHostId: ExecutionHostId
+  targetGuard?: RuntimeTargetGuard
   targetGroupId?: string
   terminal?: DeclinedStructuredLaunchTerminalOptions
 }): Promise<StructuredLaunchTerminal> {
@@ -97,6 +100,9 @@ export async function openDeclinedStructuredLaunchTerminal(args: {
       ...(args.terminal?.activate === false ? { presentsRefusal: true as const } : {}),
       agent: args.plan.agent,
       worktreeId: args.worktreeId,
+      // Terminal fallback inherits the chat's captured host and queue fence.
+      workspaceExecutionHostId: args.executionHostId,
+      targetGuard: args.targetGuard,
       // The saved choice the chat would have seeded applies to its terminal as flags.
       ...(args.plan.launchOptions ? { sessionOptions: args.plan.launchOptions } : {}),
       ...(args.targetGroupId ? { groupId: args.targetGroupId } : {}),
@@ -110,7 +116,8 @@ export async function openDeclinedStructuredLaunchTerminal(args: {
         route: 'terminal-tui',
         requestId: args.plan.requestId,
         agent: args.plan.agent,
-        worktreeId: args.worktreeId
+        worktreeId: args.worktreeId,
+        executionHostId: args.executionHostId
       })
     })
   )

@@ -9,6 +9,10 @@ import {
 import { getSavedTerminalSessionName } from '@/lib/agent-session/history/session-names/terminal-session-names'
 import { setWebRuntimeTabProps } from '@/runtime/hosted-terminals/actions/web-runtime-tab-properties'
 import { createWebRuntimeSessionTerminal } from '@/runtime/hosted-terminals/creation/web-runtime-terminal-creation'
+import {
+  parseRoutableExecutionHostId,
+  type ExecutionHostId
+} from '../../../../../../shared/execution-host/execution-host'
 import { isWebRuntimeSessionActive } from '@/runtime/web-session-tabs-sync/identity/web-runtime-session-environment'
 import type { AiVaultAgent } from '../../../../../../shared/ai-vault/contracts/ai-vault-types'
 import type {
@@ -17,6 +21,7 @@ import type {
 } from '../../../../../../shared/agent-session/lifecycle/agent-session-resume'
 import type { TabSplitDirection } from '@/store/slices/tabs/tabs-slice-contract'
 import type { WebRuntimeTerminalCreateOutcome } from '@/runtime/hosted-terminals/creation/terminal-create-contracts'
+import type { RuntimeTargetGuard } from '@/runtime/rpc/targets/runtime-target-guard'
 
 export type LaunchAiVaultSessionInNewTabResult =
   | { tabId: string }
@@ -33,7 +38,15 @@ export function launchAiVaultSessionInNewTab(args: {
   providerSession?: AgentProviderSessionMetadata
   targetGroupId?: string
   splitDirection?: TabSplitDirection
+  executionHostId?: ExecutionHostId
+  isCurrent?: () => boolean
+  targetGuard?: RuntimeTargetGuard
+  /** Preserve the search owner's runtime until the terminal RPC leaves the main queue. */
+  expectedEnvironmentRuntimeId?: string
 }): LaunchAiVaultSessionInNewTabResult {
+  if (args.isCurrent?.() === false) {
+    throw new Error('session_search_host_changed')
+  }
   const store = useAppStore.getState()
   const savedName = savedNameForResume(store, args)
   // Why both paths split: the runtime path used to return first and drop the split (#22791).
@@ -41,7 +54,16 @@ export function launchAiVaultSessionInNewTab(args: {
     args.splitDirection && args.targetGroupId
       ? { sourceGroupId: args.targetGroupId, splitDirection: args.splitDirection }
       : undefined
-  const runtimeEnvironmentId = runtimeEnvironmentIdOrLocalUnlessTwin(store, args.worktreeId)
+  // Explicit recording ownership outranks the active copy of a same-ID workspace.
+  const host = args.executionHostId ? parseRoutableExecutionHostId(args.executionHostId) : null
+  if (args.executionHostId && (!host || host.kind === 'ssh')) {
+    throw new Error('session_resume_host_unavailable')
+  }
+  const runtimeEnvironmentId = host
+    ? host.kind === 'runtime'
+      ? host.environmentId
+      : null
+    : runtimeEnvironmentIdOrLocalUnlessTwin(store, args.worktreeId)
   if (isWebRuntimeSessionActive(runtimeEnvironmentId)) {
     // Why an empty group first: the paired host creates the tab after a round trip.
     const splitGroupId = split
@@ -52,6 +74,8 @@ export function launchAiVaultSessionInNewTab(args: {
       {
         worktreeId: args.worktreeId,
         environmentId: runtimeEnvironmentId,
+        isCurrent: args.isCurrent,
+        expectedEnvironmentRuntimeId: args.expectedEnvironmentRuntimeId,
         ...(targetGroupId ? { targetGroupId } : {}),
         agentSessionKind: 'resume',
         launchAgent: args.agent,
@@ -67,6 +91,9 @@ export function launchAiVaultSessionInNewTab(args: {
       { notifyFailure: false }
     )
     const observedRuntimeLaunch = runtimeLaunch.then((outcome) => {
+      if (args.isCurrent?.() === false) {
+        return outcome
+      }
       if (outcome.status === 'created') {
         if (savedName && outcome.mirroredTabId) {
           // The mirrored tab may not be here yet; name it on its host, which republishes the name.
@@ -86,7 +113,12 @@ export function launchAiVaultSessionInNewTab(args: {
     return { tabId: null, runtimeLaunch: observedRuntimeLaunch }
   }
 
+  // Local tab creation inherits the active owner; establish the explicit owner before creating it.
+  if (args.executionHostId) {
+    store.setActiveWorktree(args.worktreeId, args.executionHostId)
+  }
   const tab = store.createTab(args.worktreeId, args.targetGroupId, undefined, {
+    ...(args.executionHostId ? { executionHostId: args.executionHostId } : {}),
     ...(split ? { split } : {}),
     ...(args.cwd ? { startupCwd: args.cwd } : {}),
     pendingStartup: {

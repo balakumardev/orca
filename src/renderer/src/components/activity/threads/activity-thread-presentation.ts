@@ -23,6 +23,7 @@ import type {
 } from '../../../../../shared/agent-status/contracts/agent-status-types'
 import type { TerminalTab } from '../../../../../shared/workspace-layout/terminal-tab-types'
 import { isHistoricalActivityState } from '../events/activity-event-state'
+import { isFailedLiveMainAgent, outstandingInputState } from './activity-thread-idle-presence'
 import type {
   ActivityEvent,
   ActivityLiveAgentState,
@@ -166,7 +167,7 @@ export function statusPreviewForEntry(
 /** Keep grouping, labels and clear-completed on one verdict classifier. */
 export function activityThreadStatusId(thread: AgentPaneThread): ActivityThreadStatusId {
   // Why: a failed main agent outranks the subagent work still holding its row live.
-  if (thread.currentAgentEntry && agentVerdictDisplayMark(thread.currentAgentEntry) === 'failed') {
+  if (isFailedLiveMainAgent(thread)) {
     return 'failed'
   }
   const state = threadCurrentState(thread) ?? 'done'
@@ -193,6 +194,7 @@ function threadCurrentState(
   thread: AgentPaneThread
 ): ActivityLiveAgentState | AgentStatusState | null {
   return (
+    outstandingInputState(thread) ??
     thread.currentAgentState ??
     paneActivityEntry(thread)?.state ??
     thread.latestEvent?.state ??

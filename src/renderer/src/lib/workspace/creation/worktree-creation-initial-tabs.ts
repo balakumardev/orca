@@ -1,5 +1,8 @@
 import { useAppStore } from '@/store/index'
-import type { ExecutionHostId } from '../../../../../shared/execution-host/execution-host'
+import {
+  parseExecutionHostId,
+  type ExecutionHostId
+} from '../../../../../shared/execution-host/execution-host'
 import type { WorktreeDefaultTabsLaunch } from '../../../../../shared/worktree/creation/launch-types'
 import type { CreatedWorktreeResult } from '@/store/slices/worktrees/create/worktree-create-payload'
 import type { WorktreeActivationOptions } from '../activation/worktree-activation-surface-selection'
@@ -7,6 +10,42 @@ import type { WorktreeCreationRequest } from './pending-worktree-creation'
 import type { windowStartupAfterCreate } from './worktree-creation-host-agent-launch'
 import { ensureWorktreeHasInitialTerminal } from '../activation/initial-surface/worktree-initial-terminal-seeding'
 import { isInstantFolderWorktreeCreation } from './worktree-creation-surface'
+import { ensureWebRuntimeWorktreeTerminalAfterWake } from '@/runtime/hosted-terminals/restoration/web-runtime-worktree-terminal-after-wake'
+
+type CreationHostOptions = Pick<
+  WorktreeActivationOptions,
+  'executionHostId' | 'runtimeEnvironmentId' | 'targetGuard'
+>
+
+/** Share the original create target across activation, recovery and background startup. */
+export function worktreeCreationHostOptions(
+  request: WorktreeCreationRequest,
+  executionHostId?: ExecutionHostId
+): CreationHostOptions {
+  const host = parseExecutionHostId(executionHostId)
+  return {
+    ...(executionHostId ? { executionHostId } : {}),
+    ...(host?.kind === 'runtime' ? { runtimeEnvironmentId: host.environmentId } : {}),
+    ...(request.targetGuard ? { targetGuard: request.targetGuard } : {})
+  }
+}
+
+/** Recovery and background creation share host-owned seeding without reselecting a runtime. */
+export function seedCreatedWorktreeHostTerminal(
+  worktreeId: string,
+  windowStartup: ReturnType<typeof windowStartupAfterCreate>,
+  target: CreationHostOptions,
+  activate = true
+): void {
+  ensureWebRuntimeWorktreeTerminalAfterWake(worktreeId, {
+    ...target,
+    startup: windowStartup.startup,
+    agent: windowStartup.agent,
+    activate,
+    // This client just created the workspace, so an unlisted host count means empty.
+    unknownHostCountIsEmpty: true
+  })
+}
 
 export function prepareCreatedWorktreeActivation({
   creationId,
@@ -25,7 +64,7 @@ export function prepareCreatedWorktreeActivation({
   setupIsOnlySurface: boolean
   executionHostId?: ExecutionHostId
 }): { primaryTabId: string | null; options: WorktreeActivationOptions } {
-  const onCreationHost = executionHostId ? { executionHostId } : {}
+  const onCreationHost = worktreeCreationHostOptions(request, executionHostId)
   let primaryTabId: string | null = null
   const instantFolder = isInstantFolderWorktreeCreation(useAppStore.getState(), request)
   if (instantFolder) {

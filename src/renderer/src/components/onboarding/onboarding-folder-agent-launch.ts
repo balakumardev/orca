@@ -23,6 +23,7 @@ import {
 } from '@/components/onboarding/onboarding-folder-agent-startup'
 import { activateAndRevealWorktree } from '@/lib/workspace/activation/worktree-activation'
 import { beginStructuredAgentSessionProvisionalLaunch } from '@/lib/agent-session/structured-agent-session-provisional-tab'
+import type { RuntimeTargetGuard } from '@/runtime/rpc/targets/runtime-target-guard'
 
 export type OnboardingFolderAgentLaunch = {
   agent: TuiAgent | null
@@ -101,6 +102,7 @@ export async function revealOnboardingFolderWithAgentLaunch(args: {
   worktreeId: string
   executionHostId: ExecutionHostId | undefined
   launch: OnboardingFolderAgentLaunch
+  targetGuard?: RuntimeTargetGuard
 }): Promise<void> {
   const reveal = (
     startup: OnboardingFolderAgentStartup | undefined,
@@ -108,6 +110,8 @@ export async function revealOnboardingFolderWithAgentLaunch(args: {
   ) =>
     activateAndRevealWorktree(args.worktreeId, {
       sidebarRevealBehavior: 'auto',
+      // Delayed activation and terminal creation must retain the folder's original runtime.
+      ...(args.targetGuard ? { targetGuard: args.targetGuard } : {}),
       ...(args.executionHostId ? { executionHostId: args.executionHostId } : {}),
       ...(startup ? { startup } : {}),
       ...(providesInitialSurface ? { providesInitialSurface: true } : {})
@@ -120,8 +124,12 @@ export async function revealOnboardingFolderWithAgentLaunch(args: {
   }
   beginStructuredAgentSessionProvisionalLaunch({
     plan,
-    hooks: {},
-    target: { worktreeId: args.worktreeId },
+    // Chat admission has its own asynchronous handoffs after workspace reveal.
+    hooks: args.targetGuard ? { targetGuard: args.targetGuard } : {},
+    target: {
+      worktreeId: args.worktreeId,
+      ...(args.executionHostId ? { executionHostId: args.executionHostId } : {})
+    },
     beforeOpen: () => reveal(undefined, true) !== false
   })
 }

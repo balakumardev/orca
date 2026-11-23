@@ -53,8 +53,10 @@ import {
 export async function createWebRuntimeSessionTerminalResult(
   args: CreateWebRuntimeSessionTerminalOnHostArgs
 ): Promise<CreatedWebRuntimeSessionTerminal> {
+  const isCurrent = () => args.isCurrent?.() !== false
   const environmentId = resolveWebRuntimeSessionEnvironmentId(args.environmentId, null)
-  if (!environmentId || !isWebRuntimeSessionActive(environmentId)) {
+  // A retired search owner uses the same translated refusal as a disconnected host.
+  if (!isCurrent() || !environmentId || !isWebRuntimeSessionActive(environmentId)) {
     return {
       outcome: {
         status: 'failed',
@@ -66,7 +68,13 @@ export async function createWebRuntimeSessionTerminalResult(
     }
   }
   const intentOwner = captureWebSessionIntentOwner(environmentId)
-  const callEnvironment = captureRuntimeEnvironmentCall(environmentId, intentOwner.pairingRevision)
+  // The captured call fences preparation and main-process queuing to this search owner.
+  const callEnvironment = captureRuntimeEnvironmentCall(
+    environmentId,
+    args.expectedEnvironmentPairingRevision ?? intentOwner.pairingRevision,
+    args.isCurrent,
+    args.expectedEnvironmentRuntimeId
+  )
 
   let workspaceSelectionRollback: WebRuntimeSessionWorkspaceSelectionRollback | null = null
   if (args.selectWorktree !== false) {
@@ -226,6 +234,9 @@ export async function createWebRuntimeSessionTerminalResult(
       createdTabId = created.tab.id
       createdLeafId = created.tab.leafId
     }
+    if (!isCurrent()) {
+      return { outcome: { status: 'created' } }
+    }
     if (args.targetGroupId && createdTabId) {
       // Host drops client-minted group IDs; client placement must land the mirrored tab in the requested pane.
       recordWebSessionTerminalPlacement({
@@ -249,7 +260,7 @@ export async function createWebRuntimeSessionTerminalResult(
       // Require a post-create list; deduped in-flight lists may predate placement.
       ...(placementTabId ? { afterCurrentInFlight: true } : {})
     })
-    if (placementTabId) {
+    if (placementTabId && isCurrent()) {
       await settleWebRuntimeTerminalPlacement(
         environmentId,
         args.worktreeId,
@@ -267,6 +278,9 @@ export async function createWebRuntimeSessionTerminalResult(
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
+    if (!isCurrent()) {
+      return { outcome: hostCreated ? { status: 'created' } : { status: 'failed', message } }
+    }
     console.warn(
       hostCreated
         ? '[web-runtime-session] terminal created but reconciliation failed:'

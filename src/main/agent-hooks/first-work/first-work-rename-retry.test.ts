@@ -27,7 +27,7 @@ vi.mock('../../text-generation/commit-message-text-generation', () => ({
 vi.mock('./first-work-generation-target', () => ({
   resolveGenerationTarget: resolveGenerationTargetMock
 }))
-vi.mock('../../ipc/worktree-branch-name', () => ({
+vi.mock('../../ipc/worktrees/creation/worktree-branch-name', () => ({
   computeBranchName: (leaf: string) => leaf,
   getConfiguredBranchPrefix: () => null
 }))

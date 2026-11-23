@@ -1,14 +1,23 @@
 import { useCallback, useMemo } from 'react'
 import type React from 'react'
-import { getProjectCreateLabel } from '@/components/cmd-j/palette-project-create-targets'
+import {
+  getProjectCreateLabel,
+  getUsableGitProjectRepo
+} from '@/components/cmd-j/palette-project-create-targets'
 import { beginProjectNameStep } from '@/components/cmd-j/palette-project-name-step-store'
 import { usePaletteProjectCatalog } from '@/components/cmd-j/use-palette-project-catalog'
-import { isPaletteCurrentWorktree } from '@/lib/workspace/search/palette-repo-resolution'
+import { usePaletteSearchHosts } from '@/components/cmd-j/use-palette-search-hosts'
+import { getRepoWorkspaceCreationTargetHint } from '@/lib/workspace/creation/project-host-workspace-target'
+import { getPaletteWorktreeExecutionHostId } from '@/lib/workspace/search/palette-repo-resolution'
+import {
+  getRepoExecutionHostId,
+  LOCAL_EXECUTION_HOST_ID
+} from '../../../../shared/execution-host/execution-host'
+import type { Repo } from '../../../../shared/repository/repo-types'
 import type { WorktreeJumpPaletteController } from './use-worktree-jump-palette-controller'
 import {
   getPaletteEntryFolderNewWorktree,
-  getPaletteEntryNewWorktreeRepoId,
-  getUsableGitProjectRepoId
+  getPaletteEntryProjectRepo
 } from './worktree-jump-palette-entry-project'
 
 type ProjectCreateShortcutInput = Pick<
@@ -59,39 +68,53 @@ export function useWorktreeJumpPaletteProjectCreateShortcut({
 } {
   const catalog = usePaletteProjectCatalog()
   const highlighted = listEntries[listEntryRenderKeys.indexOf(commandSelectedItemId)]
-  const projectRepoId = useMemo(
-    () => getPaletteEntryNewWorktreeRepoId(highlighted, { workspaces, repos, taskSourceUrl }),
+  const projectRepo = useMemo(
+    () => (taskSourceUrl ? null : getPaletteEntryProjectRepo(highlighted, { workspaces, repos })),
     [highlighted, repos, taskSourceUrl, workspaces]
   )
   const folderNewWorktree = useMemo(
     () => getPaletteEntryFolderNewWorktree(highlighted, taskSourceUrl),
     [highlighted, taskSourceUrl]
   )
-  const currentProjectRepoId = useMemo(() => {
-    const current = workspaces.find((workspace) =>
-      isPaletteCurrentWorktree(workspace, activeWorktreeId, activeWorkspaceExecutionHostId)
+  const currentProjectRepo = useMemo(() => {
+    // A server's physical local host is not an alias for this computer when choosing a create target.
+    const current = workspaces.find(
+      (workspace) =>
+        workspace.id === activeWorktreeId &&
+        (getPaletteWorktreeExecutionHostId(workspace) ?? LOCAL_EXECUTION_HOST_ID) ===
+          (activeWorkspaceExecutionHostId ?? LOCAL_EXECUTION_HOST_ID)
     )
-    return taskSourceUrl ? null : getUsableGitProjectRepoId(current?.repoId ?? null, repos)
+    return taskSourceUrl || !current
+      ? null
+      : getUsableGitProjectRepo(
+          current.repoId,
+          repos,
+          getPaletteWorktreeExecutionHostId(current) ?? LOCAL_EXECUTION_HOST_ID
+        )
   }, [activeWorkspaceExecutionHostId, activeWorktreeId, repos, taskSourceUrl, workspaces])
-  const labelOf = useCallback(
-    (repoId: string | null): string | null => {
-      const repo = repos.find((candidate) => candidate.id === repoId)
-      return repo ? getProjectCreateLabel(repo, catalog) : null
-    },
-    [catalog, repos]
+  // Saved shortcut callbacks retain each exact pairing, even when both ids alias the same server.
+  const projectHosts = usePaletteSearchHosts(
+    projectRepo ? [getRepoExecutionHostId(projectRepo)] : []
   )
-  const projectLabel = useMemo(() => labelOf(projectRepoId), [labelOf, projectRepoId])
+  const currentProjectHosts = usePaletteSearchHosts(
+    currentProjectRepo ? [getRepoExecutionHostId(currentProjectRepo)] : []
+  )
+  const labelOf = useCallback(
+    (repo: Repo | null): string | null => (repo ? getProjectCreateLabel(repo, catalog) : null),
+    [catalog]
+  )
+  const projectLabel = useMemo(() => labelOf(projectRepo), [labelOf, projectRepo])
   const currentProjectLabel = useMemo(
-    () => labelOf(currentProjectRepoId),
-    [currentProjectRepoId, labelOf]
+    () => labelOf(currentProjectRepo),
+    [currentProjectRepo, labelOf]
   )
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent): boolean => {
       const modifierHeld = navigator.userAgent.includes('Mac') ? event.metaKey : event.ctrlKey
-      const repoId = event.shiftKey ? currentProjectRepoId : projectRepoId
-      const addFolder = event.shiftKey || repoId ? null : folderNewWorktree
+      const repo = event.shiftKey ? currentProjectRepo : projectRepo
+      const addFolder = event.shiftKey || repo ? null : folderNewWorktree
       if (
-        (!repoId && !addFolder) ||
+        (!repo && !addFolder) ||
         event.key !== 'Enter' ||
         !modifierHeld ||
         event.nativeEvent.isComposing ||
@@ -106,33 +129,59 @@ export function useWorktreeJumpPaletteProjectCreateShortcut({
       if (event.repeat || staleRow) {
         return true
       }
-      if (!repoId) {
+      if (!repo) {
         // A Folders row: the project is added, then the name step starts for it.
         addFolder?.()
         return true
       }
+      // The create row already owns a captured authority; a refreshed shortcut must not replace it.
+      if (
+        !event.shiftKey &&
+        highlighted?.type === 'extra' &&
+        highlighted.result.projectCreateTarget
+      ) {
+        highlighted.result.onSelect()
+        return true
+      }
+      // Keep the row's captured setup, rather than deriving another target from its bare repo id.
+      const rowTarget =
+        highlighted?.type === 'project-target' && highlighted.result.kind === 'project'
+          ? highlighted.result.workspaceTarget
+          : undefined
+      const workspaceTarget =
+        (!event.shiftKey && rowTarget) ||
+        getRepoWorkspaceCreationTargetHint(repo, catalog.projectHostSetups)
       beginProjectNameStep({
-        repoId,
-        projectLabel: (event.shiftKey ? currentProjectLabel : projectLabel) ?? ''
+        repoId: repo.id,
+        projectLabel: (event.shiftKey ? currentProjectLabel : projectLabel) ?? '',
+        workspaceTarget,
+        host:
+          (event.shiftKey ? currentProjectHosts : projectHosts).find(
+            (host) => host.executionHostId === workspaceTarget.hostId
+          ) ?? null
       })
       return true
     },
     [
       currentProjectLabel,
-      currentProjectRepoId,
+      currentProjectRepo,
+      currentProjectHosts,
+      catalog.projectHostSetups,
       folderNewWorktree,
       liveQueryRef,
       paletteSearchQuery,
+      highlighted,
       projectLabel,
-      projectRepoId
+      projectRepo,
+      projectHosts
     ]
   )
   // The highlighted row is the target with or without a query; the current project is not named twice for the same project.
   const rowHintLabel = projectLabel
-  const currentHintLabel = currentProjectRepoId !== projectRepoId ? currentProjectLabel : null
+  const currentHintLabel = currentProjectRepo !== projectRepo ? currentProjectLabel : null
   return {
-    projectRepoId,
-    currentProjectRepoId,
+    projectRepoId: projectRepo?.id ?? null,
+    currentProjectRepoId: currentProjectRepo?.id ?? null,
     projectLabel,
     currentProjectLabel,
     rowHintLabel,

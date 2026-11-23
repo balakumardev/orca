@@ -6,11 +6,9 @@ import { isWebClientLocation } from '@/app-shell/platform/web-client-location'
 import type { Translate } from '@/i18n/use-translate'
 import type { FolderSearchEntry } from '../../../../shared/folder-search-types'
 import type { PaletteExtraSource } from './palette-extra-results'
-import { openFolderEntryInApp } from './palette-folder-open-in-app'
 import { usePaletteFolderSource } from './use-palette-folder-source'
 
 vi.mock('@/app-shell/platform/web-client-location', () => ({ isWebClientLocation: vi.fn() }))
-vi.mock('./palette-folder-open-in-app', () => ({ openFolderEntryInApp: vi.fn() }))
 
 const notes: FolderSearchEntry = { path: '/code/notes', kind: 'folder' }
 const orca: FolderSearchEntry = { path: '/code/orca', kind: 'git-root' }
@@ -28,7 +26,6 @@ function renderSource(initial: { query: string; visible: boolean }) {
 
 beforeEach(() => {
   vi.mocked(isWebClientLocation).mockReturnValue(false)
-  vi.mocked(openFolderEntryInApp).mockReset()
 })
 afterEach(cleanup)
 
@@ -131,13 +128,5 @@ describe('usePaletteFolderSource', () => {
     const { result } = renderSource({ query: 'orca', visible: true })
     await act(async () => {})
     expect(result.current?.results.map((row) => row.id)).toEqual(['/code/orca'])
-  })
-
-  it('opens the entry a row stands for when it is selected', async () => {
-    installBridge({ folderSearch: { list: async () => ({ entries: [orca], truncated: false }) } })
-    const { result } = renderSource({ query: 'orca', visible: true })
-    await act(async () => {})
-    result.current?.results[0].onSelect()
-    expect(openFolderEntryInApp).toHaveBeenCalledExactlyOnceWith(orca)
   })
 })

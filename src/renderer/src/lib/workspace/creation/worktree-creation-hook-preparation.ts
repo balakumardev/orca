@@ -17,13 +17,18 @@ export async function prepareWorktreeCreationHooks(
   creationId: string,
   request: WorktreeCreationRequest
 ): Promise<WorktreeCreationRequest | null> {
+  // Retry cannot inspect or approve scripts on a replacement search authority.
+  request.targetGuard?.assertCurrent()
   const preparation = request.hookPreparation
   if (!preparation) {
     return request
   }
 
   const trustContext = request.ephemeralVmRecipe ? 'vm' : 'workspace'
-  const isCancelled = (): boolean => !useAppStore.getState().pendingWorktreeCreations[creationId]
+  const isCancelled = (): boolean => {
+    request.targetGuard?.assertCurrent()
+    return !useAppStore.getState().pendingWorktreeCreations[creationId]
+  }
   const confirmHook = (kind: 'setup' | 'vmRecipe'): Promise<'run' | 'skip'> =>
     ensureHooksConfirmed(
       useAppStore.getState,

@@ -9,6 +9,10 @@ import { useWorktreeJumpPaletteController } from './use-worktree-jump-palette-co
 import { useWorktreeJumpPaletteNameStep } from './use-worktree-jump-palette-name-step'
 import { useWorktreeJumpPaletteProjectCreateShortcut } from './use-worktree-jump-palette-project-create-shortcut'
 import { makeWorktree } from './worktree-jump-palette-test-fixtures'
+import {
+  paletteRuntimeEnvironment,
+  paletteRuntimeStatus
+} from '@/components/cmd-j/palette-runtime-host.test-fixture'
 
 export const initialAppState = useAppStore.getInitialState()
 
@@ -51,6 +55,89 @@ export function seedProjects(): void {
     },
     true
   )
+}
+
+export function seedHostCollisionProjects(): void {
+  seedProjects()
+  const environment = { ...paletteRuntimeEnvironment('server-a'), name: 'Server A' }
+  useAppStore.setState({
+    repos: [
+      project('acme-web', { displayName: 'acme-local' }),
+      project('acme-web', { executionHostId: 'runtime:server-a' })
+    ],
+    projects: [
+      {
+        id: 'project-local',
+        displayName: 'acme-local',
+        badgeColor: '#000',
+        sourceRepoIds: ['repo-acme-web'],
+        createdAt: 0,
+        updatedAt: 0
+      },
+      {
+        id: 'project-web',
+        displayName: 'acme-web',
+        badgeColor: '#000',
+        sourceRepoIds: ['repo-acme-web'],
+        createdAt: 0,
+        updatedAt: 0
+      }
+    ],
+    projectHostSetups: [
+      {
+        id: 'setup-local',
+        projectId: 'project-local',
+        hostId: 'local',
+        repoId: 'repo-acme-web',
+        path: '/code/acme-web',
+        displayName: 'acme-local',
+        setupState: 'ready',
+        setupMethod: 'legacy-repo',
+        createdAt: 0,
+        updatedAt: 0
+      },
+      {
+        id: 'setup-remote',
+        projectId: 'project-web',
+        hostId: 'runtime:server-a',
+        repoId: 'repo-acme-web',
+        path: '/code/acme-web',
+        displayName: 'acme-web',
+        setupState: 'ready',
+        setupMethod: 'legacy-repo',
+        createdAt: 0,
+        updatedAt: 0
+      }
+    ],
+    worktreesByRepo: {
+      'repo-acme-web': [
+        makeWorktree('workspace-twin', 'Local workspace', {
+          repoId: 'repo-acme-web',
+          hostId: 'local'
+        }),
+        makeWorktree('workspace-twin', 'Remote workspace', {
+          repoId: 'repo-acme-web',
+          hostId: 'local',
+          runtimeOwnerEnvironmentId: 'server-a'
+        })
+      ]
+    },
+    runtimeEnvironments: [environment],
+    runtimeStatusByEnvironmentId: new Map([['server-a', paletteRuntimeStatus(environment)]])
+  })
+}
+
+export function replaceProjectCreateRuntime(): void {
+  const state = useAppStore.getState()
+  const environment = {
+    ...state.runtimeEnvironments[0],
+    pairingRevision: 2,
+    runtimeId: 'replacement-server'
+  }
+  useAppStore.setState({
+    runtimeEnvironments: [environment],
+    runtimeStatusByEnvironmentId: new Map([[environment.id, paletteRuntimeStatus(environment)]])
+  })
 }
 
 export function usePalette() {

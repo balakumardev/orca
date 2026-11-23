@@ -4,6 +4,8 @@ import {
   BOT_PALETTE_SOURCE_ID,
   type PaletteExtraSource
 } from '@/components/cmd-j/palette-extra-results'
+import { FOLDER_SOURCE_ID } from '@/components/cmd-j/palette-folder-selection'
+import { SESSION_SOURCE_ID } from '@/components/cmd-j/palette-session-source-id'
 import { comparePaletteRankedItems } from '@/lib/workspace/search/palette/cmd-j-section-leadership'
 import {
   encodePaletteIdentity,
@@ -13,34 +15,45 @@ import {
 import type { ExtraPaletteItem } from '../worktree-jump-palette-model'
 import type { WorktreeJumpPaletteLocalState } from '../state/use-worktree-jump-palette-local-state'
 
+const FILTER_AWARE_SOURCE_IDS: ReadonlySet<string> = new Set([
+  BOT_PALETTE_SOURCE_ID,
+  FOLDER_SOURCE_ID,
+  SESSION_SOURCE_ID
+])
+
 export type PaletteExtraSection = { source: PaletteExtraSource; items: ExtraPaletteItem[] }
 
 export function useWorktreeJumpPaletteExtraResults({
   paletteSearchQuery,
   paletteSearchContext,
   visible,
+  filter,
   filterActive,
   taskSourceUrl,
   scoped
-}: Pick<WorktreeJumpPaletteLocalState, 'paletteSearchQuery' | 'taskSourceUrl'> & {
+}: Pick<WorktreeJumpPaletteLocalState, 'paletteSearchQuery' | 'taskSourceUrl' | 'filter'> & {
   paletteSearchContext: PaletteSearchContext
   visible: boolean
   filterActive: boolean
   /** Showing only bots: filters are paused and only the Bots source lists. */
   scoped: boolean
 }) {
+  // Scope before fetching: a URL is a task action; host and repository filters belong to each source.
   const { sources: allSources, hidesWorkspace: hidesPaletteWorkspace } = usePaletteExtraSources({
     query: paletteSearchQuery,
     visible,
-    scoped
+    scoped,
+    hostSearch: !scoped && !taskSourceUrl,
+    hostIds: filter.hostIds,
+    repoIds: filter.repoIds
   })
-  // Host/project chips filter workspaces, not bots; issue/PR URLs still scope every source.
+  // Chips filter workspaces, not bots; folders and conversations apply them themselves. A task URL scopes every source.
   const sources = useMemo(
     () =>
       allSources.filter((source) =>
         scoped
           ? source.id === BOT_PALETTE_SOURCE_ID
-          : !taskSourceUrl && (!filterActive || source.id === BOT_PALETTE_SOURCE_ID)
+          : !taskSourceUrl && (!filterActive || FILTER_AWARE_SOURCE_IDS.has(source.id))
       ),
     [allSources, filterActive, scoped, taskSourceUrl]
   )

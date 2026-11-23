@@ -194,6 +194,8 @@ export function createCreateWorktree(
             target,
             pickClientWorktreeCreateSettings(get().settings)
           )
+          // A late response cannot publish the former host's workspace under a replacement pairing.
+          options?.targetGuard?.assertCurrent()
           if (lostRequestedParent(outcome, parent, target)) {
             warnParentDroppedOnce()
           }

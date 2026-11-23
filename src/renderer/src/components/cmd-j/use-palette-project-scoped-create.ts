@@ -1,13 +1,14 @@
 import { useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '@/store/index'
+import { getRepoWorkspaceCreationTargetHint } from '@/lib/workspace/creation/project-host-workspace-target'
 import {
   parseGitHubIssueOrPRLink,
   parseGitHubIssueOrPRNumber
 } from '../../../../shared/github/repositories/links'
 import {
   selectPaletteComposerTargetState,
-  resolvePaletteComposerRepoId
+  resolvePaletteComposerTarget
 } from './palette-composer-target'
 import {
   findProjectCreateTargets,
@@ -42,10 +43,15 @@ export function usePaletteProjectScopedCreate(
     ) {
       return null
     }
-    const repoId = resolvePaletteComposerRepoId(composerTarget)
-    const repo = catalog.repos.find((candidate) => candidate.id === repoId)
+    // Use the composer's resolved checkout rather than repicking a same-id repo on another host.
+    const repo = resolvePaletteComposerTarget(composerTarget)?.repo
     return repo
-      ? { repoId, projectLabel: getProjectCreateLabel(repo, catalog), name: createWorktreeName }
+      ? {
+          repoId: repo.id,
+          projectLabel: getProjectCreateLabel(repo, catalog),
+          name: createWorktreeName,
+          workspaceTarget: getRepoWorkspaceCreationTargetHint(repo, catalog.projectHostSetups)
+        }
       : null
   }, [catalog, composerTarget, createWorktreeName])
 }

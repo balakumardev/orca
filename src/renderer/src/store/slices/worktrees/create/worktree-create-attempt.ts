@@ -1,4 +1,5 @@
 import type { RuntimeClientTarget } from '../../../../../../shared/remote-runtime/host-catalog/runtime-client-target'
+import { toRuntimeExecutionHostId } from '../../../../../../shared/execution-host/execution-host'
 import type { ClientWorktreeCreateSettings } from './client-worktree-create-settings'
 import { createWorktreeOnRuntimeHost } from './host-planned-agent-launch'
 import { adoptRuntimeProvisionedRoot } from './runtime-provisioned-root-adoption'
@@ -19,6 +20,10 @@ export async function runCreateAttempt(
   target: RuntimeClientTarget,
   clientCreateSettings: ClientWorktreeCreateSettings = {}
 ): Promise<CreateAttemptOutcome> {
+  // Even a fallback route must name the computer chosen before background preparation.
+  request.options?.targetGuard?.assertCurrent(
+    target.kind === 'local' ? 'local' : toRuntimeExecutionHostId(target.environmentId)
+  )
   const provisionedRoot = request.options?.provisionedRoot
   const create = async (
     parentWorkspace: WorktreeCreateAttempt['parentWorkspace']

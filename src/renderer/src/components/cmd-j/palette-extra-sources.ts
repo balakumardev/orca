@@ -11,12 +11,20 @@ import { usePaletteSessionSource } from './use-palette-session-source'
 export function usePaletteExtraSources({
   query,
   visible,
-  scoped
+  scoped,
+  hostSearch,
+  hostIds,
+  repoIds
 }: {
   query: string
   visible: boolean
   /** Showing only bots: template suggestions stay idle. */
   scoped: boolean
+  /** Off for a pasted task link or the bots-only view: no project, folder or conversation request is sent. */
+  hostSearch: boolean
+  /** Host and project filters reach each source before it sends a request. */
+  hostIds?: readonly string[]
+  repoIds?: readonly string[]
 }): {
   sources: readonly PaletteExtraSource[]
   /** Workspaces any source lists as itself; stable while the sources' own predicates are. */
@@ -24,9 +32,13 @@ export function usePaletteExtraSources({
 } {
   const bots = useBotPaletteSource({ query, visible })
   const templates = useBotTemplatePaletteSource({ query, visible: visible && !scoped })
-  const projectCreate = usePaletteProjectCreateSource({ query, visible })
-  const folders = usePaletteFolderSource({ query, visible })
-  const sessions = usePaletteSessionSource({ query, visible })
+  const searchVisible = visible && hostSearch
+  const projectCreate = usePaletteProjectCreateSource({
+    query,
+    visible: searchVisible && !hostIds?.length && !repoIds?.length
+  })
+  const folders = usePaletteFolderSource({ query, visible: searchVisible, hostIds, repoIds })
+  const sessions = usePaletteSessionSource({ query, visible: searchVisible, hostIds, repoIds })
   const sources = useMemo(
     () =>
       // Bots lead, then their templates; project rows, folders and past conversations follow.

@@ -2,6 +2,7 @@ import type { RuntimeRpcResponse } from '../../../../../shared/remote-runtime/rp
 import { useAppStore } from '../../../store/index'
 import { unwrapRuntimeRpcResult } from '../../rpc/calls/runtime-rpc-result'
 import { toRuntimeWorktreeSelector } from '../../rpc/targets/runtime-worktree-selector'
+import type { RuntimeTargetGuard } from '../../rpc/targets/runtime-target-guard'
 import {
   captureRuntimeEnvironmentCall,
   captureWebSessionIntentOwner,
@@ -15,6 +16,7 @@ import {
 export async function activateWebRuntimeSessionWorktree(args: {
   worktreeId: string
   environmentId?: string | null
+  targetGuard?: RuntimeTargetGuard
 }): Promise<boolean> {
   const environmentId =
     args.environmentId?.trim() ??
@@ -24,7 +26,19 @@ export async function activateWebRuntimeSessionWorktree(args: {
     return false
   }
   const intentOwner = captureWebSessionIntentOwner(environmentId)
-  const callEnvironment = captureRuntimeEnvironmentCall(environmentId, intentOwner.pairingRevision)
+  const guard = args.targetGuard
+  // A reveal is a host mutation too; preserve the original fence through the main queue.
+  const callEnvironment = captureRuntimeEnvironmentCall(
+    environmentId,
+    guard?.expectedEnvironmentPairingRevision ?? intentOwner.pairingRevision,
+    guard
+      ? () => {
+          guard.assertCurrent()
+          return true
+        }
+      : undefined,
+    guard?.expectedEnvironmentRuntimeId
+  )
 
   try {
     const response = await callEnvironment({
@@ -38,11 +52,13 @@ export async function activateWebRuntimeSessionWorktree(args: {
       timeoutMs: 15_000
     })
     unwrapRuntimeRpcResult(response as RuntimeRpcResponse<unknown>)
+    guard?.assertCurrent()
     // Why: a restarted HUB can recover its SSH pane after this client's subscription replayed an empty startup snapshot.
     await refreshWebRuntimeSessionTabsSnapshot(environmentId, args.worktreeId, {
       expectedEnvironmentPairingRevision: intentOwner.pairingRevision,
       acceptCurrentSnapshot: true
     })
+    guard?.assertCurrent()
     // Why: HUB reachability can precede its nested SSH relay; bounded owner-scoped re-lists converge without asking the paired client to connect SSH itself.
     scheduleRuntimeWorktreeRecoveryRefresh(
       environmentId,

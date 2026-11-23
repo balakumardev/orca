@@ -1,6 +1,9 @@
 // Send open with the chat’s slot ID, select only after main draws it, and use afterPendingTab before reading the returned tab from store.
 
-import type { ExecutionHostId } from '../../../../../../shared/execution-host/execution-host'
+import {
+  LOCAL_EXECUTION_HOST_ID,
+  type ExecutionHostId
+} from '../../../../../../shared/execution-host/execution-host'
 import type { Tab } from '../../../../../../shared/workspace-layout/tab-groups/tab-types'
 import type { TuiAgent } from '../../../../../../shared/agent-launch/catalog/tui-agent'
 import { defaultAgentChatLabel } from '../../../../../../shared/agent-session/conversation-naming/agent-session-chat-label'
@@ -30,6 +33,10 @@ export type OpenedAgentSessionTab = Pick<Tab, 'id' | 'entityId'>
 export function openAgentSessionTabThroughLayoutOwner(
   open: AgentSessionTabOpen
 ): OpenedAgentSessionTab | null {
+  // A paired chat uses its existing provisional draw, never the selected local twin's main layout.
+  if (open.executionHostId !== LOCAL_EXECUTION_HOST_ID) {
+    return null
+  }
   const { worktreeId, sessionId, tabId } = open
   const state = useAppStore.getState()
   const label = defaultAgentChatLabel(open.agent)

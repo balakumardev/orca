@@ -56,6 +56,11 @@ export type CreateWebRuntimeSessionTerminalArgs = {
   viewMode?: 'terminal' | 'chat'
   activate?: boolean
   selectWorktree?: boolean
+  /** A captured search authority must still own queued creation and reveal effects. */
+  isCurrent?: () => boolean
+  expectedEnvironmentPairingRevision?: number
+  /** Runtime incarnation selected before resume preparation, enforced again after RPC dequeue. */
+  expectedEnvironmentRuntimeId?: string
 }
 
 export type CreateWebRuntimeSessionTerminalOnHostArgs = CreateWebRuntimeSessionTerminalArgs & {

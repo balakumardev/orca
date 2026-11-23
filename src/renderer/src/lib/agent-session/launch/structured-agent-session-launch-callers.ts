@@ -14,6 +14,7 @@ import type { ExecutionHostId } from '../../../../../shared/execution-host/execu
 import type { StructuredLaunchAttempt } from './structured-agent-session-launch-request'
 
 import type { StructuredAgentSessionCreateGate } from './structured-agent-session-launch-errors'
+import type { RuntimeTargetGuard } from '@/runtime/rpc/targets/runtime-target-guard'
 
 export type StructuredAgentLaunchOptions = StructuredLaunchPromptOptions & {
   /** The user action this start serves; only a re-delivery of it joins its chat. */
@@ -37,6 +38,8 @@ export type StructuredAgentLaunchOptions = StructuredLaunchPromptOptions & {
   launchOptions?: Readonly<Record<string, string>>
   /** Final admission of a source-bound action, immediately before its first create is sent. */
   beforeCreate?: () => boolean
+  /** Search-owned launches retain the same host fence even when admission or creation is retried. */
+  targetGuard?: RuntimeTargetGuard
   /** The create waits for this (a source that must stop before the chat writes). */
   createAfter?: Promise<StructuredAgentSessionCreateGate>
   surfaceAddress?: StructuredLaunchSurfaceAddress

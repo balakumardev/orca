@@ -45,6 +45,7 @@ type PaneActivityCacheEntry = {
   worktree: Worktree
   repo: Repo | null
   tab: TerminalTab
+  agentType: AgentType
   events: ActivityEvent[]
   live: ActivityLiveAgentSnapshot | null
   rowEntry: AgentStatusEntry
@@ -61,17 +62,25 @@ export type ActivityEventBuildCache = {
   tabs?: ActivityTabIndexes
   /** Each accepted status's last outcome; null when it had no tab to attribute. */
   live: Map<string, { entry: AgentStatusEntry; build: PaneBuild | null }>
+  /** Cache keys of the last build's presence panes; an incremental build has no full sweep to evict them. */
+  presenceKeys: Set<string>
   plan: KeyedRebuildPlan
 }
 
 export function createActivityEventBuildCache(): ActivityEventBuildCache {
-  return { panes: new Map(), live: new Map(), plan: new KeyedRebuildPlan() }
+  return {
+    panes: new Map(),
+    live: new Map(),
+    presenceKeys: new Set(),
+    plan: new KeyedRebuildPlan()
+  }
 }
 
 export function resetActivityEventBuildCache(cache: ActivityEventBuildCache): void {
   cache.panes.clear()
   cache.tabs = undefined
   cache.live.clear()
+  cache.presenceKeys.clear()
   cache.plan.reset()
 }
 
@@ -193,7 +202,9 @@ export function resolvePaneBuild(
     cached.clearedAt === request.clearedAt &&
     cached.worktree === request.worktree &&
     cached.repo === request.repo &&
-    cached.tab === request.tab
+    cached.tab === request.tab &&
+    // Process presence can identify a new agent while the pane still holds an older turn.
+    cached.agentType === request.agentType
   const rowEntry = inputsUnchanged
     ? cached.rowEntry
     : entryWithRuntimeOrchestration(
@@ -249,6 +260,7 @@ export function resolvePaneBuild(
     worktree: request.worktree,
     repo: request.repo,
     tab: request.tab,
+    agentType: request.agentType,
     events,
     live,
     rowEntry

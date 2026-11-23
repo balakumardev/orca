@@ -38,6 +38,7 @@ export type StructuredAgentLaunchHooks = {
   // Abort on the caller’s event, not only after awaits, so abandoned staged prompts never reach providers.
   signal?: AbortSignal
   beforeCreate?: () => boolean
+  targetGuard?: StructuredAgentLaunchOptions['targetGuard']
   /** The create waits for this. */
   createAfter?: Promise<StructuredAgentSessionCreateGate>
 }
@@ -115,10 +116,13 @@ export function beginStructuredAgentLaunchSettlement(
   options: StructuredAgentLaunchOptions,
   hooks: StructuredAgentLaunchHooks
 ): StructuredAgentLaunchHandle {
+  // Admission may have awaited a host that was replaced before the launch was registered.
+  hooks.targetGuard?.assertCurrent(options.executionHostId)
   const launch = startStructuredAgentLaunch(worktreeId, agent, {
     ...options,
     ...(hooks.activate !== undefined ? { activate: hooks.activate } : {}),
     ...(hooks.beforeCreate ? { beforeCreate: hooks.beforeCreate } : {}),
+    ...(hooks.targetGuard ? { targetGuard: hooks.targetGuard } : {}),
     ...(hooks.createAfter ? { createAfter: hooks.createAfter } : {})
   })
   // Joining transfers no source ownership to the already independent destination.

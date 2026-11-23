@@ -43,7 +43,8 @@ export function resolveAiVaultSessionResumeInChatForWorkspace(args: {
   const targetWorkspacePath = targetWorkspaceId
     ? resolveAiVaultTargetWorkspacePath(args.targetState, targetWorkspaceId)
     : null
-  const state = useAppStore.getState()
+  // Owner-scoped catalogs keep same-ID workspace copies out of launch and capability resolution.
+  const state = { ...useAppStore.getState(), ...args.targetState }
   // Like terminal resume, native resume requires the recording host, which also owns capability checks.
   const targetOwner = targetWorkspaceId
     ? resolveStructuredAgentSessionOwner(state, targetWorkspaceId)

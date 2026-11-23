@@ -1,5 +1,15 @@
 import { useSyncExternalStore } from 'react'
 import { useAppStore } from '@/store/index'
+import {
+  getRepoWorkspaceCreationTargetHint,
+  type WorkspaceCreationTargetHint
+} from '@/lib/workspace/creation/project-host-workspace-target'
+import { resolvePaletteProjectCreateRepo } from './palette-project-create-targets'
+import {
+  getPaletteSearchHosts,
+  isPaletteSearchHostCurrent,
+  type PaletteSearchHost
+} from './palette-search-hosts'
 
 /** The palette's second step: the project is chosen, the user types the worktree name. */
 export type ProjectNameStep = {
@@ -8,6 +18,8 @@ export type ProjectNameStep = {
   projectLabel: string
   /** Where the project lives, so two projects with one name can be told apart. */
   projectPath: string
+  workspaceTarget?: WorkspaceCreationTargetHint
+  host?: PaletteSearchHost
   name: string
 }
 
@@ -31,15 +43,43 @@ export function beginProjectNameStep(args: {
   repoId: string
   projectLabel: string
   name?: string
+  workspaceTarget?: WorkspaceCreationTargetHint
+  /** A saved action supplies its original authority; null means it had no live authority. */
+  host?: PaletteSearchHost | null
 }): boolean {
   const state = useAppStore.getState()
   if (state.activeModal !== 'worktree-palette') {
     return false
   }
+  // Capture the execution target before typing can outlive the selected host's catalog row.
+  const repo = resolvePaletteProjectCreateRepo(args.repoId, state, args.workspaceTarget)
+  if (!repo) {
+    return false
+  }
+  const workspaceTarget =
+    args.workspaceTarget ?? getRepoWorkspaceCreationTargetHint(repo, state.projectHostSetups)
+  // Validate the selected pairing before global search deduplicates aliases of the same server.
+  const host =
+    args.host === undefined
+      ? getPaletteSearchHosts(state, [workspaceTarget.hostId]).find(
+          (candidate) => candidate.executionHostId === workspaceTarget.hostId
+        )
+      : args.host
+  // A paired-server name step must not survive a different authority taking its saved host id.
+  if (
+    (host &&
+      (host.executionHostId !== workspaceTarget.hostId ||
+        !isPaletteSearchHostCurrent(host, state))) ||
+    (workspaceTarget.hostId.startsWith('runtime:') && !host)
+  ) {
+    return false
+  }
   publish({
     repoId: args.repoId,
     projectLabel: args.projectLabel,
-    projectPath: state.repos.find((repo) => repo.id === args.repoId)?.path ?? '',
+    projectPath: repo.path,
+    workspaceTarget,
+    host: host ?? undefined,
     name: args.name ?? ''
   })
   return true

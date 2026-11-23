@@ -1,7 +1,12 @@
 import { useAppStore } from '@/store/index'
 import type { AppState } from '@/store/types'
 import { resolveComposerActiveRepoId } from '@/lib/workspace/creation/new-workspace-composer-repo'
-import { resolveWorkspaceCreationTarget } from '@/lib/workspace/creation/project-host-workspace-target'
+import {
+  resolveWorkspaceCreationTarget,
+  type WorkspaceCreationTarget,
+  type WorkspaceCreationTargetHint
+} from '@/lib/workspace/creation/project-host-workspace-target'
+import { getRepoExecutionHostId } from '../../../../shared/execution-host/execution-host'
 import { getNewWorkspaceDialogEligibleRepos } from '../../../../shared/new-workspace/new-workspace-dialog-repo'
 import { buildExecutionHostRegistry } from '../../../../shared/execution-host/execution-host-registry'
 import { getHostDisplayLabelOverrides } from '../../../../shared/execution-host/host-setting-overrides'
@@ -41,10 +46,11 @@ export function selectPaletteComposerTargetState(state: AppState): PaletteCompos
  * opened for `initialRepoId` falls back to another project when that one cannot be used (not an eligible repo,
  * or a host that is not known yet), and the answer then names the other project. Empty when nothing resolves.
  */
-export function resolvePaletteComposerRepoId(
+export function resolvePaletteComposerTarget(
   state: PaletteComposerTargetState,
-  initialRepoId?: string
-): string {
+  initialRepoId?: string,
+  workspaceTarget?: WorkspaceCreationTargetHint
+): WorkspaceCreationTarget | null {
   const eligibleRepos = getNewWorkspaceDialogEligibleRepos(state.repos)
   const hostOptions = buildExecutionHostRegistry({
     repos: state.repos,
@@ -61,6 +67,11 @@ export function resolvePaletteComposerRepoId(
     projects: state.projects,
     projectHostSetups: state.projectHostSetups,
     initialRepoId,
+    // Match the dialog's explicit seed, including the host owning a colliding setup id.
+    projectId: workspaceTarget?.projectId,
+    hostId: workspaceTarget?.hostId,
+    projectHostSetupId: workspaceTarget?.projectHostSetupId,
+    projectHostSetupHostId: workspaceTarget?.hostId,
     activeRepoId: resolveComposerActiveRepoId(
       state.repos,
       eligibleRepos,
@@ -70,7 +81,21 @@ export function resolvePaletteComposerRepoId(
     focusedHostScope: state.workspaceHostScope,
     actionableHostIds: new Set(hostOptions.map((host) => host.id))
   })
-  return resolution.status === 'ready' ? resolution.target.repoId : ''
+  if (resolution.status !== 'ready') {
+    return null
+  }
+  // A retained setup must not resolve through the legacy single-repo fallback on another host.
+  return workspaceTarget &&
+    getRepoExecutionHostId(resolution.target.repo) !== workspaceTarget.hostId
+    ? null
+    : resolution.target
+}
+
+export function resolvePaletteComposerRepoId(
+  state: PaletteComposerTargetState,
+  initialRepoId?: string
+): string {
+  return resolvePaletteComposerTarget(state, initialRepoId)?.repoId ?? ''
 }
 
 /**
@@ -78,12 +103,26 @@ export function resolvePaletteComposerRepoId(
  * after `timeoutMs`. The auto-submitting dialog presses Create only on the project the palette picked, so a
  * project that was just added has to be known to the store (and its host to the registry) before the name step.
  */
-export function waitUntilComposerTargetsRepo(repoId: string, timeoutMs = 3000): Promise<boolean> {
-  const ready = (): boolean =>
-    resolvePaletteComposerRepoId(
+export function waitUntilComposerTargetsRepo(
+  repoId: string,
+  timeoutMs = 3000,
+  workspaceTarget?: WorkspaceCreationTargetHint
+): Promise<boolean> {
+  const ready = (): boolean => {
+    const target = resolvePaletteComposerTarget(
       selectPaletteComposerTargetState(useAppStore.getState()),
-      repoId
-    ) === repoId
+      repoId,
+      workspaceTarget
+    )
+    return (
+      target?.repoId === repoId &&
+      (!workspaceTarget ||
+        (target.hostId === workspaceTarget.hostId &&
+          target.projectId === workspaceTarget.projectId &&
+          (!workspaceTarget.projectHostSetupId ||
+            target.projectHostSetupId === workspaceTarget.projectHostSetupId)))
+    )
+  }
   if (ready()) {
     return Promise.resolve(true)
   }

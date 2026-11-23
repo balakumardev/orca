@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAppStore } from '@/store/index'
+import type { ComposerCardSourceProps } from '@/hooks/composer-state/card-projection/composer-card-contract'
+import { isPaletteSearchHostCurrent } from '../cmd-j/palette-search-hosts'
 import {
   AUTO_SUBMIT_TIMEOUT_MS,
   nextAutoSubmitStep,
@@ -20,13 +22,16 @@ export function useComposerAutoSubmit({
   modalData,
   createDisabled,
   create,
-  repo
+  target
 }: {
   modalData: ComposerModalData
   createDisabled: boolean
   create: () => Promise<void>
-  /** The id of the project the form resolved to. */
-  repo: string
+  /** The host-owned project and checkout the form resolved to. */
+  target: Pick<
+    ComposerCardSourceProps,
+    'repoId' | 'selectedProjectId' | 'selectedRepoExecutionHostId' | 'selectedProjectHostSetupId'
+  >
 }): void {
   const enabled = modalData.autoSubmit === true
   const startedRef = useRef(false)
@@ -38,10 +43,23 @@ export function useComposerAutoSubmit({
     }
   }, [modalData])
   useEffect(() => {
+    // Repo ids can collide across hosts; hidden creation requires the complete chosen target.
+    const expected = modalData.initialWorkspaceTarget
+    const targetIsChosen =
+      !expected ||
+      (target.selectedRepoExecutionHostId === expected.hostId &&
+        target.selectedProjectId === expected.projectId &&
+        (!expected.projectHostSetupId ||
+          target.selectedProjectHostSetupId === expected.projectHostSetupId))
+    // A ready replacement can reuse every target id while the hidden form waits.
+    const host = modalData.autoSubmitHost
+    const hostIsChosen =
+      !expected?.hostId.startsWith('runtime:') ||
+      Boolean(host && host.executionHostId === expected?.hostId && isPaletteSearchHostCurrent(host))
     const step = nextAutoSubmitStep({
       enabled,
       createDisabled,
-      projectIsChosen: repo === modalData.initialRepoId,
+      projectIsChosen: target.repoId === modalData.initialRepoId && targetIsChosen && hostIsChosen,
       started: startedRef.current,
       timedOut
     })
@@ -51,7 +69,7 @@ export function useComposerAutoSubmit({
     } else if (step === 'show') {
       showAsDialog()
     }
-  }, [create, createDisabled, enabled, modalData.initialRepoId, repo, showAsDialog, timedOut])
+  }, [create, createDisabled, enabled, modalData, showAsDialog, target, timedOut])
   useEffect(() => {
     if (!enabled) {
       return

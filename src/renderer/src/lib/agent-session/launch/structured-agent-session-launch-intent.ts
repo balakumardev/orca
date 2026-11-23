@@ -28,6 +28,7 @@ import type { StructuredLaunchSurfaceAddress } from './structured-agent-session-
 import type { TuiAgent } from '../../../../../shared/agent-launch/catalog/tui-agent'
 import type { RuntimeClientTarget } from '../../../../../shared/remote-runtime/host-catalog/runtime-client-target'
 import type { ExecutionHostId } from '../../../../../shared/execution-host/execution-host'
+import type { RuntimeTargetGuard } from '@/runtime/rpc/targets/runtime-target-guard'
 
 export type StructuredAgentSessionLaunchIntent = {
   sessionId: string
@@ -45,6 +46,7 @@ export type StructuredAgentSessionLaunchIntent = {
   createPrepared?: true
   prepareCreate?: (hostTakesExplicitOptions: boolean) => void
   beforeCreate?: () => boolean
+  targetGuard?: RuntimeTargetGuard
   createAfter?: Promise<StructuredAgentSessionCreateGate>
   surfaceAddress?: StructuredLaunchSurfaceAddress
   /** The saved selection create seeds, read when the intent is built. */
@@ -184,6 +186,8 @@ export function retryStructuredAgentSessionLaunchIntent(
       intent.params.tabId
     ),
     forkRequiresInheritedOriginal: intent.forkRequiresInheritedOriginal,
+    // A Retry is still the original host-scoped action.
+    targetGuard: intent.targetGuard,
     explicitLaunchOptions: intent.explicitLaunchOptions
   }
 }

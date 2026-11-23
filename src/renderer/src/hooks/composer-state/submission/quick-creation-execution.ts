@@ -174,6 +174,8 @@ export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
       }
       const request = buildQuickCreationRequest({
         repoId,
+        // Carry the original authority into background execution and its saved Retry request.
+        targetGuard: options?.targetGuard,
         ephemeralVmRecipe,
         indeterminateProgress:
           Boolean(activeEphemeralVmRecipeId) || selectedRepoTarget?.kind === 'environment',

@@ -18,7 +18,11 @@ import type { ExecutionHostId } from '../../../../../shared/execution-host/execu
 import type { StructuredChatTabNames } from '@/runtime/native-chat/naming/structured-chat-tab-name'
 import type { Repo } from '../../../../../shared/repository/repo-types'
 import type { Tab } from '../../../../../shared/workspace-layout/tab-groups/tab-types'
-import type { TerminalTab } from '../../../../../shared/workspace-layout/terminal-tab-types'
+import type {
+  TerminalLayoutSnapshot,
+  TerminalTab
+} from '../../../../../shared/workspace-layout/terminal-tab-types'
+import type { PaneForegroundAgentEntry } from '@/store/slices/agent-status/pane-authority/pane-foreground-agent'
 import type { Worktree } from '../../../../../shared/worktree/types'
 import type { ActivityEvent, ActivityLiveAgentSnapshot } from '../threads/activity-thread-types'
 import { capActivityEvents } from './activity-event-cap'
@@ -30,6 +34,7 @@ import {
   type PaneBuild
 } from './activity-event-build-cache'
 import { appendUnsupportedEvents } from './activity-event-builder-sources'
+import { appendActivityAgentPresence } from './activity-agent-presence'
 import {
   attributedActivityTabContext,
   resolveActivityEventOwner,
@@ -44,6 +49,11 @@ export type BuildActivityEventsArgs = {
   migrationUnsupportedByPtyId?: Record<string, MigrationUnsupportedPtyEntry>
   tabsByWorktree: Record<string, TerminalTab[]>
   ptyIdsByTabId?: Record<string, string[]>
+  /** Presence needs live process evidence for the same pane, independent of its last turn. */
+  paneForegroundAgentByPaneKey?: Readonly<Record<string, PaneForegroundAgentEntry>>
+  terminalLayoutsByTabId?: Readonly<Record<string, TerminalLayoutSnapshot>>
+  runtimePaneTitlesByTabId?: Readonly<Record<string, Record<number, string>>>
+  nativeAgentPresenceByPaneKey?: Readonly<Record<string, AgentStatusEntry>>
   unifiedTabsByWorktree?: Record<string, Tab[]>
   /** Chats from the store's own tab map; reading them from a projected map rebuilds the shared list. */
   structuredTabs?: readonly StructuredTab[]
@@ -214,6 +224,25 @@ export function buildActivityEvents(
     resolveOwner: (context, entry, terminalPtyId) =>
       resolveActivityEventOwner(args, context, entry, terminalPtyId, tabHostIndex, ownerCache),
     pushPaneEvents
+  })
+
+  // Clear/history caps retire events; confirmed agent presence keeps its own row.
+  appendActivityAgentPresence({
+    args,
+    cache,
+    seenCacheKeys,
+    tabContext,
+    liveAgentByPaneKey,
+    resolveOwner: (context, entry) =>
+      resolveActivityEventOwner(
+        args,
+        context,
+        entry,
+        context.tab.ptyId,
+        tabHostIndex,
+        ownerCache,
+        t
+      )
   })
 
   if (cache && dirty) {

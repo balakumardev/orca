@@ -1,11 +1,6 @@
 import { shallow } from 'zustand/shallow'
 import { useAppStore } from '@/store'
 import type { AppState } from '@/store/types'
-import {
-  selectDetectedWorktreesByRepo,
-  selectFolderWorkspaces,
-  selectWorktreesByRepo
-} from '@/store/workspaces/catalog/workspace-record-fields'
 import { subscribeTranslationResourceVersion } from '@/i18n/translation-resource-version'
 import {
   getStructuredChatTabNames,
@@ -22,6 +17,8 @@ import { standaloneActivityWorktreeScope } from '../events/activity-standalone-w
 import { buildAgentPaneThreads, createAgentPaneThreadReuseCache } from './activity-thread-builder'
 import type { AgentPaneThread } from './activity-thread-types'
 import { publishActivityThreadChanges } from './activity-thread-change-feed'
+import { attachActivityPresence } from './activity-presence-inputs'
+import { activityWorktreeInputs } from './activity-worktree-inputs'
 import {
   releaseActivityTabProjection,
   selectAllAgentPaneThreadStoreData,
@@ -97,6 +94,8 @@ function listenerCount(): number {
 }
 
 function notify(): void {
+  // Presence changes arrive here too, and the cached inputs do not compare them.
+  currentNames = null
   for (const mode of MODES) {
     for (const listener of listeners[mode]) {
       listener()
@@ -132,7 +131,8 @@ function attach(): () => void {
       chatNames = getStructuredChatTabNames()
       notify()
     }),
-    subscribeTranslationResourceVersion(notify)
+    subscribeTranslationResourceVersion(notify),
+    attachActivityPresence(notify)
   ]
   return () => stops.forEach((stop) => stop())
 }
@@ -220,20 +220,14 @@ function projectActivityEvents(inputs: ActivityThreadInputs): ActivityEventsBuil
       migrationUnsupportedByPtyId: storeData.migrationUnsupportedByPtyId,
       tabsByWorktree: storeData.tabsByWorktree,
       ptyIdsByTabId: storeData.ptyIdsByTabId,
+      ...storeData.presence,
       unifiedTabsByWorktree,
       structuredTabs: storeData.structuredTabs,
       worktreeMap: storeData.worktreeMap,
       repoMap: storeData.repoMap,
       repos: storeData.repos,
       resolveWorktree: storeData.getKnownWorktreeById,
-      resolveWorktreeInputs: [
-        selectWorktreesByRepo(storeData),
-        selectFolderWorkspaces(storeData),
-        storeData.projectGroups,
-        storeData.repos,
-        selectDetectedWorktreesByRepo(storeData),
-        storeData.floatingWorkspacePath
-      ],
+      resolveWorktreeInputs: activityWorktreeInputs(storeData),
       acknowledgedAgentsByPaneKey: storeData.acknowledgedAgentsByPaneKey,
       activityClearedAtByPaneKey: storeData.activityClearedAtByPaneKey,
       // Read at build time; agentStatusEpoch in the inputs rebuilds when a freshness boundary passes.

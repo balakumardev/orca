@@ -30,6 +30,7 @@ import {
   type WorktreeActivationOptions
 } from './worktree-activation-surface-selection'
 import { gateAndReseedEmptyWorkspace } from './worktree-activation-gated-empty-reseed'
+import { revealActivatedWorktreeInSidebar } from './worktree-activation-sidebar-reveal'
 import {
   isWorktreeInHiddenProject,
   liftSidebarFiltersHidingWorktree
@@ -61,6 +62,7 @@ export function activateAndRevealFolderWorkspaceWithOutcome(
   folderWorkspaceId: string,
   opts?: FolderWorkspaceActivationOptions
 ): WorkspaceActivationOutcome {
+  opts?.targetGuard?.assertCurrent(opts.executionHostId)
   const state = useAppStore.getState()
   const folderWorkspaceOwner = findFolderWorkspaceOwner(
     state,
@@ -145,7 +147,8 @@ export function activateAndRevealFolderWorkspaceWithOutcome(
     ensureWebRuntimeWorktreeTerminalAfterWake(workspaceKey, {
       runtimeEnvironmentId,
       startup: opts?.startup,
-      agent: opts?.agent
+      agent: opts?.agent,
+      ...(opts?.targetGuard ? { targetGuard: opts.targetGuard } : {})
     })
   }
   recordShownTabFocus(useAppStore.getState(), workspaceKey)
@@ -157,6 +160,7 @@ export function activateAndRevealWorktreeWithOutcome(
   worktreeId: string,
   opts?: WorktreeActivationOptions
 ): WorkspaceActivationOutcome {
+  opts?.targetGuard?.assertCurrent(opts.executionHostId)
   const state = useAppStore.getState()
   // The floating workspace owns a separate panel, never the main window's selection.
   if (isFloatingWorkspaceId(worktreeId)) {
@@ -212,7 +216,8 @@ export function activateAndRevealWorktreeWithOutcome(
     // Why: paired web clients own only local selection, so the desktop host publishes session surfaces without treating it as a nav command.
     void activateWebRuntimeSessionWorktree({
       worktreeId,
-      environmentId: ownerRuntimeEnvironmentId
+      environmentId: ownerRuntimeEnvironmentId,
+      targetGuard: opts?.targetGuard
     })
   }
 
@@ -270,14 +275,7 @@ export function activateAndRevealWorktreeWithOutcome(
   }
 
   if (opts?.revealInSidebar !== false && !inHiddenProject) {
-    if (opts?.sidebarRevealBehavior || opts?.executionHostId) {
-      state.revealWorktreeInSidebar(worktreeId, {
-        ...(opts.sidebarRevealBehavior ? { behavior: opts.sidebarRevealBehavior } : {}),
-        ...(opts.executionHostId ? { executionHostId: opts.executionHostId } : {})
-      })
-    } else {
-      state.revealWorktreeInSidebar(worktreeId)
-    }
+    revealActivatedWorktreeInSidebar(state, worktreeId, opts)
   }
 
   const startupAccepted =
@@ -289,7 +287,8 @@ export function activateAndRevealWorktreeWithOutcome(
         ? { runtimeEnvironmentId: ownerRuntimeEnvironmentId }
         : {}),
       startup: opts?.startup,
-      agent: opts?.agent
+      agent: opts?.agent,
+      ...(opts?.targetGuard ? { targetGuard: opts.targetGuard } : {})
     })
   recordShownTabFocus(useAppStore.getState(), worktreeId)
 

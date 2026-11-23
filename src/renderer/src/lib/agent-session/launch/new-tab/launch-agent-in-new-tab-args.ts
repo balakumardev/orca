@@ -5,6 +5,7 @@ import type { ExecutionHostId } from '../../../../../../shared/execution-host/ex
 import type { StructuredLaunchTerminal } from '@/lib/agent-session/launch/structured-agent-session-launch-admission'
 import type { LaunchAgentInNewTabRequest } from '@/lib/agent-session/launch/new-tab/launch-agent-in-new-tab-host-agents'
 import type { NativeChatComposerFocusIntent } from '@/components/native-chat/composer/focus/native-chat-composer-focus-intent'
+import type { RuntimeTargetGuard } from '@/runtime/rpc/targets/runtime-target-guard'
 
 export type LaunchAgentInNewTabArgs = LaunchAgentInNewTabRequest & {
   requestedSurface?: AgentSessionLaunchRequest['requestedSurface']
@@ -14,6 +15,8 @@ export type LaunchAgentInNewTabArgs = LaunchAgentInNewTabRequest & {
   worktreeId: string
   /** Workspace owner captured by the action, independent of selection after an await. */
   workspaceExecutionHostId?: ExecutionHostId
+  /** A fallback keeps the selected pairing and runtime through preparation and queued creation. */
+  targetGuard?: RuntimeTargetGuard
   /** Captured at a new-chat action before the host can delay route selection. */
   focusIntent?: NativeChatComposerFocusIntent
   /** Tab group the user launched from; keeps split-group launches in that pane instead of the active group. */
