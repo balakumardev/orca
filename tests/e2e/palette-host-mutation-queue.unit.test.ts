@@ -17,7 +17,7 @@ import { openProjectDefaultCheckout } from '@/components/sidebar/project-admissi
 import { sessionHit } from '@/components/cmd-j/palette-session-hit.test-fixture'
 import { readPaletteSessionFacts } from '@/components/cmd-j/palette-session-facts'
 import { resolvePaletteSessionAction } from '@/components/cmd-j/palette-session-action'
-import { createGlobalSettingsFixture } from '../../src/shared/global-settings-test-fixture'
+import { createGlobalSettingsFixture } from '../../src/shared/settings/global-settings-test-fixture'
 import {
   makeGroup,
   makeRepo,
@@ -28,10 +28,10 @@ import { createWebRuntimeSessionTerminalResult } from '@/runtime/hosted-terminal
 import { beginStructuredAgentLaunchSettlement } from '@/lib/agent-session/launch/continuation/structured-agent-launch-settlement'
 import { resetStructuredAgentLaunchRegistryForTests } from '@/lib/agent-session/launch/structured-agent-session-launch-registry'
 import { replaceRuntimeEnvironmentRevisions } from '@/runtime/rpc/environment-revisions/runtime-environment-revision'
-import { callRuntimeEnvironment } from '../../src/main/ipc/runtime-environments/runtime-environment-transport-routing'
-import { prepareRuntimeAiVaultSessionResume } from '../../src/main/ai-vault/runtime-session-scanner'
-import { enqueueRuntimeCall } from '../../src/main/ipc/runtime-environments/runtime-environment-call-queue'
-import { resetSharedControlSupport } from '../../src/main/ipc/runtime-environments/runtime-environment-shared-control-support'
+import { callRuntimeEnvironment } from '../../src/main/ipc/runtime-environments/requests/runtime-environment-transport-routing'
+import { prepareRuntimeAiVaultSessionResume } from '../../src/main/ai-vault/runtime-hosts/runtime-session-scanner'
+import { enqueueRuntimeCall } from '../../src/main/ipc/runtime-environments/requests/runtime-environment-call-queue'
+import { resetSharedControlSupport } from '../../src/main/ipc/runtime-environments/connections/runtime-environment-shared-control-support'
 import { pairingCode } from '../../src/main/ipc/runtime-environments/runtime-environments-ipc-test-harness'
 import {
   addEnvironmentFromPairingCode,
@@ -71,13 +71,13 @@ afterEach(() => {
 })
 
 it('refuses queued palette opens, resumes, creates, and checkout updates after the selected runtime restarts', async () => {
-  const paired = addEnvironmentFromPairingCode(profile, {
+  const paired = await addEnvironmentFromPairingCode(profile, {
     name: 'selected-builder',
     pairingCode: pairingCode(),
     now: 1
   })
-  markEnvironmentUsed(profile, paired.id, { runtimeId: 'runtime-original' })
-  const original = redactRuntimeEnvironment(resolveEnvironment(profile, paired.id))
+  await markEnvironmentUsed(profile, paired.id, { runtimeId: 'runtime-original' })
+  const original = redactRuntimeEnvironment(await resolveEnvironment(profile, paired.id))
   const capabilities = [
     'agent-session.permission-modes.v1',
     'agent-session.structured.v1',
@@ -330,8 +330,7 @@ it('refuses queued palette opens, resumes, creates, and checkout updates after t
     repoId: 'repo-1',
     source: 'local_folder_picker',
     executionHostId: host.executionHostId,
-    targetGuard: paletteProjectCreateGuard(host),
-    setHideDefaultBranchWorkspace: useAppStore.getState().setHideDefaultBranchWorkspace
+    targetGuard: paletteProjectCreateGuard(host)
   }).catch(() => undefined)
   const launch = createWebRuntimeSessionTerminalResult({
     environmentId: original.id,
@@ -390,7 +389,7 @@ it('refuses queued palette opens, resumes, creates, and checkout updates after t
       visibilityQueued.promise
     ])
     servingRuntimeId = 'runtime-restarted'
-    markEnvironmentUsed(profile, original.id, { runtimeId: 'runtime-restarted' })
+    await markEnvironmentUsed(profile, original.id, { runtimeId: 'runtime-restarted' })
     const restarted = { ...original, runtimeId: 'runtime-restarted' }
     useAppStore.setState({
       runtimeEnvironments: [restarted],

@@ -1,12 +1,12 @@
 // @vitest-environment happy-dom
 import { act, cleanup, render, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import type { Tab } from '../../../../../shared/tab-types'
-import '../../../../../shared/global-settings-test-fixture'
+import type { Tab } from '../../../../../shared/workspace-layout/tab-groups/tab-types'
+import '../../../../../shared/settings/global-settings-test-fixture'
 
-import '../../../../../shared/ephemeral-setup-terminal-worktree-id'
+import '../../../../../shared/workspace-setup/ephemeral-setup-terminal-worktree-id'
 import type { AgentSessionStatusSummary } from '../../../../../shared/agent-session/agent-session-wire'
-import type * as LayoutRouting from '@/store/terminals/tab-change-through-layout-owner'
+import type * as LayoutRouting from '@/store/terminals/tabs/presentation/tab-change-through-layout-owner'
 import type * as LocalRuntimeCapabilities from '../../hosts/capabilities/local-runtime-capabilities'
 import { makeWorktree } from '@/store/slices/worktrees/worktree.test-fixture'
 import { makeUnifiedTab } from '@/store/slices/tabs/tab-group.test-fixture'
@@ -14,15 +14,16 @@ import { TEST_REPO } from '@/store/repos/repo.test-fixture'
 import { makeFolderWorkspace } from '@/store/folder-workspaces/folder-workspace.test-fixture'
 import { WorkspaceAttachmentOrigins } from '@/components/sidebar/workspace-card/review/WorkspaceAttachmentOrigins'
 import { useAppStore } from '@/store/index'
+import { acceptedAgentStatuses } from '@/store/slices/agent-status/status-ownership/accepted-agent-statuses'
 import { readStructuredChatTabName } from './structured-chat-tab-name'
 import '@/store/slices/tabs/closing/pinned-tab-close-guard'
-import { useLiveDashboardSnapshot } from '@/components/dashboard/useLiveDashboardSnapshot'
-import { useAgentPaneThreads } from '@/components/activity/use-agent-pane-threads'
+import { useLiveDashboardSnapshot } from '@/components/dashboard/snapshot/useLiveDashboardSnapshot'
+import { useAgentPaneThreads } from '@/components/activity/threads/use-agent-pane-threads'
 import { makePaneKey } from '../../../../../shared/workspace-layout/stable-pane-id'
-import type { RuntimeClientTarget } from '../../../../../shared/runtime-client-target'
+import type { RuntimeClientTarget } from '../../../../../shared/remote-runtime/host-catalog/runtime-client-target'
 
-import '../../web-session-tabs-sync/snapshot-api'
-import '../../web-session-tabs-sync/store-patch'
+import '../../web-session-tabs-sync/snapshots/snapshot-api'
+import '../../web-session-tabs-sync/snapshots/store-patch'
 import '../../local-structured-session-tabs-sync/snapshot-apply'
 import '@/lib/agent-session/launch/structured-agent-session-launch-persistence'
 
@@ -50,8 +51,10 @@ vi.mock('../../rpc/calls/runtime-rpc-call', () => ({
 vi.mock('../host-capabilities/structured-agent-session-host-support', () => ({
   supportsStructuredAgentSessionRename: async () => true
 }))
-vi.mock('../../../../../shared/layout-owner-switch', () => ({ ORCA_LAYOUT_OWNER_IS_MAIN: true }))
-vi.mock('@/store/terminals/tab-change-through-layout-owner', () => ({
+vi.mock('../../../../../shared/workspace-layout/layout-owner-switch', () => ({
+  ORCA_LAYOUT_OWNER_IS_MAIN: true
+}))
+vi.mock('@/store/terminals/tabs/presentation/tab-change-through-layout-owner', () => ({
   sendTabChangeToLayoutOwner: mock.layout
 }))
 vi.mock('../../hosts/capabilities/local-runtime-capabilities', async (importOriginal) => ({
@@ -129,19 +132,22 @@ function seedTwin(tab: Tab) {
       { ...folder, executionHostId: 'local' },
       { ...folder, executionHostId: 'runtime:paired' }
     ],
-    agentStatusByPaneKey: {
-      [paneKey]: {
+    agentStatusByPaneKey: acceptedAgentStatuses([
+      [
         paneKey,
-        tabId: tab.id,
-        worktreeId: tab.worktreeId,
-        agentType: 'codex',
-        state: 'working',
-        prompt: '',
-        updatedAt: Date.now(),
-        stateStartedAt: Date.now(),
-        stateHistory: []
-      }
-    }
+        {
+          paneKey,
+          tabId: tab.id,
+          worktreeId: tab.worktreeId,
+          agentType: 'codex',
+          state: 'working',
+          prompt: '',
+          updatedAt: Date.now(),
+          stateStartedAt: Date.now(),
+          stateHistory: []
+        }
+      ]
+    ])
   })
 }
 function name(tab: Tab, conversationName: string): AgentSessionStatusSummary {

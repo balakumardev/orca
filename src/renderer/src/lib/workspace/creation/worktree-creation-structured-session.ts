@@ -10,16 +10,8 @@ import {
   type WorktreeCreationRequest
 } from '@/lib/workspace/creation/pending-worktree-creation'
 import { beginStructuredAgentSessionProvisionalLaunch } from '@/lib/agent-session/structured-agent-session-provisional-tab'
-import { moveStructuredAgentLaunchDraft } from '@/lib/agent-session/launch/structured-agent-session-launch-draft'
-import { getStructuredAgentSessionLaunchOwner } from '@/lib/agent-session/launch/structured-agent-session-launch-registry'
-import { requestBackgroundTerminalWorktreeMount } from '@/components/terminal/background-terminal-worktree-mount'
-import {
-  nativeChatComposerSelection,
-  waitForNativeChatComposerHandoff
-} from '@/components/native-chat/composer/focus/native-chat-composer-mount'
-import '@/components/native-chat/composer/focus/use-native-chat-composer-reveal-focus'
-import { captureNativeChatComposerFocusIntent } from '@/components/native-chat/composer/focus/native-chat-composer-focus-intent'
 import { openBackgroundDeclinedTerminal } from '@/lib/workspace/creation/worktree-creation-background-mount'
+import { settleAgentTabLaunch } from '@/lib/agent-session/launch/new-tab/launch-agent-in-new-tab-host-agents'
 import {
   captureNativeChatStagedInput,
   hasNativeChatStagedFiles
@@ -29,8 +21,7 @@ import {
   watchCreationChatHost,
   worktreeCreationChatTargetError
 } from './worktree-creation-chat-authority'
-
-const HANDOFF_READY_TIMEOUT_MS = 5000
+import { handOffCreationChatDraft } from './worktree-creation-chat-draft-handoff'
 
 export type WorktreeCreationStructuredSessionResult = {
   accepted: boolean
@@ -69,6 +60,7 @@ export async function launchStructuredWorktreeSession(
   }
   // Freeze the first send; unsent typing stays with the composer until its replacement is ready.
   useAppStore.getState().updatePendingWorktreeCreation(args.creationId, {
+    worktreeId: args.worktreeId,
     chatInputHandedOff: true,
     chatHandedOffAt: Date.now()
   })
@@ -156,44 +148,21 @@ export async function launchStructuredWorktreeSession(
   const stopWaiting = (): void => tabOpen.resolve(null)
   abandoned.signal.addEventListener('abort', stopWaiting, { once: true })
   const unsubscribe = watchCreationChatHost(args.creationId, request, abandoned, revealAbandoned)
-  const handOffDraft = async (tabId: string | null): Promise<void> => {
-    const tab = tabId ? useAppStore.getState().getTab(tabId) : null
-    if (tab?.contentType !== 'agent-session' || !isTargetCurrent()) {
-      return
-    }
-    const state = useAppStore.getState()
-    if (
-      args.shouldActivateOnCompletion &&
-      state.activeView === 'terminal' &&
-      state.activePendingCreationId === args.creationId
-    ) {
-      requestBackgroundTerminalWorktreeMount({ worktreeId: args.worktreeId, tabIds: [tab.id] })
-      await waitForNativeChatComposerHandoff(
-        sourceScope,
-        tab.id,
-        revealAbandoned.signal,
-        HANDOFF_READY_TIMEOUT_MS
-      )
-    }
-    if (abandoned.signal.aborted) {
-      return
-    }
-    const selection = revealAbandoned.signal.aborted
-      ? undefined
-      : nativeChatComposerSelection(sourceScope)
-    if (selection) {
-      captureNativeChatComposerFocusIntent().request(tab.id)
-    }
-    const executionHostId =
-      tab.executionHostId ?? getStructuredAgentSessionLaunchOwner(tab.entityId)
-    if (executionHostId) {
-      moveStructuredAgentLaunchDraft(
-        { sessionId: tab.entityId, worktreeId: args.worktreeId, executionHostId },
-        sourceScope,
-        selection
-      )
-    }
-  }
+  const handOffDraft = (tabId: string | null): Promise<void> =>
+    handOffCreationChatDraft(tabId, {
+      creationId: args.creationId,
+      worktreeId: args.worktreeId,
+      shouldActivateOnCompletion: args.shouldActivateOnCompletion,
+      sourceScope,
+      abandoned: abandoned.signal,
+      revealAbandoned: revealAbandoned.signal,
+      isTargetCurrent
+    })
+  // The surfaces that took the input: a published chat, or (plain text only) a terminal.
+  let chatOpened = false
+  let reached = false
+  const inputLost = (): boolean =>
+    (!chatOpened && needsChat()) || (!reached && Boolean(plan.prompt?.trim()))
   try {
     const launch = beginStructuredAgentSessionProvisionalLaunch({
       plan,
@@ -242,67 +211,75 @@ export async function launchStructuredWorktreeSession(
         launch.cancel()
         return { ...settled, cancelled: true, activation, primaryTabId }
       }
-      if (primaryTabId === null && needsChat()) {
-        return retainInput()
+      chatOpened = primaryTabId !== null
+      reached =
+        chatOpened ||
+        (!layoutRefused && launch.tab === null && (await launch.settlement).kind === 'terminal')
+    }
+    const stillVisible = (): boolean => {
+      const state = useAppStore.getState()
+      return (
+        !activation &&
+        isTargetCurrent() &&
+        state.activeView === 'terminal' &&
+        state.activePendingCreationId === args.creationId
+      )
+    }
+    if (
+      launch &&
+      args.shouldActivateOnCompletion &&
+      !reached &&
+      plan.prompt &&
+      layoutRefused &&
+      !needsChat()
+    ) {
+      const { launchAgentInNewTabWithOutcome } =
+        await import('@/lib/agent-session/launch/new-tab/launch-agent-in-new-tab')
+      if (abandoned.signal.aborted || isCancelled()) {
+        launch.cancel()
+        return { ...settled, cancelled: true, activation, primaryTabId }
       }
-    } else if (needsChat() && !isCancelled()) {
+      const fallback = launchAgentInNewTabWithOutcome({
+        agent,
+        ...request.launchInputs,
+        worktreeId: args.worktreeId,
+        // A layout refusal changes the surface, not the captured creation target.
+        workspaceExecutionHostId: request.executionHostId,
+        targetGuard: request.targetGuard,
+        prompt: plan.prompt,
+        promptDelivery: plan.promptDelivery,
+        activate: stillVisible(),
+        agentSessionLaunchPlan: adoptAgentSessionLaunchVerdict({
+          route: 'terminal-tui',
+          requestId: args.creationId,
+          agent,
+          worktreeId: args.worktreeId
+        })
+      })
+      // A paired host accepts before it creates; only the created terminal holds the message.
+      const settledFallback = await settleAgentTabLaunch(fallback)
+      if (settledFallback.kind === 'terminal' && fallback && !('refused' in fallback)) {
+        reached = true
+        primaryTabId = fallback.surface.kind === 'local-terminal' ? fallback.surface.tabId : null
+      }
+    }
+    if (inputLost() && !isCancelled()) {
       return retainInput()
     }
-    if (launch && args.shouldActivateOnCompletion) {
-      const stillVisible = (): boolean => {
-        const state = useAppStore.getState()
-        return (
-          !activation &&
-          isTargetCurrent() &&
-          state.activeView === 'terminal' &&
-          state.activePendingCreationId === args.creationId
-        )
-      }
-      let recoveryProvidesSurface = false
-      if (primaryTabId === null && plan.prompt && layoutRefused) {
-        const { launchAgentInNewTabWithOutcome } =
-          await import('@/lib/agent-session/launch/new-tab/launch-agent-in-new-tab')
-        if (abandoned.signal.aborted || isCancelled()) {
-          launch.cancel()
-          return { ...settled, cancelled: true, activation, primaryTabId }
-        }
-        const fallback = launchAgentInNewTabWithOutcome({
-          agent,
-          ...request.launchInputs,
-          worktreeId: args.worktreeId,
-          // A layout refusal changes the surface, not the captured creation target.
-          workspaceExecutionHostId: request.executionHostId,
-          targetGuard: request.targetGuard,
-          prompt: plan.prompt,
-          promptDelivery: plan.promptDelivery,
-          activate: stillVisible(),
-          agentSessionLaunchPlan: adoptAgentSessionLaunchVerdict({
-            route: 'terminal-tui',
-            requestId: args.creationId,
-            agent,
-            worktreeId: args.worktreeId
-          })
-        })
-        if (fallback && !('refused' in fallback)) {
-          recoveryProvidesSurface = true
-          primaryTabId = fallback.surface.kind === 'local-terminal' ? fallback.surface.tabId : null
-        }
-      }
-      if (stillVisible()) {
-        activation = activateAndRevealWorktree(args.worktreeId, {
-          // A local twin can still be selected beneath the pending creation panel.
-          executionHostId: request.executionHostId,
-          targetGuard: request.targetGuard,
-          providesInitialSurface: primaryTabId !== null || recoveryProvidesSurface,
-          worktreeCreationId: args.creationId
-        })
-        primaryTabId ??= activation === false ? null : activation.primaryTabId
-      }
+    if (launch && args.shouldActivateOnCompletion && stillVisible()) {
+      activation = activateAndRevealWorktree(args.worktreeId, {
+        // A local twin can still be selected beneath the pending creation panel.
+        executionHostId: request.executionHostId,
+        targetGuard: request.targetGuard,
+        providesInitialSurface: chatOpened || (reached && layoutRefused),
+        worktreeCreationId: args.creationId
+      })
+      primaryTabId ??= activation === false ? null : activation.primaryTabId
     }
   } catch (error) {
     // Contain this fire-and-forget caller’s errors or the panel remains mid-create.
     console.error('worktree create: structured chat tab failed to open', args.worktreeId, error)
-    if (needsChat() && !isCancelled()) {
+    if (inputLost() && !isCancelled()) {
       return retainInput()
     }
     return { ...settled, activation, primaryTabId }

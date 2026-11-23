@@ -9,8 +9,11 @@ import { usePaletteProjectCatalog } from '@/components/cmd-j/use-palette-project
 import { usePaletteSearchHosts } from '@/components/cmd-j/use-palette-search-hosts'
 import { getRepoWorkspaceCreationTargetHint } from '@/lib/workspace/creation/project-host-workspace-target'
 import { getPaletteWorktreeExecutionHostId } from '@/lib/workspace/search/palette-repo-resolution'
-import { getRepoExecutionHostId, LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host'
-import type { Repo } from '../../../../shared/repo-types'
+import {
+  getRepoExecutionHostId,
+  LOCAL_EXECUTION_HOST_ID
+} from '../../../../shared/execution-host/execution-host'
+import type { Repo } from '../../../../shared/repository/repo-types'
 import type { WorktreeJumpPaletteController } from './use-worktree-jump-palette-controller'
 import {
   getPaletteEntryFolderNewWorktree,

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { AiVaultSearchHit } from '../../../../shared/ai-vault/search/ai-vault-search-types'
 import { resolveAiVaultSearchSettings } from '../../../../shared/ai-vault/search/ai-vault-search-settings'
-import { LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host'
+import { LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host/execution-host'
 import { AI_VAULT_RUNTIME_CAPABILITY } from '../../../../shared/ai-vault/contracts/ai-vault-runtime-capabilities'
 import { isWebClientLocation } from '@/app-shell/platform/web-client-location'
 import { useAppStore } from '@/store/index'
@@ -59,10 +59,11 @@ export function usePaletteSessionSearch({
   const needle = sessionSearchQuery(query)
   const key = JSON.stringify([needle, sources.map(({ host, scopes }) => [host.key, scopes])])
   const [answer, setAnswer] = useState<Answer | null>(null)
-  // The next opening of the palette starts from no hits, even for the same query.
-  const [wasActive, setWasActive] = useState(active)
-  if (wasActive !== active) {
-    setWasActive(active)
+  // Forgotten with the query: shown again for a query typed back, its rows mount as the highlight resets
+  // and cmdk selects none. The next opening of the palette starts from no hits too, even for the same query.
+  const [asked, setAsked] = useState({ active, needle })
+  if (asked.active !== active || asked.needle !== needle) {
+    setAsked({ active, needle })
     setAnswer(null)
   }
   // Checked again by each query until it is true; one palette opening never asks twice once it is.

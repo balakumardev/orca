@@ -1,4 +1,4 @@
-import type { ExecutionHostId } from '../../../../../shared/execution-host'
+import type { ExecutionHostId } from '../../../../../shared/execution-host/execution-host'
 
 /** A captured action keeps its authority through preparation and queued RPC dispatch. */
 export type RuntimeTargetGuard = {
@@ -17,5 +17,24 @@ export function isRuntimeTargetCurrent(
     return true
   } catch {
     return false
+  }
+}
+
+/** The RPC options that fence a queued call to the connection the guard captured. */
+export function runtimeTargetGuardRequestOptions(
+  guard: RuntimeTargetGuard | undefined,
+  executionHostId?: ExecutionHostId
+): {
+  expectedEnvironmentPairingRevision?: number
+  expectedEnvironmentRuntimeId?: string
+  beforeSend?: () => void
+} {
+  if (!guard) {
+    return {}
+  }
+  return {
+    expectedEnvironmentPairingRevision: guard.expectedEnvironmentPairingRevision,
+    expectedEnvironmentRuntimeId: guard.expectedEnvironmentRuntimeId,
+    beforeSend: () => guard.assertCurrent(executionHostId)
   }
 }

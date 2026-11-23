@@ -1,27 +1,62 @@
 import { useMemo } from 'react'
+import type { Worktree } from '../../../../shared/worktree/types'
+import { useBotPaletteSource } from '@/components/bots/bot-palette-source'
+import { useBotTemplatePaletteSource } from '@/components/bots/templates/bot-template-palette-source'
 import type { PaletteExtraSource } from './palette-extra-results'
 import { usePaletteFolderSource } from './use-palette-folder-source'
 import { usePaletteProjectCreateSource } from './use-palette-project-create-source'
 import { usePaletteSessionSource } from './use-palette-session-source'
 
-const NO_SOURCES: readonly PaletteExtraSource[] = []
-
 /** Each source registers here with its own hook; return a memoized list. */
-export function usePaletteExtraSources(args: {
+export function usePaletteExtraSources({
+  query,
+  visible,
+  scoped,
+  hostSearch,
+  hostIds,
+  repoIds
+}: {
   query: string
   visible: boolean
+  /** Showing only bots: template suggestions stay idle. */
+  scoped: boolean
+  /** Off for a pasted task link or the bots-only view: no project, folder or conversation request is sent. */
+  hostSearch: boolean
+  /** Host and project filters reach each source before it sends a request. */
   hostIds?: readonly string[]
   repoIds?: readonly string[]
-}): readonly PaletteExtraSource[] {
+}): {
+  sources: readonly PaletteExtraSource[]
+  /** Workspaces any source lists as itself; stable while the sources' own predicates are. */
+  hidesWorkspace: ((worktree: Worktree) => boolean) | null
+} {
+  const bots = useBotPaletteSource({ query, visible })
+  const templates = useBotTemplatePaletteSource({ query, visible: visible && !scoped })
+  const searchVisible = visible && hostSearch
   const projectCreate = usePaletteProjectCreateSource({
-    ...args,
-    visible: args.visible && !args.hostIds?.length && !args.repoIds?.length
+    query,
+    visible: searchVisible && !hostIds?.length && !repoIds?.length
   })
-  const folders = usePaletteFolderSource(args)
-  const sessions = usePaletteSessionSource(args)
-  return useMemo(() => {
-    // Project rows first, then folders, then past conversations.
-    const sources = [projectCreate, folders, sessions].filter((source) => source !== null)
-    return sources.length > 0 ? sources : NO_SOURCES
-  }, [projectCreate, folders, sessions])
+  const folders = usePaletteFolderSource({ query, visible: searchVisible, hostIds, repoIds })
+  const sessions = usePaletteSessionSource({ query, visible: searchVisible, hostIds, repoIds })
+  const sources = useMemo(
+    () =>
+      // Bots lead, then their templates; project rows, folders and past conversations follow.
+      [bots, templates, projectCreate, folders, sessions].filter(
+        (source): source is PaletteExtraSource => source !== null
+      ),
+    [bots, templates, projectCreate, folders, sessions]
+  )
+  // Keyed by the predicates, not the results, so a keystroke that only changes bot rows keeps it.
+  const botHides = bots?.hidesWorkspace
+  const templateHides = templates?.hidesWorkspace
+  const hidesWorkspace = useMemo(() => {
+    const predicates = [botHides, templateHides].filter(
+      (predicate): predicate is (worktree: Worktree) => boolean => predicate !== undefined
+    )
+    return predicates.length
+      ? (worktree: Worktree) => predicates.some((predicate) => predicate(worktree))
+      : null
+  }, [botHides, templateHides])
+  return { sources, hidesWorkspace }
 }

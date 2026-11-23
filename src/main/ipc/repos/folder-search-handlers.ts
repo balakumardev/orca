@@ -4,9 +4,9 @@ import { createFolderSearchService } from '../../folder-search/folder-search-ser
 import {
   LOCAL_EXECUTION_HOST_ID,
   parseRoutableExecutionHostId
-} from '../../../shared/execution-host'
+} from '../../../shared/execution-host/execution-host'
 import type { FolderSearchEntry, FolderSearchResult } from '../../../shared/folder-search-types'
-import { getRuntimeEnvironmentRegistryRoot } from '../runtime-environments/runtime-environment-registry-root'
+import { getRuntimeEnvironmentRegistryRoot } from '../runtime-environments/catalog/runtime-environment-registry-root'
 import {
   listRuntimeFolders,
   resolveRuntimeFolder

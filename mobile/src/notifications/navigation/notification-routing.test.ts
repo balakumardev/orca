@@ -1,62 +1,19 @@
 import { describe, expect, it } from 'vitest'
+import { parseMobileSessionAccessTarget } from '../../session/mobile-session-item-target'
 import { getNotificationNavigationTarget } from './notification-routing'
 
-describe('notification routing', () => {
-  // Identities stay raw: the target is dispatched as navigator params, not a URL.
-  it('routes notification taps to the worktree terminal screen', () => {
-    expect(
-      getNotificationNavigationTarget({
-        hostId: 'host-1',
-        worktreeId: 'repo::/Users/me/orca/workspaces/feature'
-      })
-    ).toEqual({
-      hostId: 'host-1',
-      sessionTarget: {
-        name: '[hostId]/session/[worktreeId]',
-        params: { hostId: 'host-1', worktreeId: 'repo::/Users/me/orca/workspaces/feature' }
-      }
+const home = { hostId: 'host-1', worktreeId: 'folder:bot-home', paneKey: 'agent-session:chat-1' }
+
+describe('an access request push', () => {
+  it('opens the bot home with the request to review; other pushes carry none', () => {
+    const access = getNotificationNavigationTarget({ ...home, accessRequestId: 'req-1' })
+    expect(access?.sessionTarget?.params).toMatchObject({
+      worktreeId: 'folder:bot-home',
+      paneKey: 'agent-session:chat-1'
     })
-  })
+    expect(parseMobileSessionAccessTarget(access?.sessionTarget?.params.botItem)).toBe('req-1')
 
-  it('falls back to the host screen when the payload has no worktree id', () => {
-    expect(getNotificationNavigationTarget({ hostId: 'host-1' })).toEqual({
-      hostId: 'host-1',
-      sessionTarget: null
-    })
+    const agent = getNotificationNavigationTarget(home)
+    expect(agent?.sessionTarget?.params.botItem).toBeUndefined()
   })
-
-  it('ignores payloads that cannot identify the paired host', () => {
-    expect(getNotificationNavigationTarget({ worktreeId: 'repo::/tmp/worktree' })).toBeNull()
-  })
-
-  it('ignores payloads for hosts that are no longer paired', () => {
-    expect(
-      getNotificationNavigationTarget(
-        { hostId: 'removed-host', worktreeId: 'repo::/tmp/worktree' },
-        { knownHostIds: new Set(['host-1']) }
-      )
-    ).toBeNull()
-  })
-})
-
-it('preserves the originating pane in the workspace route', () => {
-  const paneKey = 'tab-b:11111111-1111-4111-8111-111111111111'
-  expect(
-    getNotificationNavigationTarget({ hostId: 'host', worktreeId: 'folder:/work', paneKey })
-      ?.sessionTarget?.params
-  ).toEqual({ hostId: 'host', worktreeId: 'folder:/work', paneKey })
-})
-
-it('scopes a tap to a server workspace, and keeps anything else on the desktop', () => {
-  const paramsFor = (executionHost: unknown) =>
-    getNotificationNavigationTarget({ hostId: 'host', worktreeId: 'repo::/srv', executionHost })
-      ?.sessionTarget?.params
-  expect(paramsFor('runtime:env-1')).toEqual({
-    hostId: 'host',
-    worktreeId: 'repo::/srv',
-    executionHost: 'runtime:env-1'
-  })
-  for (const notAServer of [undefined, '', 'local', 'ssh:box', 'runtime:', 'env-1', 42]) {
-    expect(paramsFor(notAServer)).toEqual({ hostId: 'host', worktreeId: 'repo::/srv' })
-  }
 })

@@ -5,8 +5,8 @@ import {
   PROJECT_AGENT_ACCOUNT_PROVIDERS,
   type ProjectAgentAccountProvider
 } from '../../../../shared/project-agent-accounts'
-import { isFolderRepo } from '../../../../shared/repo-kind'
-import type { Repo } from '../../../../shared/repo-types'
+import { isFolderRepo } from '../../../../shared/repository/repo-kind'
+import type { Repo } from '../../../../shared/repository/repo-types'
 import { SearchableSetting } from '../settings/section-layout/SearchableSetting'
 import { Button } from '../ui/button'
 import {

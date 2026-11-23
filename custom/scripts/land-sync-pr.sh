@@ -21,6 +21,7 @@
 # summary and to a PR comment, and the PR stays open for a human. An unexpected error exits non-zero and never dispatches.
 #
 # Env: GH_TOKEN REPO PR_NUMBER MERGE_SHA BASE_SHA ROUND BRANCH BASE_BRANCH IS_TEST TAG_IS_RELEASE INPUT_REF DRAFT
+#      NEEDS_REVIEW ("true" = a person reads the PR first) REVIEW_REASONS (one line)
 #      GATES_RESULT ("0=success 1=skipped ..." job results by round) GATES_FAILED ("0=0 1= ..." failed outputs by round)
 #      RUN_URL TAG; from the runner: GITHUB_EVENT_NAME GITHUB_REF GITHUB_STEP_SUMMARY. LAND_NAP = seconds between polls (default 5).
 # shellcheck source=lib.sh
@@ -78,6 +79,12 @@ if [ "$result" != success ] || ! [[ "$failed" =~ ^[0-9]+$ ]] || [ "$failed" -ne 
   decline "the gates did not all pass ($gates_note)."
 fi
 
+# A model decided something the gates cannot judge (it deleted a file of ours, or lines of our customizations are missing from a
+# merged file): a person reads the PR first. review-needed.sh decides, make-pr-body.sh records it, open-pr.sh passes it on.
+if [ "${NEEDS_REVIEW:-}" = true ]; then
+  decline "a person must read this PR before it merges (${REVIEW_REASONS:-see the caveats in the PR body}). Every gate passed; this is not a failure. Merge it with a merge commit when it is right, then run the custom-release workflow on custom with sign, notarize and publish set to true."
+fi
+
 # ---- 3. the PR and the tip of custom ---------------------------------------------------------------------------------------
 pr="$(gh pr view "$PR_NUMBER" --repo "$REPO" --json state,isDraft,baseRefName,headRefName,headRefOid,isCrossRepository)" \
   || fail "could not read PR #$PR_NUMBER. This run merged nothing."
@@ -85,7 +92,7 @@ jq -e --arg sha "$MERGE_SHA" --arg branch "$BRANCH" \
   '.state == "OPEN" and .isDraft == false and .baseRefName == "custom" and .headRefName == $branch and .headRefOid == $sha and .isCrossRepository == false' \
   <<<"$pr" >/dev/null || fail "PR #$PR_NUMBER is not the open PR this run created (not open, a draft, another base or branch, a fork, or its head is not ${MERGE_SHA:0:10}). This run merged nothing; if the PR is already merged, an earlier attempt of this job did it: check that the release was requested."
 now="$(tip)" || fail "could not read the tip of custom. This run merged nothing."
-[ "$now" = "$BASE_SHA" ] || decline "custom moved from ${BASE_SHA:0:10} to ${now:0:10} while the sync ran, so the gates ran against an old base."
+[ "$now" = "$BASE_SHA" ] || decline "custom moved from ${BASE_SHA:0:10} to ${now:0:10} while the sync ran, so the gates ran against an old base. If nobody pushes to this branch, the next scheduled sync closes this PR and syncs again from the current custom; pushing to the branch (or closing the PR) takes it over."
 
 # ---- 4. the required check -------------------------------------------------------------------------------------------------
 summary="custom-sync ran the gates on this merge commit (mode sync: static and e2e jobs of custom-gates.yml): $gates_note.${RUN_URL:+ Run: $RUN_URL}"

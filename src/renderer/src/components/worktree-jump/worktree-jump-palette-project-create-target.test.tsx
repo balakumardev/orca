@@ -12,7 +12,7 @@ import { readProjectScopedCreate } from '@/components/cmd-j/palette-project-crea
 import { useWorktreeJumpPaletteNameStep } from './use-worktree-jump-palette-name-step'
 import { useWorktreeJumpPaletteProjectCreateShortcut } from './use-worktree-jump-palette-project-create-shortcut'
 import type { PaletteListEntry } from './worktree-jump-palette-model'
-import type { ExecutionHostId } from '../../../../shared/execution-host'
+import type { ExecutionHostId } from '../../../../shared/execution-host/execution-host'
 import {
   initialAppState,
   keyEvent,

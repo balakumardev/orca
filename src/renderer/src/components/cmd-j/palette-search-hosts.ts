@@ -5,14 +5,14 @@ import {
   LOCAL_EXECUTION_HOST_ID,
   parseExecutionHostId,
   type ExecutionHostId
-} from '../../../../shared/execution-host'
+} from '../../../../shared/execution-host/execution-host'
 import { buildExecutionHostRegistry } from '../../../../shared/execution-host/execution-host-registry'
 import {
   expandEquivalentExecutionHostIds,
   getManagedOrcadSshTargetId
 } from '../../../../shared/execution-host/managed-orcad-execution-host'
-import { getHostDisplayLabelOverrides } from '../../../../shared/host-setting-overrides'
-import { translateHostDisplayLabel } from '../sidebar/execution-host-label'
+import { getHostDisplayLabelOverrides } from '../../../../shared/execution-host/host-setting-overrides'
+import { translateHostDisplayLabel } from '../../runtime/hosts/display/execution-host-label'
 import type { RuntimeTargetGuard } from '@/runtime/rpc/targets/runtime-target-guard'
 import { translate } from '@/i18n/i18n'
 

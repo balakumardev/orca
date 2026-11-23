@@ -13,7 +13,7 @@ import { installWindowVisibilityInterval } from '@/lib/window-activity/window-vi
 import { useAppStore } from '@/store/index'
 import { useTranslate, type Translate } from '@/i18n/use-translate'
 import type { LidAwakeState } from '../../../../shared/lid-closed-awake'
-import { STATUS_BAR_CONTEXT_MENU_EXEMPT_PROPS } from '../status-bar/status-bar-context-menu-policy'
+import { STATUS_BAR_CONTEXT_MENU_EXEMPT_PROPS } from '../status-bar/composition/status-bar-context-menu-policy'
 import { useLidAwakeState } from './use-lid-awake-state'
 
 const CLOCK_TICK_MS = 30_000

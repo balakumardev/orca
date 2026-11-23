@@ -1,6 +1,6 @@
 import type { PaletteExtraResult } from './palette-extra-results'
 import type { ProjectCreateTarget } from './palette-project-create-targets'
-import { LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host'
+import { LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host/execution-host'
 import { encodePaletteIdentity } from '../../../../shared/palette-match/palette-ranking'
 
 /** The section previews the two best projects; more rows would bury Workspaces. */

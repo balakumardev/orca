@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import type { UpdateCheckOptions, UpdateStatus } from '../../../shared/update-status-types'
+import type { UpdateCheckOptions, UpdateStatus } from '../../../shared/updater/update-status-types'
 import { DownloadBackoff } from './custom-update-backoff'
 import { runUpdateCycle, type CycleFailure, type CycleResult } from './custom-update-cycle'
 import { describeFailureForLog } from './custom-update-errors'

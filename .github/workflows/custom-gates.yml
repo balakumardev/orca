@@ -13,6 +13,11 @@ name: custom-gates
 # caps) on Linux and `e2e` (our Playwright specs) on macOS. Measured on 2026-11-14: Linux ran the same specs 6 of 7
 # green (one pixel-layout assertion in sidebar-stacked-layout.spec.ts failed), macOS 7 of 7, so e2e defaults to macOS
 # (free for public repositories).
+# The default is the Intel macOS pool (macos-15-intel), not arm64: on 2026-11-20 the arm64 pool repeatedly never gave a runner
+# ("The job was not acquired by Runner of type hosted", job cancelled after 15 minutes). A cancelled job makes the whole call end
+# `abandoned` with empty outputs, which a sync run reads as "no gate results" (it escalated to a paid round and left the PR red), and a
+# pull request's required check goes red. The Intel pool got a runner in 3 seconds and passed all 29 tests (about 15 minutes). Linux
+# (xvfb) passed 26 of 29 that day: the three that differ depend on pixel metrics (a scroll offset) and focus, see the skill.
 on:
   workflow_call:
     inputs:
@@ -33,7 +38,7 @@ on:
         default: true
       e2e_runner:
         type: string
-        default: macos-15
+        default: macos-15-intel
     outputs:
       failed:
         description: Number of failed gates across both jobs (a job that crashed counts as one)
@@ -129,6 +134,8 @@ jobs:
         env:
           MODE: ${{ inputs.mode }}
           CHANGED_BASE: ${{ github.event.pull_request.base.sha }}
+          # A hand-fixed sync PR is measured against the upstream release it merges, not against the old custom (see run-gates.sh).
+          SYNC_PR: ${{ inputs.mode == 'pr' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.event.pull_request.head.ref, 'sync/') && '1' || '' }}
           # Why: a PR clone has no upstream release tags (see config/fork-pr-gate-test-excludes.mjs). No ORCA_ prefix: run-gates.sh unsets those.
           FORK_PR_GATE: ${{ inputs.mode == 'pr' && '1' || '' }}
           GATES_OUT: ${{ runner.temp }}/gates-out/gates-${{ inputs.mode == 'pr' && 'pr' || inputs.round }}-static
@@ -234,6 +241,8 @@ jobs:
         env:
           MODE: ${{ inputs.mode }}
           CHANGED_BASE: ${{ github.event.pull_request.base.sha }}
+          # A hand-fixed sync PR is measured against the upstream release it merges, not against the old custom (see run-gates.sh).
+          SYNC_PR: ${{ inputs.mode == 'pr' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.event.pull_request.head.ref, 'sync/') && '1' || '' }}
           GATES_OUT: ${{ runner.temp }}/gates-out/gates-${{ inputs.mode == 'pr' && 'pr' || inputs.round }}-e2e
         run: |
           extra=()

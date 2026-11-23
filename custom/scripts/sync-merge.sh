@@ -321,6 +321,19 @@ cmd_finish_core() {
       if our_wins_path "$p" || foreign_ci_path "$p"; then continue; fi
       printf '%s\n' "$p" >> "$allowed_edit"
     done < "$SYNC_OUT/our-files.txt"
+    # Files the hunk-survival gate found lines of ours missing from (agent-round.sh prepare wrote the list): the NEW path of a file
+    # upstream moved, which our-files.txt (old paths) cannot name. Same exclusions as above, and each path is checked again here
+    # against the new release's tree (release_edit_path_ok in lib.sh): the list is derived from an untrusted artifact.
+    if [ -s "$SYNC_OUT/extra-edit-files.txt" ]; then
+      while IFS= read -r p; do
+        [ -n "$p" ] || continue
+        if release_edit_path_ok "$upstream_sha" "$p"; then
+          printf '%s\n' "$p" >> "$allowed_edit"
+        else
+          log "ignoring $(printf '%s' "$p" | tr -c '[:print:]' '?' | cut -c1-200) in extra-edit-files.txt: not an editable file of the new release"
+        fi
+      done < "$SYNC_OUT/extra-edit-files.txt"
+    fi
     sort -u -o "$allowed_edit" "$allowed_edit"
   fi
 
@@ -359,12 +372,24 @@ cmd_finish_core() {
   #     stay are recorded (facts.repair_edits, kept across rounds): the PR's resolution diff covers only the conflicted
   #     files, and a model can make a gate pass by weakening a test, so the reviewer is told which other files it changed.
   if [ -n "$repair" ]; then
-    local kept="$SYNC_OUT/repair-edits.txt"
-    : > "$kept"
+    local kept="$SYNC_OUT/repair-edits.txt" gone="$SYNC_OUT/repair-deleted.txt"
+    : > "$kept"; : > "$gone"
     while IFS= read -r p; do
       [ -n "$p" ] || continue
       grep -qxF -- "$p" "$allowed" && continue
-      if [ ! -f "$p" ] || has_markers "$p" || { [[ "$p" == *.json ]] && ! jq empty "$p" >/dev/null 2>&1; }; then
+      if is_delete_request "$p"; then
+        # The prompt tells the model to drop an obsolete file with the delete marker, and in a repair round the file is not a
+        # conflict, so nothing else would act on it (2026-11-22: it stayed in the tree and broke typecheck, lint and format).
+        # Only a file upstream does not carry is ours alone to drop; an upstream file is only ever edited.
+        if git cat-file -e "$upstream_sha:$p" 2>/dev/null; then
+          git checkout -q HEAD -- "$p"
+          caveat "A repair edit replaced $p, a file upstream has, with the delete marker. The agent may not delete upstream files; the edit was reverted."
+        else
+          git rm --sparse -q -f -- "$p"
+          printf '%s\n' "$p" >> "$gone"
+          caveat "The agent deleted $p in a repair round: a file only our branch has, which it judged obsolete. Its report says why; check that no customization lost behaviour."
+        fi
+      elif [ ! -f "$p" ] || has_markers "$p" || { [[ "$p" == *.json ]] && ! jq empty "$p" >/dev/null 2>&1; }; then
         git checkout -q HEAD -- "$p"
         caveat "A repair edit to $p left it missing, with conflict markers or invalid JSON; the edit was reverted."
       else
@@ -373,6 +398,9 @@ cmd_finish_core() {
       fi
     done < <(git diff --name-only $diff_against | sort -u)
     facts_set repair_edits "$(jq -R -s -c --argjson prev "$(jq -c '.repair_edits // []' "$facts")" 'split("\n") | map(select(length > 0)) | $prev + . | unique' "$kept")"
+    if [ -s "$gone" ]; then
+      facts_set repair_deleted "$(jq -R -s -c --argjson prev "$(jq -c '.repair_deleted // []' "$facts")" 'split("\n") | map(select(length > 0)) | $prev + . | unique' "$gone")"
+    fi
   fi
 
   # 2. Resolution state of every file the merge left to a model/human.
@@ -413,6 +441,19 @@ cmd_finish_core() {
     git add --sparse -- pnpm-lock.yaml
     facts_set lockfile_pending false
     caveat "pnpm-lock.yaml was regenerated after package.json was merged. Check the lockfile diff."
+  fi
+
+  # 2b. Format the code files our customizations own. A model cannot run a formatter, and a format gate that only a machine
+  #     can satisfy stayed red through all three rounds of v1.4.265. OXFMT_BIN is set by the workflow's finish step (no key
+  #     there); without it nothing happens. The files are recorded and shown to the reviewer.
+  if [ "$key_leak" != true ] && [ -n "${OXFMT_BIN:-}" ]; then
+    local formatted
+    formatted="$(bash "$(dirname "${BASH_SOURCE[0]}")/format-our-files.sh" "$SYNC_OUT/our-files.txt")" || formatted=""
+    if [ -n "$formatted" ]; then
+      while IFS= read -r p; do [ -n "$p" ] && git add --sparse -- "$p"; done <<<"$formatted"
+      facts_set formatted_files "$(printf '%s\n' "$formatted" | jq -R -s -c 'split("\n") | map(select(length > 0))')"
+      caveat "oxfmt --write reformatted $(printf '%s\n' "$formatted" | grep -c .) file(s) of ours after the agent ran (no model can run it): $(printf '%s\n' "$formatted" | paste -sd' ' -)"
+    fi
   fi
 
   local is_unresolved=false

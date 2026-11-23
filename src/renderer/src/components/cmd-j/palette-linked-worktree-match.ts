@@ -1,6 +1,6 @@
 import type { FolderSearchEntry } from '../../../../shared/folder-search-types'
 import type { Worktree } from '../../../../shared/worktree/types'
-import { normalizeRuntimePathForComparison } from '../../../../shared/cross-platform-path'
+import { normalizeRuntimePathForComparison } from '../../../../shared/file-access/cross-platform-path'
 
 /**
  * The worktree a picked linked worktree became in its project. Git records the path as it was typed

@@ -32,6 +32,7 @@ mkdir -p "$tmp/gates-2-static" "$tmp/gates-2-e2e" "$tmp/raw"
 cat > "$tmp/gates-2-static/gates.json" <<'JSON'
 {"schema":1,"mode":"sync","runner":{"os":"Linux"},"gates":[
  {"id":"unit","name":"Unit tests for the directories in scope","status":"pass","exit_code":0,"seconds":120,"note":"n","warnings":["The first unit run threw an unhandled error that did not reproduce: src/x.test.ts passed on a re-run."],"output_tail":""},
+ {"id":"hunk-survival","name":"Our lines survive the merge (advisory)","status":"pass","exit_code":0,"seconds":9,"note":"1 upstream file(s) we modified checked, 1 with lines of ours lost","warnings":["`src/old/List.tsx` -> `src/new/List.tsx`: 2 of 7 significant lines we added are missing from the merged file, e.g. `useFollowHook({`"],"output_tail":""},
  {"id":"lint-caps","name":"Lint line caps on files we touch","status":"pass","exit_code":0,"seconds":0,"note":"","warnings":["src/big.ts: 296/300 lines (within 10 of the cap)"],"output_tail":""}]}
 JSON
 cat > "$tmp/gates-2-e2e/gates.json" <<'JSON'
@@ -142,6 +143,11 @@ done
 render main "$tmp/dispatch-only.yml"
 has "$body" 'artifact `e2e-results-2` of [this run](https://example.invalid/run/1)' && ok "a failed e2e gate links the e2e-results-<round> artifact of the run" || bad "e2e artifact link"
 has "$body" 'Unit tests for the directories in scope: The first unit run threw an unhandled error that did not reproduce' && ok "a gate warning is shown under the gate's name" || bad "gate warning text"
+has "$body" 'Our lines survive the merge (advisory): `src/old/List.tsx` -> `src/new/List.tsx`: 2 of 7 significant lines we added are missing from the merged file' && ok "the advisory hunk-survival finding is a caveat under its gate's name" || bad "hunk-survival caveat"
+hs_line="$({ grep -n -F 'Our lines survive the merge (advisory): ' "$body" || true; } | cut -d: -f1 | sed -n '1p')"
+lc_line="$({ grep -n -F 'Near a lint cap: src/big.ts' "$body" || true; } | cut -d: -f1 | sed -n '1p')"
+un_line="$({ grep -n -F 'Unit tests for the directories in scope: The first unit run' "$body" || true; } | cut -d: -f1 | sed -n '1p')"
+[ -n "$hs_line" ] && [ -n "$lc_line" ] && [ -n "$un_line" ] && [ "$lc_line" -lt "$hs_line" ] && [ "$hs_line" -lt "$un_line" ] && ok "...listed between lint-caps and unit, in the gate order (GATE_ORDER)" || bad "hunk-survival order (lint-caps line '$lc_line', hunk-survival line '$hs_line', unit line '$un_line')"
 ! has "$body" 'Near a lint cap: The first unit run' && ok "a unit warning is not labelled as a lint-cap warning" || bad "unit warning mislabelled"
 has "$body" 'Near a lint cap: src/big.ts' && ok "a lint-cap warning keeps its label" || bad "lint-cap label"
 has "$body" '| 2 | repair |' && has "$body" '1: ran out of turns; edits kept; gates decide' && ok "the model table says the round ran out of turns, edits kept, gates decide" || bad "exit column wording"
@@ -154,6 +160,20 @@ has "$body" 'Repair round(s) edited 2 file(s) that were not conflicted: `src/own
 jq '[.[0], (.[1] | .stop = "" | .exit_code = 124), {"round":3,"mode":"repair","model":"m","tier":"pro","max_turns":80,"exit_code":2,"wall_s":5,"key_leaks":0,"turns":1,"stop":"error_during_execution","is_error":true,"output_parsed":true,"input_tokens":1,"output_tokens":1,"estimated_cost_usd":0.1,"report":""}]' "$tmp/rounds.json" > "$tmp/rounds2.json"
 ROUNDS_FILE="$tmp/rounds2.json" render exits "$tmp/dispatch-only.yml"
 has "$body" '124: hit the wall-clock limit; edits kept; gates decide' && has "$body" '2: ended with an error (exit 2, error_during_execution); edits kept; gates decide' && ok "wall-clock and other error exits are explained too" || bad "other exit reasons"
+
+# a round the model API turned away (no balance) says so, and is not left as a bare error
+jq '[.[0], (.[1] | .stop = "success" | .exit_code = 1 | .turns = 1 | .api_status = 402)]' "$tmp/rounds.json" > "$tmp/rounds3.json"
+ROUNDS_FILE="$tmp/rounds3.json" render refused "$tmp/dispatch-only.yml"
+has "$body" '1: ended: the model API refused the call (HTTP 402); any edit made before that is kept' && has "$body" 'Agent round 2 ended: the model API refused the call (HTTP 402)' && ok "a refused round is worded as such in the table and the caveats" || bad "refused wording: $(grep -E '^\| 2 \|' "$body")"
+
+# the cost of the model rounds: cached tokens shown, and the basis of the estimate named
+jq '[(.[0] | .model = "deepseek-ai/DeepSeek-V4.1-Flash-1017" | .cached_tokens = 90 | .price_in = 0.098 | .price_cached = 0.00294 | .price_out = 0.294 | .price_source = "live")]' "$tmp/rounds.json" > "$tmp/rounds4.json"
+ROUNDS_FILE="$tmp/rounds4.json" render priced "$tmp/dispatch-only.yml"
+has "$body" '| 100 (90 cached) / 10 |' && ok "the table shows how many prompt tokens were cached" || bad "cached column: $(grep -E '^\| 1 \|' "$body")"
+has "$body" "per-million-token prices of DeepInfra's current price list (DeepSeek-V4.1-Flash-1017: \$0.098 in / \$0.00294 cached / \$0.294 out), cached input at the cached rate. The exact bill is on DeepInfra's usage page." && ok "the total names its prices and where they came from" || bad "cost basis: $(grep 'Estimated total' "$body")"
+! has "$body" 'upper bound' && ok "no 'upper bound' claim is left" || bad "upper bound still there"
+ROUNDS_FILE="$tmp/rounds.json" render unpriced "$tmp/dispatch-only.yml"
+has "$body" 'Estimated total: $0.800.' && ok "facts from before the prices were recorded still render, with the total alone" || bad "old facts: $(grep 'Estimated total' "$body")"
 
 # a modify/delete conflict shows what the agent decided
 has "$body" '| `src/gone.ts` | deleted-by-them | 0 | agent (deleted the file) |' && ok "the conflict table says the agent deleted the file" || bad "decision column: $(grep 'src/gone.ts' "$body")"

@@ -1,5 +1,6 @@
 import type { AppState } from './types'
-import { installTerminalParkingInputs } from './terminals/terminal-parking-input-transitions'
+import { installTerminalParkingInputs } from './terminals/parking/terminal-parking-input-transitions'
+import { installPRAutoRefreshCadenceObserver } from './github/refresh/pr-auto-refresh-cadence-observer'
 import { installProjectTodosWorktreeObserver } from '@/components/sidebar/project-todos/project-todos-worktree-observer'
 
 export type StoreObserverHost = {
@@ -12,5 +13,6 @@ export type StoreObserverInstaller = (store: StoreObserverHost) => void
 
 export const STORE_OBSERVER_INSTALLERS: readonly StoreObserverInstaller[] = [
   installTerminalParkingInputs,
+  installPRAutoRefreshCadenceObserver,
   installProjectTodosWorktreeObserver
 ]

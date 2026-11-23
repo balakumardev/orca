@@ -14,7 +14,8 @@
 #
 # `rerun` only when ALL of these hold; any doubt keeps the gate red:
 #   a. the LAST summary of the log (`Test Files` and `Tests`, both printed after the unhandled-error section) reports
-#      passed work and zero failed test files and zero failed tests, and there is no `Type Errors` line;
+#      passed work and zero failed test files and zero failed tests (unless the caller sets UNIT_FLAKE_FAILED_COVERED=1, see
+#      below), and there is no `Type Errors` line;
 #   b. an "Unhandled Errors" section exists and says how many errors it caught (N >= 1);
 #   c. it names exactly N originating test files (`This error originated in "<file>" test file`), every one is a
 #      well-formed repo path with a test-file suffix outside tests/e2e, and none of them is listed in a SCOPE_FILE.
@@ -42,7 +43,9 @@ unit_flake_decide() {
   if [ -z "$reason" ]; then
     for line in "$tf" "$ts"; do
       f="$(sed -n "${line}p" "$txt")"
-      if grep -q -E '[0-9]+ failed' <<<"$f"; then reason="the summary reports failures: $(tr -s ' ' <<<"$f")"; break; fi
+      # UNIT_FLAKE_FAILED_COVERED=1: the caller already showed every failed test fails on the pristine upstream release (unit-baseline.sh),
+      # so the failures in the summary are not this check's business; only the unhandled errors are.
+      if [ "${UNIT_FLAKE_FAILED_COVERED:-0}" != 1 ] && grep -q -E '[0-9]+ failed' <<<"$f"; then reason="the summary reports failures: $(tr -s ' ' <<<"$f")"; break; fi
       if ! grep -q -E '[0-9]+ passed' <<<"$f"; then reason="the summary reports no passed work: $(tr -s ' ' <<<"$f")"; break; fi
     done
   fi

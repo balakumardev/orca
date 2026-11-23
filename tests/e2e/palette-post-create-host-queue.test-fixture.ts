@@ -15,9 +15,9 @@ import {
   seedEmptyActivatableWorktree
 } from '@/lib/workspace/activation/worktree-activation-created-agent.test-fixture'
 import { replaceRuntimeEnvironmentRevisions } from '@/runtime/rpc/environment-revisions/runtime-environment-revision'
-import { callRuntimeEnvironment } from '../../src/main/ipc/runtime-environments/runtime-environment-transport-routing'
-import { enqueueRuntimeCall } from '../../src/main/ipc/runtime-environments/runtime-environment-call-queue'
-import { resetSharedControlSupport } from '../../src/main/ipc/runtime-environments/runtime-environment-shared-control-support'
+import { callRuntimeEnvironment } from '../../src/main/ipc/runtime-environments/requests/runtime-environment-transport-routing'
+import { enqueueRuntimeCall } from '../../src/main/ipc/runtime-environments/requests/runtime-environment-call-queue'
+import { resetSharedControlSupport } from '../../src/main/ipc/runtime-environments/connections/runtime-environment-shared-control-support'
 import { pairingCode } from '../../src/main/ipc/runtime-environments/runtime-environments-ipc-test-harness'
 import {
   addEnvironmentFromPairingCode,
@@ -26,7 +26,7 @@ import {
 } from '../../src/shared/remote-runtime/host-store/runtime-environment-store'
 import { redactRuntimeEnvironment } from '../../src/shared/remote-runtime/host-catalog/runtime-environments'
 import type { FolderSearchEntry } from '../../src/shared/folder-search-types'
-import type { Repo } from '../../src/shared/repo-types'
+import type { Repo } from '../../src/shared/repository/repo-types'
 import type { Worktree } from '../../src/shared/worktree/types'
 
 const { sendRequest, getPath } = vi.hoisted(() => ({ sendRequest: vi.fn(), getPath: vi.fn() }))
@@ -70,13 +70,13 @@ export async function runQueuedPaletteAction(
   start: (scenario: QueueScenario) => unknown,
   options: { queuedMethod?: string; afterQueue?: () => void } = {}
 ): Promise<string[]> {
-  const paired = addEnvironmentFromPairingCode(profile, {
+  const paired = await addEnvironmentFromPairingCode(profile, {
     name: 'selected-builder',
     pairingCode: pairingCode(),
     now: 1
   })
-  markEnvironmentUsed(profile, paired.id, { runtimeId: 'runtime-original' })
-  const original = redactRuntimeEnvironment(resolveEnvironment(profile, paired.id))
+  await markEnvironmentUsed(profile, paired.id, { runtimeId: 'runtime-original' })
+  const original = redactRuntimeEnvironment(await resolveEnvironment(profile, paired.id))
   const executionHostId = `runtime:${original.id}` as const
   const worktree: Worktree = {
     ...makeCreatedAgentWorktree(),
@@ -191,7 +191,7 @@ export async function runQueuedPaletteAction(
   try {
     await queued.promise
     servingRuntimeId = 'runtime-restarted'
-    markEnvironmentUsed(profile, original.id, { runtimeId: servingRuntimeId })
+    await markEnvironmentUsed(profile, original.id, { runtimeId: servingRuntimeId })
     const restarted = { ...original, runtimeId: servingRuntimeId }
     useAppStore.setState({
       runtimeEnvironments: [restarted],

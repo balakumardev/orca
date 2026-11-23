@@ -1,5 +1,5 @@
 import type { Page } from '@stablyai/playwright-test'
-import { waitForPaneIdentitySnapshot } from './terminal'
+import { waitForPaneIdentitySnapshot } from '../terminal/input/terminal'
 
 export type SeededAgent = {
   paneKey: string

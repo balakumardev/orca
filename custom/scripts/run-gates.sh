@@ -11,12 +11,18 @@
 #   --exit-zero     always exit 0 (failures are only recorded in gates.json); the sync workflow uses it so that a
 #                   failed gate becomes a draft PR instead of a red run.
 #
-# Gate ids: hygiene lint-caps install typecheck lint format unit unit-related localization e2e-ratchet e2e
+# Gate ids: hygiene lint-caps hunk-survival (sync only, advisory) install typecheck lint format unit unit-related localization e2e-ratchet e2e
 # Output: DIR/gates.json (schema 1), DIR/logs/<id>.log (full output). Gates are scripts: no model is involved.
+#   Every gate in gates.json has `output_tail` (the last 40 lines, 3500 bytes). A FAILING gate also has `details` (gate-details.sh: the
+#   failure-relevant excerpt of its log, about 8000 bytes and never more than 12000), which the repair prompt shows instead of the tail.
 # shellcheck source=lib.sh
 . "$(dirname "$0")/lib.sh"
 # shellcheck source=unit-flake.sh
 . "$(dirname "$0")/unit-flake.sh"
+# shellcheck source=unit-baseline.sh
+. "$(dirname "$0")/unit-baseline.sh"
+# shellcheck source=gate-details.sh
+. "$(dirname "$0")/gate-details.sh"
 
 TOOLS_DIR="$(cd "$(dirname "$0")" && pwd)"
 OUT="" MODE="" CHANGED_BASE="" OUR_FILES="" ONLY="" SKIP="" EXIT_ZERO=0
@@ -53,10 +59,18 @@ selected() { # id
 }
 
 # ------------------------------------------------------------------------------------------------ target sets
-# ALL_TARGETS: every existing file in scope. sync: our files. pr: files changed since the base.
+# ALL_TARGETS: every existing file in scope. sync: our files. pr: files changed since the base (a sync PR: files that differ from the release it merges).
 ALL_TARGETS="$OUT/targets-all.txt"
 if [ "$MODE" = sync ]; then
   while IFS= read -r p; do [ -f "$p" ] && printf '%s\n' "$p"; done < "$OUR_FILES" | sort -u > "$ALL_TARGETS" || true
+elif [ "${SYNC_PR:-}" = 1 ]; then
+  # A sync PR changes every file upstream changed since the old BASE, so "changed since the base" is the whole upstream delta (tens of
+  # thousands of files, upstream's own over-cap files among them). Measure it against the release it merges: what differs from that
+  # release is what our customizations own. The workflow sets SYNC_PR only for a same-repository sync/* branch.
+  sync_tag="$(tr -d '[:space:]' < custom/BASE)"
+  [[ "$sync_tag" =~ $TAG_RE ]] || die "custom/BASE is not a release tag"
+  git rev-parse -q --verify "refs/tags/$sync_tag^{commit}" >/dev/null || fetch_upstream "+refs/tags/$sync_tag:refs/tags/$sync_tag"
+  git diff --name-only --diff-filter=d "refs/tags/$sync_tag" HEAD | sort -u > "$ALL_TARGETS"
 else
   git diff --name-only --diff-filter=d "$CHANGED_BASE" HEAD | sort -u > "$ALL_TARGETS"
 fi
@@ -99,6 +113,11 @@ gate_hygiene() {
       bad=1
     fi
   done < "$ALL_TARGETS"
+  # A file that still holds the one-line delete marker a model writes to drop a file: nothing removed it, and it breaks typecheck,
+  # lint and format with errors that do not say why.
+  while IFS= read -r p; do
+    if is_delete_request "$p"; then echo "delete marker left in $p: the file was never removed"; bad=1; fi
+  done < "$ALL_TARGETS"
   # The fork carries no upstream CI: only workflows named custom-*, no dependabot config.
   while IFS= read -r p; do
     if foreign_ci_path "$p"; then echo "upstream CI file present: $p"; bad=1; fi
@@ -118,6 +137,25 @@ gate_lint_caps() {
   jq -r '.near[] | "\(.path): \(.lines)/\(.cap) lines (within 10 of the cap)"' <<<"$json" | while IFS= read -r l; do warn_note "$l"; done
   note "$(jq -r '.checked' <<<"$json") files checked; $(jq -r '.near | length' <<<"$json") near a cap; estimate, oxlint is the judge"
   [ "$(jq -r '.over | length' <<<"$json")" -eq 0 ] || { jq -r '.over[] | "OVER CAP \(.path): \(.lines)/\(.cap)"' <<<"$json"; return 1; }
+}
+
+# Advisory, sync only: lines our customizations added to upstream's files that the merge dropped (check-hunk-survival.sh). The candidate
+# is the merge commit sync-merge.sh makes, `commit-tree -p <base branch tip> -p <link>`, and the link commit has the parents (new release,
+# old release), so all four commits come from HEAD itself. It can never FAIL: anything that stops the check is a skip, the findings are
+# warnings (the PR caveats and the repair prompt show them), and `land` still decides on the real gates only.
+gate_hunk_survival() {
+  local ours new old base_tag tag_commit out rc=0 json="$OUT/hunk-survival.json"
+  ours="$(git rev-parse -q --verify 'HEAD^1^{commit}')" || skip_gate "HEAD has no first parent: not a sync merge commit" || return $?
+  new="$(git rev-parse -q --verify 'HEAD^2^1^{commit}')" || skip_gate "the second parent is not the sync's link commit (no new release behind it)" || return $?
+  old="$(git rev-parse -q --verify 'HEAD^2^2^{commit}')" || skip_gate "the second parent is not the sync's link commit (no old release behind it)" || return $?
+  base_tag="$(git show "$ours:custom/BASE" 2>/dev/null | tr -d '[:space:]')" || base_tag=""
+  if [[ "$base_tag" =~ $TAG_RE ]] && tag_commit="$(git rev-parse -q --verify "refs/tags/$base_tag^{commit}")" && [ "$tag_commit" != "$old" ]; then
+    skip_gate "custom/BASE ($base_tag) and the link commit name different old releases" || return $?
+  fi
+  out="$(with_timeout 300 bash "$TOOLS_DIR/check-hunk-survival.sh" --old "$old" --ours "$ours" --new "$new" --merged HEAD --json "$json")" || rc=$?
+  [ "$rc" -eq 0 ] || skip_gate "the check could not run (exit $rc): nothing was verified" || return $?
+  while IFS= read -r line; do [ -z "$line" ] || warn_note "$line"; done <<<"$out"
+  note "$(jq -r '"\(.checked) upstream file(s) we modified checked, \(.affected) with lines of ours lost (advisory: warnings, never a failure)"' "$json")"
 }
 
 gate_install() { pnpm install --frozen-lockfile; }
@@ -153,20 +191,30 @@ gate_unit() {
   with_timeout 1500 pnpm exec vitest run --config config/vitest.config.ts $dirs 2>&1 | tee "$first" || rc=$?
   if [ "$rc" -eq 0 ]; then rm -f "$first"; return 0; fi
 
-  # Red run. Real failures stay red. The one exception is unit_flake_decide's: nothing failed, vitest only caught an
-  # unhandled error that a test file outside this change's scope raised, so those files get one re-run.
-  if [ "$rc" -eq 1 ]; then decision="$(unit_flake_decide "$first" "$TEST_SCOPE" "$ALL_TARGETS")"
+  # Red run. Real failures stay red. Two exceptions, each checked on its own, and the gate passes only when every part of the
+  # red is covered: (1) failed tests that are not ours and fail the same way on the pristine upstream release are the runner's,
+  # not this merge's (unit_baseline_gate); (2) an unhandled error that a test file outside this change's scope raised gets
+  # that file one re-run (unit_flake_decide).
+  local covered=0
+  if [ "$rc" -eq 1 ] && unit_log_has_failed_tests "$first"; then
+    if unit_baseline_gate "$first" "$TEST_SCOPE" "$ALL_TARGETS"; then covered=1
+    else rm -f "$first"; echo "unit flake check: the gate stays red (a failed test is not covered by the upstream baseline)"; return "$rc"; fi
+  fi
+  if [ "$rc" -eq 1 ]; then decision="$(UNIT_FLAKE_FAILED_COVERED="$covered" unit_flake_decide "$first" "$TEST_SCOPE" "$ALL_TARGETS")"
   else decision="keep-red: vitest exited with code $rc, not a test-failure exit code"; fi
-  rm -f "$first"
   if [ "$(head -n 1 <<<"$decision")" != rerun ]; then
+    # Covered failed tests and no unhandled error at all: nothing is left to check.
+    if [ "$covered" -eq 1 ] && [[ "$decision" == "keep-red: the log has no Unhandled Errors section" ]]; then rm -f "$first"; return 0; fi
+    rm -f "$first"
     echo "unit flake check: the gate stays red (${decision#keep-red: })"
     return "$rc"
   fi
+  rm -f "$first"
   while IFS= read -r f; do [ -z "$f" ] || rerun+=("$f"); done < <(tail -n +2 <<<"$decision")
   for f in "${rerun[@]}"; do
     [ -f "$f" ] || { echo "unit flake check: the gate stays red ($f does not exist in this checkout)"; return "$rc"; }
   done
-  echo "unit flake check: vitest exited $rc with no failed test; its only complaint is an unhandled error raised while running ${rerun[*]}, which this change does not touch. Re-running just those files once."
+  echo "unit flake check: vitest exited $rc with $([ "$covered" -eq 1 ] && echo 'no failed test that the upstream baseline does not cover' || echo 'no failed test'); its only other complaint is an unhandled error raised while running ${rerun[*]}, which this change does not touch. Re-running just those files once."
   with_timeout 600 pnpm exec vitest run --config config/vitest.config.ts "${rerun[@]}" || rc2=$?
   if [ "$rc2" -ne 0 ]; then
     echo "unit flake check: the re-run exited with code $rc2, so the gate stays red"
@@ -211,13 +259,22 @@ INSTALL_FAILED=0
 needs_install() { case "$1" in typecheck|lint|format|unit|unit-related|localization|e2e-ratchet) return 0 ;; esac; return 1; }
 
 record() { # id name status exit seconds
-  local id="$1" name="$2" status="$3" rc="$4" secs="$5" tail_text="" notes="" warns="[]"
+  local id="$1" name="$2" status="$3" rc="$4" secs="$5" tail_text="" notes="" warns="[]" have_details=false
+  local details_file="$OUT/logs/$id.details.txt" # a second `local`: in the first one $id would still be the CALLER's (dynamic scope)
   [ -s "$OUT/logs/$id.log" ] && tail_text="$(strip_ansi < "$OUT/logs/$id.log" | tail -n 40 | tail -c 3500)"
   [ -s "$OUT/notes/$id.txt" ] && notes="$(paste -sd' ' "$OUT/notes/$id.txt")"
   [ -s "$OUT/notes/$id.warn" ] && warns="$(jq -R -s -c 'split("\n") | map(select(length > 0))' "$OUT/notes/$id.warn")"
+  # An excerpt is a convenience: a parser bug must never take the run down (the `if` keeps errexit out of the function) or leave a
+  # half-written file behind. The text goes into JSON from a file (--rawfile), so no argument-size limit and no quoting can break it.
+  rm -f "$details_file"
+  if [ "$status" = fail ] && [ -s "$OUT/logs/$id.log" ]; then
+    if gate_details "$id" "$OUT/logs/$id.log" > "$details_file" 2>/dev/null && [ -s "$details_file" ]; then have_details=true; else rm -f "$details_file"; fi
+  fi
+  [ "$have_details" = true ] || details_file=/dev/null
   jq -n -c --arg id "$id" --arg name "$name" --arg status "$status" --argjson rc "$rc" --argjson secs "$secs" \
-    --arg note "$notes" --arg tail "$tail_text" --argjson warns "$warns" \
-    '{id: $id, name: $name, status: $status, exit_code: $rc, seconds: $secs, note: $note, warnings: $warns, output_tail: $tail}' \
+    --arg note "$notes" --arg tail "$tail_text" --argjson warns "$warns" --rawfile details "$details_file" --argjson have_details "$have_details" \
+    '{id: $id, name: $name, status: $status, exit_code: $rc, seconds: $secs, note: $note, warnings: $warns, output_tail: $tail}
+      + (if $have_details then {details: $details} else {} end)' \
     >> "$OUT/results.jsonl"
 }
 
@@ -277,6 +334,8 @@ run_gate() { # id name function
 
 run_gate hygiene "Merge hygiene (markers, upstream CI, BASE)" gate_hygiene
 run_gate lint-caps "Lint line caps on files we touch" gate_lint_caps
+# A pull request has no old release to measure against, so the gate exists only in a sync run (a skipped gate would show up as a caveat).
+if [ "$MODE" = sync ]; then run_gate hunk-survival "Our lines survive the merge (advisory)" gate_hunk_survival; fi
 run_gate install "Install dependencies (frozen lockfile)" gate_install
 run_gate typecheck "Typecheck (pnpm tc)" gate_typecheck
 run_gate lint "oxlint on files in scope" gate_lint

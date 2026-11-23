@@ -3,17 +3,18 @@ import type { AiVaultSearchHit } from '../../../../shared/ai-vault/search/ai-vau
 import {
   LOCAL_EXECUTION_HOST_ID,
   normalizeExecutionHostId
-} from '../../../../shared/execution-host'
+} from '../../../../shared/execution-host/execution-host'
 import {
   adoptsCliConversations,
   CLI_CONVERSATION_ADOPTING_AGENTS
-} from '../../../../shared/structured-agent-cli-conversation-adoption'
-import { nativeChatPreferenceFor } from '../../../../shared/structured-native-chat-launch-route'
+} from '../../../../shared/agent-session/view/structured-agent-cli-conversation-adoption'
+import { nativeChatPreferenceFor } from '../../../../shared/agent-launch/choices/structured-native-chat-launch-route'
 import {
   canJumpToAiVaultSessionWorktree,
   resolveAiVaultSessionWorktreeInfo
 } from '../../../../shared/ai-vault/session-display/ai-vault-session-worktree'
 import { selectAgentLaunchRouteView } from '@/lib/agent-session/launch/routing/agent-launch-route-input'
+import { readRuntimeStatuses } from '@/store/slices/runtime-status/views/runtime-status-owner'
 import { getIndexedAllWorktrees } from '@/store/slices/worktrees/listing/worktree-catalog-index'
 import {
   selectFolderWorkspaces,
@@ -72,7 +73,7 @@ export function readPaletteSessionFacts(
     worktrees,
     repos: ownerState.repos,
     targetState: ownerState,
-    settings: selectAgentLaunchRouteView(ownerState).settings
+    settings: selectAgentLaunchRouteView(ownerState, readRuntimeStatuses()).settings
   })
   const originalPane = findOriginalAiVaultSessionPane(state, session)
   return {

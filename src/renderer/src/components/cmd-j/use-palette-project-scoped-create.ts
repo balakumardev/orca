@@ -5,7 +5,7 @@ import { getRepoWorkspaceCreationTargetHint } from '@/lib/workspace/creation/pro
 import {
   parseGitHubIssueOrPRLink,
   parseGitHubIssueOrPRNumber
-} from '../../../../shared/github/links'
+} from '../../../../shared/github/repositories/links'
 import {
   selectPaletteComposerTargetState,
   resolvePaletteComposerTarget

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAppStore } from '@/store/index'
-import type { ComposerCardSourceProps } from '@/hooks/composer-state/composer-card-contract'
+import type { ComposerCardSourceProps } from '@/hooks/composer-state/card-projection/composer-card-contract'
 import { isPaletteSearchHostCurrent } from '../cmd-j/palette-search-hosts'
 import {
   AUTO_SUBMIT_TIMEOUT_MS,
@@ -8,7 +8,7 @@ import {
   stillNeedsUser,
   withoutAutoSubmit
 } from './composer-auto-submit-open'
-import type { ComposerModalData } from './composer-modal-data'
+import type { ComposerModalData } from './composer/composer-modal-data'
 
 /**
  * The Cmd+J name step opens the dialog with `autoSubmit`: the dialog is hidden and non-modal (no overlay, blur,

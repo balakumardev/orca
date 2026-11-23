@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { ParsedExecutionHost } from '../../shared/execution-host'
+import type { ParsedExecutionHost } from '../../shared/execution-host/execution-host'
 import { FOLDER_SEARCH_CAPABILITY } from '../../shared/folder-search-types'
 import { RemoteRuntimeClientError } from '../../shared/remote-runtime/remote-runtime-client-error'
 import {
@@ -13,9 +13,9 @@ import {
 import {
   getRuntimeEnvironmentStatusSnapshot,
   isRemoteRuntimeConnectionReady
-} from '../ipc/runtime-environments/runtime-environment-request-connections'
-import { isRuntimeEnvironmentManuallyDisconnected } from '../ipc/runtime-environments/runtime-environment-manual-disconnect'
-import { callRuntimeEnvironment } from '../ipc/runtime-environments/runtime-environment-transport-routing'
+} from '../ipc/runtime-environments/connections/runtime-environment-request-connections'
+import { isRuntimeEnvironmentManuallyDisconnected } from '../ipc/runtime-environments/connectivity/runtime-environment-manual-disconnect'
+import { callRuntimeEnvironment } from '../ipc/runtime-environments/requests/runtime-environment-transport-routing'
 import { DEFAULT_FOLDER_SCAN_LIMITS } from './folder-search-scan'
 
 type RemoteFolderSearchHost = Exclude<ParsedExecutionHost, { kind: 'local' }>
@@ -40,8 +40,8 @@ async function callFolderSearch(
   // SSH targets use their paired Orca server, exactly like directly paired runtimes.
   const environments =
     host.kind === 'runtime'
-      ? [resolveEnvironment(userDataPath, host.environmentId)]
-      : listEnvironments(userDataPath).filter(
+      ? [await resolveEnvironment(userDataPath, host.environmentId)]
+      : (await listEnvironments(userDataPath)).filter(
           (environment) => getOrcadSshDeployment(environment)?.sshTargetId === host.targetId
         )
   const environment = environments.length === 1 ? environments[0] : undefined

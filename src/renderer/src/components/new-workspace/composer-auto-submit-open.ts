@@ -1,4 +1,4 @@
-import type { ComposerModalData } from './composer-modal-data'
+import type { ComposerModalData } from './composer/composer-modal-data'
 
 let lastOpenId = 0
 const openIds = new WeakMap<object, number>()

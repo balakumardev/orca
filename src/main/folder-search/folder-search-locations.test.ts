@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { getDefaultSettings } from '../../shared/constants'
+import { getDefaultSettings } from '../../shared/orca-profiles/constants'
 import { createFolderSearchService, type FolderSearchStore } from './folder-search-service'
 import {
   createFolderSearchTestTree,

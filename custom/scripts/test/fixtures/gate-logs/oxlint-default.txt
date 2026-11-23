@@ -1,0 +1,39 @@
+
+  x eslint(no-unused-vars): Variable 'unused' is declared but never used. Unused variables should start with a '_'.
+   ,-[/home/runner/work/orca/orca/repo/lint/a.ts:1:7]
+ 1 | const unused = 1
+   :       ^^^|^^
+   :          `-- 'unused' is declared here
+ 2 | debugger
+   `----
+  help: Consider removing this declaration.
+
+  x eslint(no-debugger): `debugger` statement is not allowed
+   ,-[/home/runner/work/orca/orca/repo/lint/a.ts:2:1]
+ 1 | const unused = 1
+ 2 | debugger
+   : ^^^^^^^^
+ 3 | export function f(a: number) {
+   `----
+  help: Remove the debugger statement
+
+  x eslint(curly): Expected { after 'if' condition.
+   ,-[/home/runner/work/orca/orca/repo/lint/a.ts:4:15]
+ 3 | export function f(a: number) {
+ 4 |   if (a == 2) return 1
+   :               ^^^^^^^^
+ 5 |   return 2
+   `----
+  help: Replace `return 1` with `{return 1}`.
+
+  x eslint(eqeqeq): Expected === and instead saw ==
+   ,-[/home/runner/work/orca/orca/repo/lint/a.ts:4:9]
+ 3 | export function f(a: number) {
+ 4 |   if (a == 2) return 1
+   :         ^^
+ 5 |   return 2
+   `----
+  help: Prefer === operator
+
+Found 0 warnings and 4 errors.
+Finished in 5ms on 1 file with 178 rules using 12 threads.

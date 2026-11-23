@@ -1,4 +1,4 @@
-import { LOCAL_EXECUTION_HOST_ID } from '../../../shared/execution-host'
+import { LOCAL_EXECUTION_HOST_ID } from '../../../shared/execution-host/execution-host'
 import type { ProjectAgentAccountChoice } from '../../../shared/project-agent-accounts'
 import type { ProjectAgentAccountRepoStore } from '../../project-agent-accounts/project-agent-account-repo'
 import { isDirectory } from '../profiles/claude-profile-homes'

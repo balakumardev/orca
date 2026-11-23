@@ -9,7 +9,7 @@ import type { FolderSearchEntry } from '../../../../shared/folder-search-types'
 import { useWorktreeJumpPaletteController } from './use-worktree-jump-palette-controller'
 import { makeRecentTabState, makeRepo } from './worktree-jump-palette-test-fixtures'
 
-vi.mock('@/hooks/useSettingsNavigationMetadata', () => ({
+vi.mock('@/components/settings/navigation/useSettingsNavigationMetadata', () => ({
   useSettingsNavigationMetadata: () => []
 }))
 vi.mock('@/runtime/rpc/calls/runtime-rpc-call', async (importOriginal) =>

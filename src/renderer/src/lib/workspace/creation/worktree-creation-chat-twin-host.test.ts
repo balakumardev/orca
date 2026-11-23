@@ -23,14 +23,14 @@ import {
   makeCreatedAgentWorktree,
   seedAlreadyActiveWorktree
 } from '../activation/worktree-activation-created-agent.test-fixture'
-import { CreateIntentParams } from '../../../../../shared/rpc-contract/structured-agent-session-params'
+import { CreateIntentParams } from '../../../../../shared/rpc-contract/structured-agent-session/structured-agent-session-params'
 import type { AgentSessionHistoryPage } from '../../../../../shared/agent-session/agent-session-wire'
 import type { Worktree } from '../../../../../shared/worktree/types'
 import type { WorktreeCreationRequest } from './pending-worktree-creation'
 import { retryBackgroundWorktreeCreation } from './worktree-creation-flow'
 
 // A persisted local twin makes accidental publication into main observable.
-vi.mock('../../../../../shared/layout-owner-switch', () => ({
+vi.mock('../../../../../shared/workspace-layout/layout-owner-switch', () => ({
   ORCA_LAYOUT_OWNER_IS_MAIN: true
 }))
 vi.mock('@/runtime/rpc/calls/runtime-rpc-call', async (original) =>

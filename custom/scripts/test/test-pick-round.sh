@@ -104,4 +104,16 @@ text="$(bash "$scripts/pick-round.sh" "$a" 2>/dev/null)"
 if [ "$(jq -r 'map(.round) | join(",")' "$a/agent-rounds.json")" = "1,2,3" ]; then ok "agent-rounds.json still unions every round's record"; else bad "agent-rounds.json: $(cat "$a/agent-rounds.json")"; fi
 if grep -q "^OUTPUT gates_dirs=.*gates-3-e2e" <<<"$text"; then ok "the chosen round's gate directories are passed on"; else bad "gates_dirs: $text"; fi
 
+# ---- what the model cost this run: one line in the log and on the run's summary page ---------------------------------------
+cost_of() { jq --argjson c "$3" '.agent.rounds[0].estimated_cost_usd = $c' "$1/round-$2/sync-facts.json" > "$1/f.tmp" && mv "$1/f.tmp" "$1/round-$2/sync-facts.json"; }
+a="$tmp/pc"; mk "$a" 1 false 2; mk "$a" 2 false 1; mk "$a" 3 false 0
+cost_of "$a" 1 0.0364; cost_of "$a" 2 0.0451; cost_of "$a" 3 0.8984
+: > "$tmp/pc.summary"
+text="$(GITHUB_STEP_SUMMARY="$tmp/pc.summary" bash "$scripts/pick-round.sh" "$a" 2>&1)"
+if grep -q -F 'Model cost of this run: $0.980 over 3 model round(s).' <<<"$text" && grep -q -F 'Model cost of this run: $0.980 over 3 model round(s).' "$tmp/pc.summary"; then ok "the cost of all rounds is summed, in the job log and on the summary page"; else bad "cost line: text=[$text] summary=[$(cat "$tmp/pc.summary")]"; fi
+a="$tmp/pd"; mk "$a" 1 false 2; jq '.agent.rounds[0].skipped = true' "$a/round-1/sync-facts.json" > "$a/f.tmp" && mv "$a/f.tmp" "$a/round-1/sync-facts.json"
+: > "$tmp/pd.summary"
+text="$(GITHUB_STEP_SUMMARY="$tmp/pd.summary" bash "$scripts/pick-round.sh" "$a" 2>&1)"
+if ! grep -q 'Model cost' <<<"$text" && [ ! -s "$tmp/pd.summary" ]; then ok "a round that was skipped (no model call) adds no cost line"; else bad "skipped round: text=[$text] summary=[$(cat "$tmp/pd.summary")]"; fi
+
 exit "$([ "$fails" -eq 0 ] && echo 0 || echo 1)"

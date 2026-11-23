@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host'
+import { LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host/execution-host'
 import { loadHostStructuredAgents } from '@/runtime/native-chat/agent-catalogs/host-structured-agents'
 import {
   acquire,

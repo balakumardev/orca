@@ -1,3 +1,5 @@
+import { getAutomaticUpdatesSettingCopy } from '../updates/automatic-updates-copy'
+import { isWebClientLocation } from '@/app-shell/platform/web-client-location'
 import { getGeneralConfirmationSearchEntries } from './general-confirmations-search'
 import { getGeneralSubPageTitle } from './general-sub-pages'
 import { GENERAL_SETTING_ANCHORS, generalSetting } from './general-setting-anchors'
@@ -9,7 +11,6 @@ import { createLocalizedCatalog } from '@/i18n/localized-catalog'
 import { getGeneralProjectRuntimeSearchEntries } from './project-runtime/general-project-runtime-search'
 import { getGeneralSupportSearchEntries } from './general-support-search'
 import { getUpdateDelayDescription, getUpdateDelayTitle } from '../updates/update-delay-copy'
-import { isWebClientLocation } from '@/app-shell/platform/web-client-location'
 
 export const getGeneralWorkspaceSearchDescriptors = createLocalizedCatalog(() => [
   // The local folder picker is available only in the desktop client.
@@ -191,6 +192,7 @@ export const getGeneralCliSearchEntries = createLocalizedCatalog(() => [
     targetSectionId: 'cli'
   },
   {
+    targetSectionId: GENERAL_SETTING_ANCHORS.cliSkill,
     title: translate('settings.general.cli.skillTitle', 'Orca skill for agents'),
     description: translate(
       'auto.components.settings.general.search.244e3fb4c8',
@@ -205,6 +207,7 @@ export const getGeneralCliSearchEntries = createLocalizedCatalog(() => [
 ])
 
 export const getGeneralUpdateSearchEntries = createLocalizedCatalog(() => [
+  ...(isWebClientLocation() ? [] : [getAutomaticUpdatesSettingCopy()]),
   {
     title: translate('auto.components.settings.general.search.0504f69ba0', 'Check for updates'),
     description: translate(

@@ -1,4 +1,4 @@
-import { getAppEnvironment } from '../../shared/app-environment'
+import { getAppEnvironment } from '../../shared/app-lifecycle/app-environment'
 import type { Store } from '../persistence/loading-store/store'
 import {
   ProjectClaudeBinding,

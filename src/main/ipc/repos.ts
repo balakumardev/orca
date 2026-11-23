@@ -38,6 +38,7 @@ export function registerRepoHandlers(
   ipcMain.removeHandler('projectHostSetups:setupExistingFolder')
   ipcMain.removeHandler('projectHostSetups:update')
   ipcMain.removeHandler('projectHostSetups:delete')
+  ipcMain.removeHandler('projectGroups:checkHooks')
   ipcMain.removeHandler('projectGroups:list')
   ipcMain.removeHandler('projectGroups:create')
   ipcMain.removeHandler('projectGroups:update')
@@ -83,7 +84,7 @@ export function registerRepoHandlers(
   }
   registerProjectHostSetupHandlers(mainWindow, store, metadata)
   registerRepoCreationHandlers(mainWindow, store, metadata.enqueueRepositoryMetadata)
-  registerProjectGroupHandlers(mainWindow, store)
+  registerProjectGroupHandlers(mainWindow, store, runtime)
   registerFolderWorkspaceHandlers(mainWindow, store, runtime)
   registerFolderSearchHandlers(store)
   registerProjectTodosHandlers()
@@ -91,7 +92,7 @@ export function registerRepoHandlers(
   registerNestedRepoImportHandler(mainWindow, store, metadata.enqueueRepositoryMetadata)
   registerRepoUpdateHandler(mainWindow, store)
   registerSparsePresetHandlers(mainWindow, store)
-  registerRepoFolderPickerHandlers(mainWindow)
+  registerRepoFolderPickerHandlers(mainWindow, store)
   registerRepoCloneHandlers(mainWindow, store, metadata.enqueueRepositoryMetadata)
   registerBaseRefQueryHandlers(store)
 }

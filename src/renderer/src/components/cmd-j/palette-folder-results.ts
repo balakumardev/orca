@@ -1,6 +1,6 @@
 import type { FolderSearchEntry } from '../../../../shared/folder-search-types'
-import { LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host'
-import { getRuntimePathBasename } from '../../../../shared/cross-platform-path'
+import { LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host/execution-host'
+import { getRuntimePathBasename } from '../../../../shared/file-access/cross-platform-path'
 import { encodePaletteIdentity } from '../../../../shared/palette-match/palette-ranking'
 import { comparePaletteRankedItems } from '@/lib/workspace/search/palette/cmd-j-section-leadership'
 import type { PaletteDocumentRank } from '../../../../shared/palette-match/palette-document'

@@ -5,15 +5,16 @@ import { addAppKeyListener, removeAppKeyListener } from '@/lib/keyboard/app-keyb
 import { getShortcutPlatform } from '@/lib/keyboard/shortcut-platform'
 import { hasVisibleOverlay } from '@/lib/overlay-interaction/visible-overlay'
 import { globalShortcutTargetYields } from '@/lib/plugins/commands/plugin-command-keybindings'
-import { keybindingMatchesAction, type KeybindingActionId } from '../../../../shared/keybindings'
+import { keybindingMatchesAction } from '../../../../shared/keybindings/matching'
+import type { KeybindingActionId } from '../../../../shared/keybindings/types'
 import { cycleActivityThread, type ActivityCycleDirection } from './activity-thread-cycle'
 import {
   findActivityThreadItemIndex,
   getActivityVirtualItemThreads,
   type ActivityVirtualItemDescriptor
-} from './activity-thread-virtual-items'
-import type { ActivityThreadClickEvent } from './use-activity-thread-selection'
-import type { AgentPaneThread } from './activity-thread-types'
+} from './thread-list/activity-thread-virtual-items'
+import type { ActivityThreadClickEvent } from './thread-list/use-activity-thread-selection'
+import type { AgentPaneThread } from './threads/activity-thread-types'
 
 const CYCLE_ACTIONS: readonly (readonly [KeybindingActionId, ActivityCycleDirection])[] = [
   ['sidebar.activity.previousAgent', 'previous'],

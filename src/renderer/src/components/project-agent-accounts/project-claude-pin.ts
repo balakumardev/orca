@@ -1,11 +1,11 @@
 import { useAppStore } from '@/store/index'
-import { getCodexSelectionLaneKey } from '../../../../shared/codex-selection-lane'
-import type { ClaudeManagedAccount } from '../../../../shared/managed-account-types'
+import { getCodexSelectionLaneKey } from '../../../../shared/agent-accounts/codex/codex-selection-lane'
+import type { ClaudeManagedAccount } from '../../../../shared/agent-accounts/managed-account-types'
 import type {
   ProjectAgentAccountChoice,
   ProjectAgentAccountsSnapshot
 } from '../../../../shared/project-agent-accounts'
-import type { Repo } from '../../../../shared/repo-types'
+import type { Repo } from '../../../../shared/repository/repo-types'
 import { getRepoIdFromWorktreeId } from '../../../../shared/worktree/id'
 import { findPinnableProjectRepo } from './project-agent-account-repo'
 import {

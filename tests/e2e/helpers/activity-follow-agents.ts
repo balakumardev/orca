@@ -1,17 +1,20 @@
 import type { Locator, Page } from '@stablyai/playwright-test'
-import { expect } from './orca-app'
-import { emitCodexHookStatus, type readHookEndpoint } from './agent-hook-endpoint'
+import { expect } from '@stablyai/playwright-test'
 import {
-  waitForActivePaneHookDescriptor,
+  emitCodexHookStatus,
+  type readHookEndpoint
+} from '../agents/session-fixtures/agent-hook-endpoint'
+import { waitForActivePaneHookDescriptor } from '../terminal/input/terminal-active-pane'
+import {
   waitForActiveTerminalManager,
   waitForPaneCount
-} from './terminal'
+} from '../terminal/layout/terminal-pane-operations'
 import {
   ensureTerminalVisible,
   getActiveTabId,
   waitForActiveWorktree,
   waitForSessionReady
-} from './store'
+} from '../desktop/renderer-probes/store'
 import { agentIndexForRowText, threadRows, type SeededAgent } from './activity-sidebar'
 
 declare global {

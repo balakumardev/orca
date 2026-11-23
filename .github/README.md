@@ -60,14 +60,6 @@ Activity keeps confirmed-live agents visible while they are idle, including a ne
 
 An Activity card is titled with the agent session name instead of the last prompt you typed. When the session has no real name yet, the card keeps showing the prompt. In a split tab, each card uses the title of its own pane. This is a port of an upstream change (stablyai/orca#31802).
 
-### Project name on Activity cards (`activity-row-project`)
-
-Each Activity card shows the project next to the workspace name, as a small coloured chip. The workspace name was already on the card. When the sidebar is narrow the project shrinks first (it never takes more than 45% of the line), so the workspace name keeps its space. Hover either one to see the full name. A workspace named like its project shows the name once.
-
-<p>
-  <img src="readme/activity-row-project.png" alt="Three Activity cards in dark and light theme, each with a project chip and the workspace name under the title" width="560">
-</p>
-
 ### Cmd+J across computers (`remote-cmdj`)
 
 The desktop palette searches this computer and connected paired Orca servers. Folder and session results show their computer's name, and host filters narrow the search. Machines managed through SSH use their paired Orca server.
@@ -138,7 +130,7 @@ Orca keeps several Claude accounts, but one account was active for every project
 - **System default.** Your normal `~/.claude` login.
 - **One of your Orca accounts.**
 
-A pinned project's terminals and chats open under its account. That covers `claude` typed in a terminal, agents Orca starts, native chats with their automatic titles and names, commit and pull request text, first-work branch names and `orca claude-teams`. Switching the active account does not move a pinned project, and its terminals are left out of the "restart sessions?" question. The status bar shows a small chip with the account when the open project is pinned. If you remove an account, its pins go with it and those terminals fall back to System default.
+A pinned project's terminals and chats open under its account. That covers `claude` typed in a terminal, agents Orca starts, native chats and their automatic names, commit and pull request text, first-work branch names and `orca claude-teams`. Switching the active account does not move a pinned project, and its terminals are left out of the "restart sessions?" question. The status bar shows a small chip with the account when the open project is pinned. If you remove an account, its pins go with it and those terminals fall back to System default.
 
 A change applies to terminals and chats you open after it. A terminal that is already open keeps its account until you reopen it. Terminals outside Orca are not touched. Pins are saved in `project-agent-accounts.json` next to Orca's settings.
 

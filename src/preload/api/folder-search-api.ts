@@ -1,5 +1,5 @@
 import type { FolderSearchEntry, FolderSearchResult } from '../../shared/folder-search-types'
-import type { ExecutionHostId } from '../../shared/execution-host'
+import type { ExecutionHostId } from '../../shared/execution-host/execution-host'
 
 export type FolderSearchApi = {
   /** Omitting the host keeps existing callers on this machine. */

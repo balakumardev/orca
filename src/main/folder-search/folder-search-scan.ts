@@ -1,5 +1,5 @@
 import type { FolderSearchEntry } from '../../shared/folder-search-types'
-import { normalizeRuntimePathForComparison } from '../../shared/cross-platform-path'
+import { normalizeRuntimePathForComparison } from '../../shared/file-access/cross-platform-path'
 import type { FolderSearchRoot } from './folder-search-roots'
 import { FOLDER_SEARCH_CALL_TIMEOUT_MS } from './folder-search-time'
 import { walkSearchRoot } from './folder-search-walk'

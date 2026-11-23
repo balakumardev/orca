@@ -1,21 +1,21 @@
 import { join } from 'node:path'
 import type { AgentSessionExecutionLocation } from '../../../shared/agent-session/lifecycle/agent-session-record'
-import { LOCAL_EXECUTION_HOST_ID } from '../../../shared/execution-host'
+import { LOCAL_EXECUTION_HOST_ID } from '../../../shared/execution-host/execution-host'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { getLocalAgentRuntimeTarget } from '../../ipc/filesystem/filesystem-source-control-ai-targets'
+import { getLocalAgentRuntimeTarget } from '../../ipc/filesystem/source-control/filesystem-source-control-ai-targets'
 import { generationWorkspaceOfLocalPath } from '../../project-agent-accounts/project-agent-account-generation-target'
 import type { RuntimeGitTarget } from '../../runtime/integrations/git/runtime-git-command-target'
 import { localAgentRuntimeTargetForTarget } from '../../runtime/integrations/git/runtime-git-generation-context'
 import { resolveGenerationTarget } from '../../agent-hooks/first-work/first-work-generation-target'
 import type { RuntimeStore } from '../../runtime/construction/runtime-store-contract'
-import { prepareLocalCommitMessageAgentEnv } from '../../text-generation/commit-message-agent-environment'
+import { prepareLocalCommitMessageAgentEnv } from '../../text-generation/execution/commit-message-agent-environment'
 import {
   createProjectClaudeFixture,
   projectClaudeTestStore,
   projectClaudeTestWorktree as worktree,
   removeProjectClaudeFixtures
 } from './project-claude-binding.test-fixture'
-import { withPlatform } from '../../text-generation/commit-message-text-generation-test-harness'
+import { withPlatform } from '../../text-generation/execution/commit-message-text-generation-test-harness'
 import {
   projectClaudeGenerationTarget,
   projectClaudeTerminalPreparation

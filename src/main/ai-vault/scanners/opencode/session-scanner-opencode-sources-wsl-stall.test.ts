@@ -1,6 +1,8 @@
+import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type * as NodeFsPromisesModule from 'node:fs/promises'
+import type * as WslUncAccessGate from '../../../wsl/filesystem/wsl-unc-access-gate'
 import type { AiVaultScanIssue } from '../../../../shared/ai-vault/contracts/ai-vault-types'
 
 const WSL_HOME = '\\\\wsl.localhost\\Ubuntu\\home\\ada'
@@ -13,6 +15,11 @@ vi.mock('node:fs/promises', async (importOriginal) => ({
   stat: mocks.stat
 }))
 
+vi.mock('../../../wsl/filesystem/wsl-unc-access-gate', async (importOriginal) => ({
+  ...(await importOriginal<typeof WslUncAccessGate>()),
+  blockedWslDistroForPath: async () => null
+}))
+
 // The SQLite leg spawns a real worker thread, which fake timers cannot drive.
 vi.mock('./reader-transport/session-scanner-opencode-sqlite-worker-spawn', () => ({
   listOpenCodeSqliteSessionsViaWorker: async () => [],
@@ -23,7 +30,7 @@ import { opencodeDiscoveries } from './session-scanner-opencode-sources'
 import {
   resetWslTranscriptFsGateForTests,
   WSL_TRANSCRIPT_FS_SCAN_TIMEOUT_MS
-} from '../../../native-chat/wsl-transcript-fs-gate'
+} from '../../../native-chat/transcript-filesystem/wsl-transcript-fs-gate'
 
 let releaseStall: (() => void) | undefined
 
@@ -70,7 +77,9 @@ describe('OpenCode source discovery with a stalled WSL data directory', () => {
 
       await expect(discoveries).resolves.toHaveLength(2)
       expect(
-        issues.some((issue) => issue.agent === 'opencode' && issue.path === `${WSL_HOME}/opencode`)
+        issues.some(
+          (issue) => issue.agent === 'opencode' && issue.path === join(WSL_HOME, 'opencode')
+        )
       ).toBe(true)
     } finally {
       restoreEnv('XDG_DATA_HOME', previousXdg)

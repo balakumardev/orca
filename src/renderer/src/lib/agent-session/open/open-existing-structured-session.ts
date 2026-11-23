@@ -1,13 +1,13 @@
 import {
   openStructuredAgentSession,
   structuredSessionOpenFailure
-} from '../../../../../shared/open-structured-agent-session'
+} from '../../../../../shared/agent-session/view/open-structured-agent-session'
 import type {
   StructuredSessionOpenSource,
   StructuredSessionOpenResult,
   StructuredSessionOpenDeps,
   StructuredSessionOpenTab
-} from '../../../../../shared/open-structured-agent-session'
+} from '../../../../../shared/agent-session/view/open-structured-agent-session'
 import {
   findStructuredAgentSessionTab,
   activateStructuredAgentSessionById
@@ -18,7 +18,7 @@ import { callRuntimeRpc } from '@/runtime/rpc/calls/runtime-rpc-call'
 import { runtimeTargetForOwnerEnvironment } from '@/runtime/rpc/targets/runtime-client-target'
 import { executionHostIdForStructuredTarget } from '@/runtime/native-chat/session-ownership/structured-agent-session-owner'
 import type { OrchestrationPartyLocationResult } from '../../../../../shared/orchestration/orchestration-caller-status'
-import type { RuntimeClientTarget } from '../../../../../shared/runtime-client-target'
+import type { RuntimeClientTarget } from '../../../../../shared/remote-runtime/host-catalog/runtime-client-target'
 import {
   STRUCTURED_SESSION_RESTORE_TIMEOUT_MS,
   refreshStructuredSessionTabs,

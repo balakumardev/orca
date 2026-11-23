@@ -32,7 +32,6 @@ const initialAppState = useAppStore.getInitialState()
 const addRepoPath = vi.fn()
 const addNonGitFolder = vi.fn()
 const fetchWorktrees = vi.fn()
-const setHideDefaultBranchWorkspace = vi.fn()
 
 function resolvesTo(fresh: FolderSearchEntry | null): void {
   Object.defineProperty(window, 'api', {
@@ -51,8 +50,7 @@ beforeEach(() => {
       ...initialAppState,
       addRepoPath,
       addNonGitFolder,
-      fetchWorktrees,
-      setHideDefaultBranchWorkspace
+      fetchWorktrees
     },
     true
   )
@@ -82,7 +80,6 @@ describe('openFolderEntryInApp', () => {
     expect(openProjectDefaultCheckout).toHaveBeenCalledExactlyOnceWith({
       repoId: 'repo-1',
       source: 'local_folder_picker',
-      setHideDefaultBranchWorkspace,
       executionHostId: 'local'
     })
   })

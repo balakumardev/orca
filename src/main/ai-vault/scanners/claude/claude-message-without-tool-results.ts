@@ -1,4 +1,4 @@
-import { isClaudeToolResultContent } from '../../../../shared/claude-tool-content'
+import { isClaudeToolResultContent } from '../../../../shared/agent-hook-listener/providers/claude/transcripts/claude-tool-content'
 
 // Why: Claude logs a tool's output as a `user` record, so its text must not stand in for something the person typed.
 export function claudeMessageWithoutToolResults(message: unknown): unknown {

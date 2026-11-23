@@ -1,15 +1,16 @@
 import { useAppStore } from '@/store/index'
 import { activateAndRevealWorktree } from '@/lib/workspace/activation/worktree-activation'
 import { track } from '@/diagnostics/telemetry/telemetry'
-import type {
-  AddRepoDefaultCheckoutHandoffSource,
-  EventProps
-} from '../../../../../../shared/telemetry-events'
+import type { AddRepoDefaultCheckoutHandoffSource } from '../../../../../../shared/telemetry/schemas/telemetry-property-schemas'
+import type { EventProps } from '../../../../../../shared/telemetry/telemetry-event-classification'
 import type { DetectedWorktreeListResult, Worktree } from '../../../../../../shared/worktree/types'
-import { relativePathInsideRoot } from '../../../../../../shared/cross-platform-path'
+import { relativePathInsideRoot } from '../../../../../../shared/file-access/cross-platform-path'
 import { markOnboardingProjectAdded } from '@/components/onboarding/onboarding-project-checklist'
 import { finalizeImportedRepoAfterSkip } from './add-repo-skip-finalization'
-import { parseExecutionHostId, type ExecutionHostId } from '../../../../../../shared/execution-host'
+import {
+  parseExecutionHostId,
+  type ExecutionHostId
+} from '../../../../../../shared/execution-host/execution-host'
 import type { RuntimeTargetGuard } from '@/runtime/rpc/targets/runtime-target-guard'
 import {
   selectDetectedWorktreesByRepo,
@@ -142,14 +143,12 @@ export async function openProjectDefaultCheckout({
   repoId,
   source,
   selectedPath,
-  setHideDefaultBranchWorkspace,
   executionHostId,
   targetGuard
 }: {
   repoId: string
   source: AddRepoDefaultCheckoutHandoffSource
   selectedPath?: string
-  setHideDefaultBranchWorkspace: (value: boolean) => void
   executionHostId?: ExecutionHostId
   targetGuard?: RuntimeTargetGuard
 }): Promise<void> {
@@ -173,11 +172,6 @@ export async function openProjectDefaultCheckout({
   // The default checkout lookup may await a host refresh before publishing its selection.
   targetGuard?.assertCurrent(executionHostId)
   if (defaultCheckout) {
-    // Onboarding must reveal its default checkout even when the normal sidebar preference hides it.
-    const state = useAppStore.getState()
-    if (state.hideDefaultBranchWorkspace) {
-      setHideDefaultBranchWorkspace(false)
-    }
     track('add_repo_default_checkout_handoff', {
       source,
       result: 'opened_default_checkout',
@@ -207,14 +201,12 @@ export async function finishProjectAddWithDefaultCheckout({
   source,
   selectedPath,
   closeModal,
-  setHideDefaultBranchWorkspace,
   executionHostId
 }: {
   repoId: string
   source: AddRepoDefaultCheckoutHandoffSource
   selectedPath?: string
   closeModal: () => void
-  setHideDefaultBranchWorkspace: (value: boolean) => void
   executionHostId?: ExecutionHostId
 }): Promise<void> {
   await markOnboardingProjectAdded('addedRepo')
@@ -223,7 +215,6 @@ export async function finishProjectAddWithDefaultCheckout({
     repoId,
     source,
     selectedPath,
-    executionHostId,
-    setHideDefaultBranchWorkspace
+    executionHostId
   })
 }

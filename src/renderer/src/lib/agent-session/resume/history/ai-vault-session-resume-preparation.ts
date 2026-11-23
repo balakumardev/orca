@@ -1,27 +1,26 @@
 import { AiVaultChatForkSourceSchema } from '../../../../../../shared/ai-vault/contracts/ai-vault-chat-fork-contract'
-import type {
-  AiVaultAgent,
-  AiVaultSession
-} from '../../../../../../shared/ai-vault/contracts/ai-vault-types'
+import type { AiVaultSession } from '../../../../../../shared/ai-vault/contracts/ai-vault-types'
 
 import {
   type AiVaultPrepareSessionResumeArgs,
   type AiVaultPrepareChatForkArgs,
   type AiVaultPrepareSessionResumeRequest,
   type AiVaultPrepareSessionResumeResult,
-  isLegacySharedCodexHome,
-  isPerAccountManagedCodexHome
+  aiVaultSessionAfterResumePreparation,
+  aiVaultSessionNeedsResumePreparation,
+  aiVaultTerminalResumeRequest,
+  aiVaultTerminalResumeResult
 } from '../../../../../../shared/ai-vault/resume/ai-vault-resume-preparation'
 import {
   LOCAL_EXECUTION_HOST_ID,
   parseExecutionHostId,
   parseRoutableExecutionHostId
-} from '../../../../../../shared/execution-host'
+} from '../../../../../../shared/execution-host/execution-host'
 import { browseRuntimeServerDirectory } from '@/runtime/files/reads/runtime-server-directory-browser'
 import { RuntimeRpcCallError } from '@/runtime/rpc/calls/runtime-rpc-result'
 import { getRuntimeEnvironmentRevision } from '@/runtime/rpc/environment-revisions/runtime-environment-revision'
 import type { FilesystemPathFlavor } from '../../../../../../shared/file-access/filesystem-path-flavor'
-import { isWindowsAbsolutePathLike } from '../../../../../../shared/cross-platform-path'
+import { isWindowsAbsolutePathLike } from '../../../../../../shared/file-access/cross-platform-path'
 import { readIpcErrorMessage } from '../../../../runtime/errors/ipc-error'
 import type { AiVaultResumeCommandSession } from '../../../../../../shared/ai-vault/resume/ai-vault-resume-startup'
 import { agentForksThroughChat } from '../../../../../../shared/agent-launch/startup/agent-resume-argv'
@@ -53,22 +52,13 @@ export async function prepareAiVaultTerminalResumeRequest(
   args: AiVaultPrepareSessionResumeArgs,
   request: SessionPreparationRequest = (args) => window.api.aiVault.prepareSessionResume(args)
 ): Promise<AiVaultPrepareSessionResumeResult> {
-  const needsHomePreparation = aiVaultSessionNeedsResumePreparation(args)
   try {
-    // Why: this request checks ownership; old desktop resumes kept the recorded home otherwise.
-    const result = await request(needsHomePreparation ? args : { ...args, codexHome: null })
-    if (
-      typeof result?.useRealCodexHome !== 'boolean' ||
-      (result.substituteCodexHome !== undefined && typeof result.substituteCodexHome !== 'string')
-    ) {
-      throw new Error('Invalid aiVault.prepareSessionResume response')
-    }
-    return needsHomePreparation ? result : { useRealCodexHome: false }
+    return aiVaultTerminalResumeResult(args, await request(aiVaultTerminalResumeRequest(args)))
   } catch (error) {
     if (
       !args.fork &&
       parseExecutionHostId(args.executionHostId)?.kind === 'runtime' &&
-      !needsHomePreparation &&
+      !aiVaultSessionNeedsResumePreparation(args) &&
       isMissingPairedResumePreparation(error)
     ) {
       return { useRealCodexHome: false }
@@ -105,11 +95,11 @@ export function prepareAiVaultSessionForFork(
 export function prepareAiVaultSessionForFork(
   session: AiVaultPrepareChatForkArgs,
   request?: SessionPreparationRequest
-): Promise<{ session: AiVaultResumeCommandSession; copied: boolean; sourceAgent?: AiVaultAgent }>
+): Promise<{ session: AiVaultResumeCommandSession; copied: boolean }>
 export async function prepareAiVaultSessionForFork(
   session: AiVaultSession | AiVaultPrepareChatForkArgs,
   request: SessionPreparationRequest = (args) => window.api.aiVault.prepareSessionResume(args)
-): Promise<{ session: AiVaultResumeCommandSession; copied: boolean; sourceAgent?: AiVaultAgent }> {
+): Promise<{ session: AiVaultResumeCommandSession; copied: boolean }> {
   if ('sourceChat' in session) {
     const result = await request(session)
     const source = AiVaultChatForkSourceSchema.parse(result.cliForkSource)
@@ -119,7 +109,6 @@ export async function prepareAiVaultSessionForFork(
         executionHostId:
           parseExecutionHostId(session.executionHostId)?.id ?? LOCAL_EXECUTION_HOST_ID
       },
-      sourceAgent: source.sourceAgent,
       copied: result.forkedSession !== undefined
     }
   }
@@ -177,29 +166,7 @@ async function prepareAiVaultSessionHome(
   const result = await (terminalResume
     ? prepareAiVaultTerminalResumeRequest(args, request)
     : request(args))
-  if (result.useRealCodexHome) {
-    return { ...session, codexHome: null }
-  }
-  if (result.substituteCodexHome) {
-    return { ...session, codexHome: result.substituteCodexHome }
-  }
-  return session
-}
-
-export function aiVaultSessionNeedsResumePreparation(
-  session: Pick<AiVaultSession, 'agent' | 'codexHome' | 'executionHostId'>
-): boolean {
-  if (session.agent !== 'codex') {
-    return false
-  }
-  if (isLegacySharedCodexHome(session.codexHome)) {
-    return true
-  }
-  // Only local sessions may repin from this client’s account selection; remote sessions retain their recorded home.
-  return (
-    isPerAccountManagedCodexHome(session.codexHome) &&
-    (!session.executionHostId || session.executionHostId === LOCAL_EXECUTION_HOST_ID)
-  )
+  return aiVaultSessionAfterResumePreparation(session, result)
 }
 
 // Kimi is folder-keyed: wrong cwd rejects resume or silently opens an empty same-ID session (1.52+).

@@ -1,0 +1,63 @@
+ [32m✓[39m [30m[46m node-shared [49m[39m src/shared/workspace-attachments/workspace-attachment-origins.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 4[2mms[22m[39m
+ [32m✓[39m [30m[46m node-shared [49m[39m src/shared/workspace-setup/setup-script-shebang.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 4[2mms[22m[39m
+ [2m[90m↓[39m[22m [30m[46m node-shared [49m[39m config/scripts/desktop-distribution/macos/macos-shipit-scheduling.test.mjs [2m([22m[2m1 test[22m[2m | [22m[33m1 skipped[39m[2m)[22m
+ [32m✓[39m [30m[46m node-shared [49m[39m src/shared/concurrency/keyed-serialized-operations.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 4[2mms[22m[39m
+
+[31m⎯⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Tests 1 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[41m[1m FAIL [22m[49m [30m[46m node-shared [49m[39m src/shared/bots/bot-mcp-apps.test.ts[2m > [22mbotMcpAppHost[2m > [22mrefuses userinfo, other schemes, bad IDNA, bad ports and non-hosts
+[31m[1mAssertionError[22m: xn--a.example: expected 'xn--a.example' to be null[39m
+
+[32m- Expected:[39m
+null
+
+[31m+ Received:[39m
+"xn--a.example"
+
+[36m [2m❯[22m src/shared/bots/bot-mcp-apps.test.ts:[2m67:43[22m[39m
+    [90m 65|[39m       [32m'gitlab.acme.dev:65536'[39m
+    [90m 66|[39m     ]) {
+    [90m 67|[39m       [34mexpect[39m([34mbotMcpAppHost[39m(input)[33m,[39m input)[33m.[39m[34mtoBeNull[39m()
+    [90m   |[39m                                           [31m^[39m
+    [90m 68|[39m     }
+    [90m 69|[39m   })
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯[22m[39m
+
+[31m⎯⎯⎯⎯⎯⎯[39m[1m[41m Unhandled Errors [49m[22m[31m⎯⎯⎯⎯⎯⎯[39m
+[31m[1m
+Vitest caught 1 unhandled error during the test run.
+This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.[22m[39m
+
+[31m⎯⎯⎯⎯⎯[39m[1m[41m Uncaught Exception [49m[22m[31m⎯⎯⎯⎯⎯[39m
+[31m[1mError[22m: write EPIPE[39m
+[90m [2m❯[22m afterWriteDispatched node:internal/stream_base_commons:[2m138:10[22m[39m
+[90m [2m❯[22m writeGeneric node:internal/stream_base_commons:[2m126:10[22m[39m
+[90m [2m❯[22m Socket._writeGeneric node:net:[2m1324:11[22m[39m
+[90m [2m❯[22m Socket._write node:net:[2m1336:8[22m[39m
+[90m [2m❯[22m writeOrBuffer node:internal/streams/writable:[2m574:12[22m[39m
+[90m [2m❯[22m _write node:internal/streams/writable:[2m503:10[22m[39m
+[90m [2m❯[22m Writable.end node:internal/streams/writable:[2m825:17[22m[39m
+[90m [2m❯[22m Socket.end node:net:[2m1088:31[22m[39m
+[90m [2m❯[22m src/shared/git/branches/git-branch-cleanup-real-git.test.ts:[2m77:22[22m[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[22m[39m
+[31m[1mSerialized Error:[22m[39m [90m{ errno: -32, code: 'EPIPE', syscall: 'write' }[39m
+[31mThis error originated in "[1msrc/shared/git/branches/git-branch-cleanup-real-git.test.ts[22m" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.[39m
+[31mThe last test to run before this error was "[1mproves a squash-merged branch that merged main and whose lines main rewrote[22m". This means either:
+- the error was thrown while Vitest was running this test, or
+- the error was thrown after the test completed, and this was the most recent test at that point.[39m
+[31m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[39m
+
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[2m | [22m[1m[32m705 passed[39m[22m[2m | [22m[33m24 skipped[39m[90m (730)[39m
+[2m      Tests [22m [1m[31m1 failed[39m[22m[2m | [22m[1m[32m4313 passed[39m[22m[2m | [22m[33m120 skipped[39m[90m (4434)[39m
+[2m     Errors [22m [1m[31m1 error[39m[22m
+[2m   Start at [22m 10:21:32
+[2m   Duration [22m 84.38s[2m (import 38%, transform 36%, tests 19%, environment 6%, setup 2%)[22m
+
+[2m     Import [22m [30m[43m node [49m[39m [33m5804 modules were evaluated 101306 times[39m[2m · 78.15s total, 48% of tracked time[22m
+[2m            [22m [2m~22.50s faster with [22m[33misolate: false[39m[2m — shared modules are evaluated once per worker instead of once per file[22m
+[2m            [22m [2mlearn more: https://vitest.dev/guide/improving-performance#test-isolation[22m
+
+

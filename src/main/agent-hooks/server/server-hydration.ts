@@ -5,8 +5,8 @@ import {
 import {
   seedClaudeLeadTurnFromPersistedStatus,
   seedClaudeSubagentRosterFromSnapshots
-} from '../../../shared/agent-hook-listener/providers/claude-roster-state'
-import { seedCodexStateFromSnapshot } from '../../../shared/agent-hook-listener/providers/codex-state'
+} from '../../../shared/agent-hook-listener/providers/claude/lifecycle/claude-roster-state'
+import { seedCodexStateFromSnapshot } from '../../../shared/agent-hook-listener/providers/codex/codex-state'
 import { AGENT_STATUS_PERSISTED_HYDRATION_MODE } from '../../../shared/agent-status/transport/agent-status-legacy-adapter'
 import { AGENT_STATUS_HYDRATE_MAX_AGE_MS as HYDRATE_MAX_AGE_MS } from '../../../shared/agent-status/contracts/agent-status-freshness'
 import { LAST_STATUS_FILE_VERSION, STATUS_FLUSH_BUSY_TIMEOUT_MS } from './server-constants'
@@ -19,10 +19,10 @@ import {
   sanitizeHydratedEntry,
   sanitizePersistedAuthorityCommitment
 } from './server-persistence-validation'
-import { AgentHookServerTabCleanup } from './server-tab-cleanup'
+import { AgentHookServerMarkedExitProof } from './server-marked-exit-proof'
 import { readPersistedAgentExits, recordAgentExit } from './agent-exit-evidence'
 
-export abstract class AgentHookServerHydration extends AgentHookServerTabCleanup {
+export abstract class AgentHookServerHydration extends AgentHookServerMarkedExitProof {
   protected hydrateLastStatusFromDisk(): void {
     if (!this.lastStatusFilePath) {
       return
@@ -60,6 +60,7 @@ export abstract class AgentHookServerHydration extends AgentHookServerTabCleanup
     } else {
       this.admitSavedStatus(saved.document)
     }
+    this.pruneUnplacedPanes()
     // Repairs and a migrated legacy file are saved now; an unchanged store writes nothing.
     this.runStatusPersist()
   }
@@ -96,8 +97,20 @@ export abstract class AgentHookServerHydration extends AgentHookServerTabCleanup
           ? rawEntry
           : { ...(rawEntry as Record<string, unknown>), paneKey: resolvedPaneKey }
       const entry = sanitizeHydratedEntry(resolvedPaneKey, rawResolvedEntry)
-      if (entry && entry.receivedAt >= ttlCutoff) {
-        const launchTokenHash = readPersistedLaunchTokenHash(rawResolvedEntry)
+      const pastTtl = entry !== null && !entry.paneSleep && entry.receivedAt < ttlCutoff
+      // A placed pane's idle agent outlives the TTL; its launch authority expires with it.
+      if (entry && (!pastTtl || this.placementKeepsRow(entry))) {
+        // A shared host still runs this conversation after the restart.
+        if (
+          entry.providerSession &&
+          typeof rawResolvedEntry === 'object' &&
+          rawResolvedEntry !== null &&
+          'executionHost' in rawResolvedEntry &&
+          rawResolvedEntry.executionHost === 'shared'
+        ) {
+          entry.executionHost = 'shared'
+        }
+        const launchTokenHash = pastTtl ? null : readPersistedLaunchTokenHash(rawResolvedEntry)
         if (launchTokenHash) {
           this.hydratedLaunchTokenHashByPaneKey.set(resolvedPaneKey, launchTokenHash)
           const evidence = this.toAuthorityEvidence(entry, launchTokenHash)
@@ -154,8 +167,16 @@ export abstract class AgentHookServerHydration extends AgentHookServerTabCleanup
         dropped += 1
       }
     }
-    for (const exit of readPersistedAgentExits(file.agentExits, ttlCutoff)) {
-      recordAgentExit(this.agentExitedAtByPaneKey, exit.paneKeys, exit, exit.at)
+    for (const exit of readPersistedAgentExits(file.agentExits, -Infinity)) {
+      // A row kept past the TTL keeps its exit, or the pane would read as live again.
+      if (
+        exit.at >= ttlCutoff ||
+        exit.paneKeys.some((key) =>
+          this.state.lastStatusByPaneKey.has(this.resolvePaneKeyAlias(key))
+        )
+      ) {
+        recordAgentExit(this.agentExitedAtByPaneKey, exit.paneKeys, exit, exit.at)
+      }
     }
     for (const [paneKey, rawCommitment] of Object.entries(file.authorityCommitments ?? {})) {
       const resolvedPaneKey = this.resolvePaneKeyAlias(paneKey)

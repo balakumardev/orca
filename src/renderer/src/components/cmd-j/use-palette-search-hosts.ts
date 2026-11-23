@@ -5,7 +5,7 @@ import {
   readLocalRuntimeCapabilityObservation,
   subscribeLocalRuntimeCapabilityObservation
 } from '@/runtime/hosts/capabilities/local-runtime-capabilities'
-import { structuralValuesEqualIgnoringUndefined } from '../../../../shared/structural-value-equality'
+import { structuralValuesEqualIgnoringUndefined } from '../../../../shared/collections/structural-value-equality'
 import { recomputeOn } from '@/lib/recompute-on'
 import { getPaletteSearchHosts, type PaletteSearchHost } from './palette-search-hosts'
 

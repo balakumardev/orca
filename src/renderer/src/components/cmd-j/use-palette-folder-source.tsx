@@ -3,9 +3,9 @@ import {
   FOLDER_SEARCH_CAPABILITY,
   type FolderSearchEntry
 } from '../../../../shared/folder-search-types'
-import { LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host'
+import { LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host/execution-host'
 import { isWebClientLocation } from '@/app-shell/platform/web-client-location'
-import { PaletteHostBadgeChip } from '../worktree-jump/worktree-jump-palette-primitives'
+import { PaletteHostBadgeChip } from '../worktree-jump/rows/worktree-jump-palette-row-content'
 import { buildFolderPaletteResults } from './palette-folder-results'
 import { PaletteFolderLeading, PaletteFolderParentLine } from './palette-folder-row-parts'
 import { addFolderAndBeginNameStepInApp, openFolderEntryInApp } from './palette-folder-open-in-app'

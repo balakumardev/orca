@@ -24,7 +24,7 @@ import {
   type Palette
 } from './worktree-jump-palette-project-create-test-fixtures'
 
-vi.mock('@/hooks/useSettingsNavigationMetadata', () => ({
+vi.mock('@/components/settings/navigation/useSettingsNavigationMetadata', () => ({
   useSettingsNavigationMetadata: () => []
 }))
 vi.mock('@/components/onboarding/onboarding-project-checklist', () => ({

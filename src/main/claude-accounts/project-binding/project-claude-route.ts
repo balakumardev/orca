@@ -2,7 +2,7 @@ import {
   CLAUDE_INJECTED_CONFIG_DIR_ENV,
   CLAUDE_PROFILE_POINTER_ENV,
   CLAUDE_USER_CONFIG_DIR_ENV
-} from '../../../shared/claude-profile-routing'
+} from '../../../shared/agent-accounts/claude/claude-profile-routing'
 import type { ClaudeRuntimeAuthPreparation } from '../runtime-auth/runtime-auth-types'
 
 /** `system` also covers an account that runs on the matching System default login. */
@@ -30,7 +30,8 @@ export function projectClaudePreparation(
         CLAUDE_CONFIG_DIR: route.home,
         [CLAUDE_INJECTED_CONFIG_DIR_ENV]: route.home
       },
-      provenance: `profile:${route.accountId}`
+      provenance: `profile:${route.accountId}`,
+      readingAccount: { accountId: route.accountId, runtime: 'host', wslDistro: null }
     }
   }
   return {

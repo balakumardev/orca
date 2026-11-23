@@ -20,7 +20,7 @@ import {
 } from './worktree-jump-palette-project-create-test-fixtures'
 
 vi.mock('sonner', () => ({ toast: { error: vi.fn() } }))
-vi.mock('@/hooks/useSettingsNavigationMetadata', () => ({
+vi.mock('@/components/settings/navigation/useSettingsNavigationMetadata', () => ({
   useSettingsNavigationMetadata: () => []
 }))
 vi.mock('@/runtime/rpc/calls/runtime-rpc-call', async (importOriginal) =>

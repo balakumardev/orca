@@ -25,6 +25,55 @@ gh_out() {
   fi
 }
 
+# branch_sha REPO BRANCH: the commit the branch points at, or nothing when it does not exist. For a missing branch `gh api` prints the
+# 404 JSON on STDOUT (stderr only gets "gh: Not Found"), so `|| true` alone turns "missing" into a value; only a 40-hex sha is accepted.
+branch_sha() {
+  local out
+  out="$(gh api "repos/$1/git/ref/heads/$2" --jq .object.sha 2>/dev/null)" || return 0
+  if [[ "$out" =~ ^[0-9a-f]{40}$ ]]; then printf '%s' "$out"; fi
+  return 0
+}
+
+# model_api_refused STATUS: the model provider turned the call away for a reason only a person can fix (401/403: key rejected, 402: no balance).
+model_api_refused() { [[ "$1" =~ ^[0-9]+$ ]] && [ "$1" -ge 401 ] && [ "$1" -le 403 ]; }
+
+# deepinfra_prices MODEL: dollars per million tokens as DeepInfra bills them now, "IN OUT CACHED", from its public model list with the
+# promotional discount applied (the listed prices are before it; the cached price is a fraction of the input price). Prints nothing when
+# the list cannot be read or has no usable entry for the model: the caller then uses its built-in table.
+deepinfra_prices() {
+  local out
+  out="$(curl -fsS --max-time 20 "${DEEPINFRA_MODELS_URL:-https://api.deepinfra.com/models/list}" 2>/dev/null | jq -r --arg m "$1" '
+    [.[] | select(.model_name == $m and .pricing.type == "tokens") | .pricing][0]
+    | select(. != null and (.cents_per_input_token | type) == "number" and (.cents_per_output_token | type) == "number")
+    | (.discount // 0 | if type == "number" and . >= 0 and . < 1 then . else 0 end) as $d
+    | (.rate_per_input_token_cached // 1 | if type == "number" and . >= 0 and . <= 1 then . else 1 end) as $c
+    | (.cents_per_input_token * 1e4 * (1 - $d)) as $in
+    | [$in, (.cents_per_output_token * 1e4 * (1 - $d)), ($in * $c)]
+    | map(. * 1e6 | round / 1e6 | tostring) | join(" ")' 2>/dev/null)" || out=""
+  if [[ "$out" =~ ^[0-9.e-]+\ [0-9.e-]+\ [0-9.e-]+$ ]]; then printf '%s' "$out"; fi
+  return 0
+}
+
+# model_cost_usd FRESH_IN CACHED_IN OUT PRICE_IN PRICE_CACHED PRICE_OUT: dollars with 4 decimals; the prices are per million tokens.
+# agent_usage_tokens FILE: the tokens of a whole model round, read from the claude CLI's final result in FILE, as
+# `<uncached input> <cached input> <cache creation> <output>`. The CLI's top-level `usage` is the whole session in most runs but only
+# the LAST turn in others (num_turns 1 next to 5.7M cached tokens in `modelUsage`, seen 2026-11-22), so each count is the larger of
+# `usage` and the sum over `modelUsage`, which always covers the session. Prints `0 0 0 0` for a file that is not JSON.
+agent_usage_tokens() {
+  jq -r '
+    def num: if type == "number" and . >= 0 then floor else 0 end;
+    def mu(k): ([(.modelUsage // {}) | if type == "object" then .[] else empty end | if type == "object" then (.[k] | num) else 0 end] | add // 0);
+    def big(a; b): if a > b then a else b end;
+    [ big((.usage.input_tokens | num); mu("inputTokens")),
+      big((.usage.cache_read_input_tokens | num); mu("cacheReadInputTokens")),
+      big((.usage.cache_creation_input_tokens | num); mu("cacheCreationInputTokens")),
+      big((.usage.output_tokens | num); mu("outputTokens")) ] | map(tostring) | join(" ")' "$1" 2>/dev/null || echo "0 0 0 0"
+}
+
+model_cost_usd() {
+  LC_ALL=C awk -v f="$1" -v c="$2" -v o="$3" -v pi="$4" -v pc="$5" -v po="$6" 'BEGIN { printf "%.4f", (f * pi + c * pc + o * po) / 1e6 }'
+}
+
 # Refs and branch names that come from workflow inputs are untrusted text.
 valid_ref() { [[ "$1" =~ ^[A-Za-z0-9._/-]{1,100}$ ]] && [[ "$1" != -* ]] && [[ "$1" != *..* ]]; }
 
@@ -34,10 +83,17 @@ semver_gt() {
   [ "$a" != "$b" ] && [ "$(printf '%s\n%s\n' "$a" "$b" | sort -V | tail -n 1)" = "$a" ]
 }
 
+# The one identity the automation commits and opens PRs as. Upstream's own release commits carry the same name and email (its
+# release bot is github-actions too), so this identity alone never proves a commit is ours: see stale-sync-pr.sh.
+# AUTOMATION_LOGIN_RE matches the login `gh` reports for it (a PR author is `app/github-actions`, a comment author `github-actions[bot]`).
+AUTOMATION_NAME="github-actions[bot]"
+AUTOMATION_EMAIL="41898282+github-actions[bot]@users.noreply.github.com"
+AUTOMATION_LOGIN_RE='^(app/)?github-actions(\[bot\])?$'
+
 # git identity for commits made by the automation (local config only).
 set_git_identity() {
-  git config user.name "github-actions[bot]"
-  git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+  git config user.name "$AUTOMATION_NAME"
+  git config user.email "$AUTOMATION_EMAIL"
 }
 
 sync_out() { : "${SYNC_OUT:?SYNC_OUT must point at a directory outside the working tree}"; mkdir -p "$SYNC_OUT"; }
@@ -77,6 +133,19 @@ our_wins_path() {
     case "$1" in $pat) return 0 ;; esac
   done
   return 1
+}
+
+# release_edit_path_ok UPSTREAM_SHA PATH: may a repair round edit PATH because the hunk-survival check named it? Its hunk-survival.json
+# comes from a gates artifact written by a job that also runs third-party install and test code, so it is not trusted: PATH must be a
+# plain relative path, not fork scaffolding or upstream CI, and a FILE that exists in the new release's tree (git cat-file on the tree
+# only, no blob is fetched). A made-up path therefore widens nothing. Never edits, only answers (0 = ok).
+release_edit_path_ok() {
+  local sha="$1" p="$2"
+  case "$p" in
+    '' | /* | ./* | ../* | */./* | */../* | */.. | */. | . | .. | .git | .git/* | */.git | */.git/* | *$'\n'* | *$'\r'*) return 1 ;;
+  esac
+  if our_wins_path "$p" || foreign_ci_path "$p"; then return 1; fi
+  [ "$(git cat-file -t "$sha:$p" 2>/dev/null)" = blob ]
 }
 
 # Pathspecs (one per line) that keep fork scaffolding out of a git log of our customization commits: every our-wins pattern,
@@ -148,6 +217,42 @@ round_score() {
   fi
   if [ "$(jq -r '.key_leak // false' "$d/sync-facts.json")" = true ]; then score=100000; fi
   printf '%s\n' "$score"
+}
+
+# failing_gates_block TOTAL_BYTES GATES_JSON...: the text of the failing gates for a repair prompt, one "### <gate> (exit N)" section each.
+# A gate's text is its `details` (the failure excerpt run-gates.sh records; cut from the START when too long) or, for a gates.json that has
+# none, its `output_tail` (cut from the END, where the failure is). The budget is shared FAIRLY: gates are served shortest first and each
+# may take at most an equal share of what is left, so a gate with little to say frees room for the others and one huge gate cannot starve
+# the rest (with one shared budget the first gates filled it, and the e2e ratchet output never reached round 3 of v1.4.265). Everything is
+# counted in BYTES, like the caller's trunc_bytes (which cuts the END of the block, i.e. the last gate in gate order: e2e-ratchet, e2e): each
+# gate first sets aside the real size of its header, its cut marker and its newline, the rest is shared, and a cut falls on a character
+# boundary. So the block is never over TOTAL_BYTES and every gate keeps a section (unless TOTAL_BYTES is below about 150 per gate).
+failing_gates_block() {
+  local total="$1"; shift
+  jq -r -s --argjson total "$total" '
+    def bytes: utf8bytelength;
+    def head_fit($b): . as $s | if ($s | bytes) <= $b then $s else
+      ({lo: 0, hi: ($s | length)} | until(.lo >= .hi; (((.lo + .hi + 1) / 2) | floor) as $m | if ($s[:$m] | bytes) <= $b then .lo = $m else .hi = ($m - 1) end) | $s[:.lo]) end;
+    def tail_fit($b): . as $s | if ($s | bytes) <= $b then $s else
+      ({lo: 0, hi: ($s | length)} | until(.lo >= .hi; (((.lo + .hi + 1) / 2) | floor) as $m | if ($s[-$m:] | bytes) <= $b then .lo = $m else .hi = ($m - 1) end) | if .lo == 0 then "" else $s[-(.lo):] end) end;
+    [.[].gates[]? | select(.status == "fail")] as $g
+    | ($g | length) as $n
+    | if $n == 0 then empty else
+        ($g | to_entries | map(.key as $i | .value as $v
+          | (($v.details // "") != "") as $det
+          | (($v.details // "") as $d | if $d != "" then $d else ($v.output_tail // "") end) as $t
+          | ("### \($v.name) (exit \($v.exit_code))\(if $det then " - failure excerpt" else " - end of the log" end)\n") as $h
+          | (if $det then "\n[... cut to fit; the rest is in the gates artifact]" else "[... start cut ...]\n" end) as $m
+          | {i: $i, head: $h, mark: $m, detailed: $det, text: $t, tb: ($t | bytes), over: (($h | bytes) + ($m | bytes) + 1)})) as $e
+        | (reduce ($e | sort_by(.tb))[] as $x ({rem: ([($total - ($e | map(.over) | add)), 0] | max), left: $n, out: []};
+            ([$x.tb, ((.rem / .left) | floor)] | min) as $a
+            | .out += [$x + {allow: $a}] | .rem -= $a | .left -= 1)).out
+        | sort_by(.i)[]
+        | . as $x
+        | $x.head + (if $x.tb <= $x.allow then $x.text
+                     elif $x.detailed then ($x.text | head_fit($x.allow)) + $x.mark
+                     else $x.mark + ($x.text | tail_fit($x.allow)) end)
+      end' "$@"
 }
 
 # Generated files are never merged by hand or by a model: upstream's version wins and the reviewer is told.

@@ -4,7 +4,7 @@ import { useMemo } from 'react'
 import { expect, vi } from 'vitest'
 import { createWorktreePaletteRequestGuard } from '@/lib/workspace/search/worktrees/worktree-palette-create-action'
 import { useAppStore } from '@/store/index'
-import type { Repo } from '../../../../shared/repo-types'
+import type { Repo } from '../../../../shared/repository/repo-types'
 import { useWorktreeJumpPaletteController } from './use-worktree-jump-palette-controller'
 import { useWorktreeJumpPaletteNameStep } from './use-worktree-jump-palette-name-step'
 import { useWorktreeJumpPaletteProjectCreateShortcut } from './use-worktree-jump-palette-project-create-shortcut'
@@ -47,6 +47,7 @@ export function seedProjects(): void {
           web('wt-web-docs', 'docs-refresh')
         ]
       },
+      settings: { ...initialAppState.settings!, botsEnabled: false },
       showSleepingWorkspaces: true,
       activeModal: 'worktree-palette',
       prefetchWorktreeCreateBase: vi.fn(async () => {}),

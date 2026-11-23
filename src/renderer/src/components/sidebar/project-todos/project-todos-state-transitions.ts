@@ -1,5 +1,5 @@
-import type { ExecutionHostId } from '../../../../../shared/execution-host'
-import { createNonSecureContextUuid } from '../../../../../shared/non-secure-context-uuid'
+import type { ExecutionHostId } from '../../../../../shared/execution-host/execution-host'
+import { createNonSecureContextUuid } from '../../../../../shared/identifiers/non-secure-context-uuid'
 import {
   PROJECT_TODOS_MAX_ITEMS_PER_PROJECT,
   PROJECT_TODO_MAX_TEXT_LENGTH,

@@ -1,5 +1,5 @@
 import type React from 'react'
-import { ShortcutKeyCombo } from '@/components/ShortcutKeyCombo'
+import { ShortcutKeyCombo } from '@/components/ui/ShortcutKeyCombo'
 import { useTranslate } from '@/i18n/use-translate'
 import type { PaletteListEntry } from './worktree-jump-palette-model'
 import type { WorktreeJumpPaletteController } from './use-worktree-jump-palette-controller'

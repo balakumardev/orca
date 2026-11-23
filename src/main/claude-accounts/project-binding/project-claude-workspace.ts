@@ -1,8 +1,8 @@
 import {
   getConnectionExecutionHostId,
   LOCAL_EXECUTION_HOST_ID
-} from '../../../shared/execution-host'
-import { wslDistroForCommand } from '../../../shared/wsl-paths'
+} from '../../../shared/execution-host/execution-host'
+import { wslDistroForCommand } from '../../../shared/file-access/wsl-paths'
 import type { RuntimePtyWorktreeRecord } from '../../runtime/terminal/records/runtime-terminal-state-records'
 import { claudeRoutedHomeAsync } from '../profiles/routing/claude-profile-routed-home'
 import type { ClaudeProfileRouter } from '../profiles/routing/claude-profile-router'

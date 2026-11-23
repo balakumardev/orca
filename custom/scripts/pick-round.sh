@@ -26,6 +26,14 @@ done
 gates=""
 for g in "$all"/gates-"$best"-*; do [ -d "$g" ] && gates="$gates $g"; done
 jq -s '[.[] | (.agent.rounds // [])[]] | unique_by(.round) | sort_by(.round)' "$all"/round-*/sync-facts.json > "$all/agent-rounds.json"
+# What the model cost this run, in the job log and on the run's summary page (this job always runs, also when no PR is opened).
+spent_rounds="$(jq '[.[] | select(.skipped != true)] | length' "$all/agent-rounds.json")"
+if [ "$spent_rounds" -gt 0 ]; then
+  spent="$(jq -r '[.[].estimated_cost_usd // 0] | add // 0' "$all/agent-rounds.json")"
+  spent_line="$(LC_ALL=C awk -v t="$spent" -v n="$spent_rounds" 'BEGIN { printf "Model cost of this run: $%.3f over %d model round(s). An estimate from the tokens the CLI reported, at DeepInfra prices with cached input at the cached rate; each agent job summary has the round by round figures.", t, n }')"
+  log "$spent_line"
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then printf '### custom-sync: model cost\n%s\n' "$spent_line" >> "$GITHUB_STEP_SUMMARY"; fi
+fi
 gh_out round "$best"
 gh_out round_dir "$all/round-$best"
 gh_out gates_dirs "${gates# }"

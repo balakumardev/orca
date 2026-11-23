@@ -2,8 +2,11 @@ import { PROJECT_CREATE_SOURCE_ID } from '@/components/cmd-j/palette-project-cre
 import { getPaletteWorktreeExecutionHostId } from '@/lib/workspace/search/palette-repo-resolution'
 import type { CmdJTaskSourceUrl } from '@/lib/workspace/search/worktrees/worktree-palette-task-url-match'
 import { getUsableGitProjectRepo } from '@/components/cmd-j/palette-project-create-targets'
-import { getRepoExecutionHostId, LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host'
-import type { Repo } from '../../../../shared/repo-types'
+import {
+  getRepoExecutionHostId,
+  LOCAL_EXECUTION_HOST_ID
+} from '../../../../shared/execution-host/execution-host'
+import type { Repo } from '../../../../shared/repository/repo-types'
 import type { Worktree } from '../../../../shared/worktree/types'
 import type { PaletteListEntry } from './worktree-jump-palette-model'
 

@@ -15,7 +15,7 @@ import {
   replaceProjectCreateRuntime,
   seedHostCollisionProjects
 } from '../worktree-jump/worktree-jump-palette-project-create-test-fixtures'
-import type { ComposerModalData } from './composer-modal-data'
+import type { ComposerModalData } from './composer/composer-modal-data'
 import { useComposerAutoSubmit } from './use-composer-auto-submit'
 
 beforeEach(() => {

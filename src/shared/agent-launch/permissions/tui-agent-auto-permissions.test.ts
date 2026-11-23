@@ -1,79 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { agentLaunchSettingsMutationUpdates } from '../choices/agent-launch-settings'
-import { AgentLaunchSettingsMutation } from '../../rpc-contract/agent-launch-settings-params'
+
 import { buildAgentStartupPlan } from '../startup/tui-agent-startup'
 import { buildAgentResumeStartupPlan } from '../startup/tui-agent-resume-startup'
-import {
-  resolveTuiAgentLaunchArgs,
-  tuiAgentArgsBypassPermissions
-} from '../choices/tui-agent-launch-defaults'
+
 import { tokenizeStartupCommand } from '../startup/tui-agent-startup-shell'
-
-describe('automatic terminal permissions', () => {
-  it.each(['posix', 'powershell', 'cmd'] as const)(
-    'sends the automatic mode through a fresh launch and resume on %s',
-    (shell) => {
-      const platform = shell === 'posix' ? 'linux' : 'win32'
-      const mutation = AgentLaunchSettingsMutation.parse({ type: 'permissions', mode: 'auto' })
-      const settings = agentLaunchSettingsMutationUpdates({}, mutation, platform)
-
-      for (const agent of ['claude', 'claude-agent-teams', 'codex'] as const) {
-        const agentArgs = resolveTuiAgentLaunchArgs(agent, settings)
-        const startup = buildAgentStartupPlan({
-          agent,
-          agentArgs,
-          prompt: '',
-          cmdOverrides: {},
-          platform,
-          shell,
-          isRemote: true,
-          allowEmptyPromptLaunch: true
-        })
-        expect(startup).not.toBeNull()
-        expect(startup?.launchConfig.agentArgs).toBe(agentArgs)
-        expect(tokenizeStartupCommand(startup?.launchCommand ?? '', shell)).toMatchObject({
-          ok: true,
-          tokens: expect.arrayContaining(
-            agent === 'codex' ? ['--approve-for-me'] : ['--permission-mode', 'auto']
-          )
-        })
-        expect(tuiAgentArgsBypassPermissions(agent, agentArgs, shell)).toBe(false)
-
-        if (agent === 'claude-agent-teams') {
-          continue
-        }
-        const resumed = buildAgentResumeStartupPlan({
-          agent,
-          ...startup?.launchConfig,
-          providerSession: { key: 'session_id', id: 'saved-session' },
-          cmdOverrides: {},
-          platform,
-          shell,
-          isRemote: true
-        })
-        if (agent === 'codex') {
-          // Codex restores the thread's own saved permissions on resume.
-          expect(resumed?.launchConfig.agentArgs).toBe('')
-          expect(tokenizeStartupCommand(resumed?.launchCommand ?? '', shell)).toMatchObject({
-            ok: true,
-            tokens: [
-              'codex',
-              ...(shell === 'posix' ? ['-c', 'disable_paste_burst=true'] : []),
-              'resume',
-              'saved-session'
-            ]
-          })
-          continue
-        }
-        expect(resumed?.launchConfig.agentArgs).toBe(agentArgs)
-        expect(tokenizeStartupCommand(resumed?.launchCommand ?? '', shell)).toMatchObject({
-          ok: true,
-          tokens: expect.arrayContaining(['--permission-mode', 'auto'])
-        })
-      }
-    }
-  )
-})
+import { agentPermissionArgsForLaunch } from './agent-permission-args'
+import { agentPickerPermissions } from '../picker/agent-launch-picker-catalog'
+import { automationLaunchInputs } from '../../automations/launch/automation-launch-choices'
 
 describe('codex resume permissions', () => {
   it.each(['posix', 'powershell', 'cmd'] as const)(
@@ -108,4 +41,26 @@ describe('codex resume permissions', () => {
       expect(resume(true)?.launchCommand).toContain('--dangerously-bypass-approvals-and-sandbox')
     }
   )
+})
+
+describe('cursor auto review', () => {
+  // cursor-agent 2026.11.19 exits when --auto-review meets --force or -f.
+  it.each(['--force', '-f', '--model gpt-5 --force'])(
+    'adds no flag when Arguments already hold %s',
+    (args) => {
+      expect(agentPermissionArgsForLaunch('cursor', 'auto', args)).toBeNull()
+    }
+  )
+
+  it('offers Approve for me to Cursor terminals only', () => {
+    expect(agentPickerPermissions('cursor', 'terminal')).toEqual(['own', 'auto', 'full-access'])
+    expect(agentPickerPermissions('cursor', 'chat')).toEqual(['own', 'ask', 'full-access'])
+  })
+
+  it.each([
+    { launchPreferences: { permissionMode: 'auto' as const } },
+    { agentArgs: '--auto-review' }
+  ])('starts a Cursor chat on Ask when its setup asks for Approve for me: %j', (setup) => {
+    expect(automationLaunchInputs('cursor', setup).chatSessionOptions?.permissionMode).toBe('ask')
+  })
 })

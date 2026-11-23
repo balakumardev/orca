@@ -1,6 +1,6 @@
-import { LOCAL_EXECUTION_HOST_ID } from '../../shared/execution-host'
+import { LOCAL_EXECUTION_HOST_ID } from '../../shared/execution-host/execution-host'
 import { composeWorktreeId } from '../../shared/worktree/id'
-import { getLocalRepoForRegisteredWorktree } from '../ipc/local-worktree-runtime-options'
+import { getLocalRepoForRegisteredWorktree } from '../ipc/worktrees/local-worktree-runtime-options'
 import type { RuntimeStore } from '../runtime/construction/runtime-store-contract'
 import type { RuntimeGitTarget } from '../runtime/integrations/git/runtime-git-command-target'
 

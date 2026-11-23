@@ -1,8 +1,8 @@
 import type { AppState } from '@/store/types'
 import { resolveOwner } from '@/lib/workspace/ownership/resolve-owner'
 import type { WorktreeOperationRouteState } from '@/lib/workspace/ownership/worktree-operation-route'
-import { authorityKey } from '../../../../../../shared/host-authority'
-import type { ExecutionHostId } from '../../../../../../shared/execution-host'
+import { authorityKey } from '../../../../../../shared/execution-host/host-authority'
+import type { ExecutionHostId } from '../../../../../../shared/execution-host/execution-host'
 
 export type AiVaultPaneHostState = WorktreeOperationRouteState &
   Partial<Pick<AppState, 'unifiedTabsByWorktree'>>

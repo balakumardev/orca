@@ -1,14 +1,14 @@
 import React, { useMemo, useState } from 'react'
 import { LayoutGrid } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { AgentQuestionIcon } from '@/components/AgentQuestionIcon'
-import { useAgentBucketCounts } from '@/components/dashboard/useAgentBucketCounts'
+import { AgentQuestionIcon } from '@/components/agent/status/AgentQuestionIcon'
+import { useAgentBucketCounts } from '@/components/dashboard/bucket-counts/useAgentBucketCounts'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { resolveLeftSidebarStyleVariables } from '@/app-shell/appearance/left-sidebar-appearance'
 import { useTranslate } from '@/i18n/use-translate'
 import { useAppStore } from '@/store/index'
-import SidebarNav, { shouldShowAgentDashboardButton } from './SidebarNav'
+import SidebarNav, { shouldShowAgentDashboardButton } from './chrome/SidebarNav'
 
 function AgentDashboardDot(): React.JSX.Element | null {
   const counts = useAgentBucketCounts()

@@ -1,4 +1,4 @@
-import type { ExecutionHostId } from './execution-host'
+import type { ExecutionHostId } from './execution-host/execution-host'
 import { z } from 'zod'
 
 /** Paired runtimes discover folders from their own saved locations. */

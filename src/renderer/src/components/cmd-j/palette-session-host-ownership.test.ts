@@ -2,6 +2,7 @@
 
 import { afterEach, describe, expect, it } from 'vitest'
 import { useAppStore } from '@/store/index'
+import { acceptedAgentStatuses } from '@/store/slices/agent-status/status-ownership/accepted-agent-statuses'
 import { findOriginalAiVaultSessionPane } from '@/components/right-sidebar/ai-vault/session-actions/ai-vault-original-pane'
 import {
   LEAF_ID,
@@ -113,7 +114,7 @@ describe('palette session recording hosts', () => {
       worktreesByRepo: {
         'repo-1': [makeWorktree('local-workspace', 'Local', { path: '/code/acme-web' })]
       },
-      agentStatusByPaneKey: { [local.paneKey]: local },
+      agentStatusByPaneKey: acceptedAgentStatuses([[local.paneKey, local]]),
       tabsByWorktree: {
         'local-workspace': [makeTerminalTab('local-tab', 'local-workspace', 'Conversation')]
       },

@@ -1,11 +1,6 @@
-import type { AntigravityChatAuthConfig } from '../../../shared/antigravity-chat-auth-config'
 import { afterEach, expect, it } from 'vitest'
-import { z } from 'zod'
-import { readAgentJournalTurn } from '../../../shared/agent-session/lifecycle/agent-session-turn-record'
-import {
-  closeProviderTimelineRigs,
-  SESSION
-} from '../../native-chat/agent-session-timeline/provider-timeline-assembler-test-support'
+import { readAgentJournalTurn } from '../../../shared/agent-session/lifecycle/records/agent-session-turn-record'
+import { closeProviderTimelineRigs } from '../../native-chat/agent-session-timeline/provider-timeline-assembler-test-support'
 import { acpLaunchSpecFor } from '../launch/acp-launch-registry'
 import {
   openAcpAdapterRig,
@@ -13,121 +8,165 @@ import {
   sendHello,
   waitFor
 } from './testing/acp-structured-adapter.test-support'
-import { GrokFixtureReplay } from './testing/acp-structured-fixture-replay.test-support'
-import {
-  readAcpFixture,
-  type AcpFixtureFrame
-} from '../timeline/testing/acp-timeline-fixture.test-support'
 
 const ANTIGRAVITY = acpLaunchSpecFor('antigravity')!
-const result = (frame: AcpFixtureFrame | undefined) =>
-  z.record(z.string(), z.unknown()).parse(frame?.message.result)
 afterEach(closeProviderTimelineRigs)
 
-it.each<{ config: AntigravityChatAuthConfig | undefined; method: string }>([
-  {
-    config: {
-      method: 'oauth-business',
-      gcpProject: 'enterprise-project',
-      gcpLocation: 'us-central1'
+// agy 1.5.12 frames a failed request as "\n⚠ %s\n" in its own chunk, then replies end_turn.
+const UNAUTHENTICATED =
+  '⚠ UNAUTHENTICATED (code 401): Request had invalid authentication credentials. Expected OAuth 2 access token, login cookie or other valid authentication credential. See https://developers.google.com/identity/sign-in/web/devconsole-project.'
+
+const chunk = (text: string) => ({
+  sessionId: PROVIDER_SESSION,
+  update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text } }
+})
+
+it("fails the turn on agy's streamed 401 notice, shown as an error row and not as its reply", async () => {
+  const rig = await openAcpAdapterRig({
+    spec: ANTIGRAVITY,
+    script: (agent) =>
+      agent.on('session/prompt', (frame) => {
+        agent.notify('session/update', chunk('The log said UNAUTHENTICATED (code 401).'))
+        agent.notify('session/update', chunk(`\n${UNAUTHENTICATED}\n`))
+        agent.reply(frame, { stopReason: 'end_turn' })
+      })
+  })
+  await rig.acquire()
+  await sendHello(rig, 'send-1')
+  const rows = await waitFor(async () => {
+    const found = await rig.rig.rows()
+    expect(found.some((row) => readAgentJournalTurn(row.body)?.state === 'completed')).toBe(true)
+    return found
+  })
+  expect(rows.map((row) => readAgentJournalTurn(row.body)?.outcome).filter(Boolean)).toEqual([
+    'failure'
+  ])
+  expect(rows.filter((row) => row.body.kind !== 'turn').map((row) => row.body)).toEqual([
+    {
+      kind: 'message',
+      role: 'assistant',
+      blocks: [{ type: 'text', text: 'The log said UNAUTHENTICATED (code 401).' }]
     },
-    method: 'oauth-business'
-  }
+    { kind: 'status', tone: 'error', text: UNAUTHENTICATED }
+  ])
+})
+
+it.each([
+  'API key not valid. Please pass a valid API key.',
+  'Agent execution error: failed to create Gemini client: failed to configure default GCP credentials for Vertex AI: credentials: could not find default credentials.'
+])("fails the turn on the server's own credential notice: %s", async (notice) => {
+  const rig = await openAcpAdapterRig({
+    spec: ANTIGRAVITY,
+    script: (agent) =>
+      agent.on('session/prompt', (frame) => {
+        agent.notify('session/update', chunk(notice))
+        agent.reply(frame, { stopReason: 'end_turn' })
+      })
+  })
+  await rig.acquire()
+  await sendHello(rig, 'send-1')
+  const rows = await waitFor(async () => {
+    const found = await rig.rig.rows()
+    expect(found.some((row) => readAgentJournalTurn(row.body)?.state === 'completed')).toBe(true)
+    return found
+  })
+  expect(rows.map((row) => readAgentJournalTurn(row.body)?.outcome).filter(Boolean)).toEqual([
+    'failure'
+  ])
+  expect(rows.filter((row) => row.body.kind !== 'turn').map((row) => row.body)).toEqual([
+    { kind: 'status', tone: 'error', text: notice }
+  ])
+})
+
+// agy_acp_server drops a session whose agent it cannot rebuild; the Python error then reaches ACP
+// as -32603 "Internal error" with its text in data.details.
+it.each([
+  `Session not found: ${PROVIDER_SESSION}`,
+  'Failed to rebuild agent: Harness process exited with code 1.\nHarness stderr:\n(no stderr output)'
 ])(
-  'signs a first chat in with $method, asks in default mode, and answers a question',
-  async ({ config, method }) => {
-    const [initialized, opened, ...turn] = await readAcpFixture('antigravity-v1-question')
-    const replay = new GrokFixtureReplay(turn)
+  'retires a dropped Antigravity session so the next send starts a new one: %s',
+  async (details) => {
+    let generation = 0
+    let prompts = 0
     const rig = await openAcpAdapterRig({
       spec: ANTIGRAVITY,
-      launch: { antigravityChatAuth: config },
-      initialize: result(initialized),
-      script: (agent) => {
-        replay.attach(agent)
-        // The recorded server requires explicit authentication even with a fresh folder.
-        agent.on('session/new', (frame) =>
-          agent.frames.some((sent) => sent.method === 'authenticate')
-            ? agent.reply(frame, { ...result(opened), sessionId: PROVIDER_SESSION })
-            : agent.fail(frame, -32000, 'Authentication required')
+      deps: { mintGeneration: () => `gen-${++generation}` },
+      script: (agent) =>
+        agent.on('session/prompt', (frame) =>
+          ++prompts === 1
+            ? agent.fail(frame, -32603, 'Internal error', { details })
+            : agent.reply(frame, { stopReason: 'end_turn' })
         )
-        agent.on('authenticate', (frame) => agent.reply(frame, {}))
-      }
     })
     await rig.acquire()
-    expect(rig.sent('authenticate')[0]?.params).toEqual({ methodId: method })
-    expect(rig.sent('session/set_config_option')[0]?.params).toMatchObject({ value: 'default' })
     await sendHello(rig, 'send-1')
-    const question = await waitFor(async () => {
-      const found = (await rig.rig.rows()).find((row) => row.body.kind === 'question')
-      expect(found && replay.awaiting).toBe('reply')
-      return found!
-    })
-    expect(question.body).toMatchObject({ options: [{ label: 'red' }, { id: '2', label: 'blue' }] })
-    await rig.adapter.answerPrompt({
-      sessionId: SESSION,
-      itemId: question.itemId,
-      kind: 'question',
-      response: { kind: 'answers', answers: [{ questionId: 'q1', optionIds: ['2'] }] },
-      fence: 1,
-      commit: async () => {}
-    })
-    await waitFor(() => expect(replay.awaiting).toBeNull())
-    const reply = rig.child().agent.frames.find((frame) => !frame.method && frame.id === 2)
-    expect(reply?.result).toEqual({ outcome: { outcome: 'selected', optionId: '2' } })
-    await waitFor(async () =>
-      expect((await rig.rig.rows()).flatMap((row) => readAgentJournalTurn(row.body) ?? [])).toEqual(
-        [expect.objectContaining({ state: 'completed', outcome: 'success' })]
+    await waitFor(() => expect(rig.ended).toHaveLength(1))
+    await rig.acquire({ fence: 2 })
+    await sendHello(rig, 'send-2', 2)
+    await waitFor(async () => {
+      const outcomes = (await rig.rig.rows()).flatMap(
+        (row) => readAgentJournalTurn(row.body)?.outcome ?? []
       )
-    )
+      expect(outcomes).toEqual(['failure', 'success'])
+    })
   }
 )
 
-it("leaves a Full access host chat's plan approval to the person", async () => {
-  let answered = false
-  const rig = await openAcpAdapterRig({
-    spec: ANTIGRAVITY.hostBackend!.spec,
-    launch: { args: ['acp', '--dangerously-skip-permissions'], fullAccess: true },
-    script: (agent) =>
-      agent.on('session/prompt', () => {
-        // agy's flag does not approve plans, so it still asks.
-        void agent
-          .request('plan', 'session/request_permission', {
-            sessionId: PROVIDER_SESSION,
-            toolCall: { toolCallId: 'plan-1', title: 'Approve plan' },
-            options: [{ optionId: 'proceed', name: 'Proceed', kind: 'allow_once' }]
-          })
-          .then(() => {
-            answered = true
-          })
-      })
-  })
-  await rig.acquire({ permissionMode: 'full-access' })
-  await sendHello(rig, 'send-1')
-  await waitFor(async () =>
-    expect((await rig.rig.rows()).some((row) => row.body.kind === 'approval')).toBe(true)
-  )
-  expect(answered).toBe(false)
-})
-
-it('stops a chat that has left the gate but is not loaded yet before the operation runs', async () => {
-  const [initialized, opened] = await readAcpFixture('antigravity-v1-question')
+it('keeps the Antigravity session when the missing session is another one', async () => {
   const rig = await openAcpAdapterRig({
     spec: ANTIGRAVITY,
-    initialize: result(initialized),
     script: (agent) =>
-      agent.on('session/new', (frame) =>
-        agent.reply(frame, { ...result(opened), sessionId: PROVIDER_SESSION })
+      agent.on('session/prompt', (frame) =>
+        agent.fail(frame, -32603, 'Internal error', { details: 'Session not found: other' })
       )
   })
-  // Acquisition ended, but no loaded chat owns this child yet.
   await rig.acquire()
-  const child = rig.child()
-  let ranOverLiveChild: boolean | null = null
-  await ANTIGRAVITY.launchGate!.run(
-    async () => {},
-    async () => {
-      ranOverLiveChild = !child.exited
-    }
-  )
-  expect(ranOverLiveChild).toBe(false)
+  await sendHello(rig, 'send-1')
+  await waitFor(async () => {
+    const rows = await rig.rig.rows()
+    expect(rows.some((row) => readAgentJournalTurn(row.body)?.outcome === 'failure')).toBe(true)
+  })
+  await sendHello(rig, 'send-2')
+  await rig.frame('session/prompt', 1)
+  expect(rig.ended).toEqual([])
 })
+
+// A harness that dies mid-turn and cannot be rebuilt: agy drops the session, streams this notice
+// and ends the turn normally; every later prompt would find no session.
+it.each([
+  'Harness process exited with code 1.\nHarness stderr:\n(no stderr output)',
+  'Failed to initialize conversation at /tmp/agy. Stderr: (none)'
+])(
+  'fails the turn and retires the session on agy streaming that it could not rebuild the agent: %s',
+  async (reason) => {
+    const notice = `Agent connection was lost and could not be re-established: Failed to rebuild agent: ${reason}`
+    let generation = 0
+    let prompts = 0
+    const rig = await openAcpAdapterRig({
+      spec: ANTIGRAVITY,
+      deps: { mintGeneration: () => `gen-${++generation}` },
+      script: (agent) =>
+        agent.on('session/prompt', (frame) => {
+          if (++prompts === 1) {
+            agent.notify('session/update', chunk(notice))
+          }
+          agent.reply(frame, { stopReason: 'end_turn' })
+        })
+    })
+    await rig.acquire()
+    await sendHello(rig, 'send-1')
+    await waitFor(() => expect(rig.ended).toHaveLength(1))
+    const rows = await rig.rig.rows()
+    expect(rows.filter((row) => row.body.kind !== 'turn').map((row) => row.body)).toEqual([
+      { kind: 'status', tone: 'error', text: notice }
+    ])
+    await rig.acquire({ fence: 2 })
+    await sendHello(rig, 'send-2', 2)
+    await waitFor(async () => {
+      const outcomes = (await rig.rig.rows()).flatMap(
+        (row) => readAgentJournalTurn(row.body)?.outcome ?? []
+      )
+      expect(outcomes).toEqual(['failure', 'success'])
+    })
+  }
+)

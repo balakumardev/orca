@@ -8,7 +8,7 @@ name: custom-release
 #
 # JOB STRUCTURE (one build job, signing inside electron-builder)
 #   plan     ubuntu, no secrets: next version (custom/scripts/next-version.sh) + the upstream base tag's commit.
-#   build    macos-15 (arm64), `environment: release` ONLY when sign=true. Everything runs in this one job because
+#   build    macOS arm64 (see RUNNER below), `environment: release` ONLY when sign=true. Everything runs in this one job because
 #            electron-builder must sign during the build: afterPack signs agent-browser and the orcad template binaries
 #            before the orcad template hashes them, and `signIgnore` stops later passes from rewriting them, so a second
 #            job that re-signs a finished .app would break those hashes. The secrets are protected differently:
@@ -18,6 +18,15 @@ name: custom-release
 #                `build:desktop` have run, and deleted again right after the build / the notarization;
 #              - the keychain is temporary, locked down to codesign, and removed in an `if: always()` step.
 #   publish  ubuntu, only when publish=true, needs plan+build, `contents: write`: uploads the exact verified zip.
+#
+# RUNNER (the `build` job): the repository variable RELEASE_RUNS_ON holds the `runs-on` value as JSON. Unset, the job uses the
+#   hosted `macos-15` (free for this public repo, but GitHub's macOS arm64 pool often never hands out a runner: "The job was not
+#   acquired by Runner of type hosted", cancelled after 15 minutes). Set to ["self-hosted","macOS","ARM64","orca-release"] it runs on
+#   the owner's Mac (runner `fact-balak` in ~/actions-runners/orca). Only this job may use that runner: every other workflow stays
+#   hosted, and fork pull requests need approval for every outside contributor (repo setting, `all_external_contributors`).
+#   On the Mac the signing step does not import the certificate: it names the Developer ID identity the Mac already holds
+#   (use-local-signing-identity.sh) and never touches the keychain search list or the default keychain, which import-signing-cert.sh
+#   does and which is wrong on a Mac somebody uses. To go back to hosted: `gh variable delete RELEASE_RUNS_ON --repo balakumardev/orca`.
 #
 # ALLOWED ACTIONS: GitHub-owned (`actions/*`) and `pnpm/action-setup` only (repo policy). Everything else is bash.
 #
@@ -184,7 +193,7 @@ jobs:
 
   build:
     needs: plan
-    runs-on: macos-15
+    runs-on: ${{ fromJSON(vars.RELEASE_RUNS_ON || '"macos-15"') }}
     timeout-minutes: 150
     # Only a signing run touches environment `release` (and so can only run from ref custom). An unsigned run has no
     # environment, which is what lets a feature branch test everything but the signature.
@@ -247,11 +256,19 @@ jobs:
 
       # The only steps that see the certificate. Everything above ran without it.
       - name: Import the signing certificate into a temporary keychain
-        if: needs.plan.outputs.sign == 'true'
+        if: needs.plan.outputs.sign == 'true' && runner.environment == 'github-hosted'
         env:
           P12_BASE64: ${{ secrets.COOLSOLVE_CERT_P12 }}
           P12_PASSWORD: ${{ secrets.COOLSOLVE_CERT_PASSWORD }}
         run: custom/scripts/import-signing-cert.sh
+
+      # The owner's Mac already holds the identity. Nothing is imported, no keychain is created and the search list and the
+      # default keychain stay as they are (a job that died could not leave them pointing at a deleted keychain).
+      - name: Use the Developer ID identity this Mac already holds
+        if: needs.plan.outputs.sign == 'true' && runner.environment == 'self-hosted'
+        env:
+          ORCA_SIGN_TEAM_ID: ${{ env.EXPECTED_TEAM_ID }}
+        run: custom/scripts/use-local-signing-identity.sh
 
       # With sign=true these run in release mode (ORCA_MAC_RELEASE=1): hardened runtime, secure timestamps, the
       # custom batch signer. That is what notarization requires, and it is why the helper signing happens here.

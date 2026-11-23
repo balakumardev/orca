@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 import { expect, it } from 'vitest'
-import { getDefaultPersistedState } from '../../shared/constants'
+import { getDefaultPersistedState } from '../../shared/orca-profiles/constants'
 import { Store } from '../persistence/loading-store/store'
 import { ProfileStateSqliteAuthority } from '../persistence/profile-state/profile-state-sqlite-authority'
 import type { OrcaRuntimeService } from '../runtime/orca-runtime'

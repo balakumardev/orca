@@ -1,5 +1,5 @@
-import type { ActivityGroupBy } from '../../../../shared/agents-view-thread-filters'
-import type { ActivityThreadGroup } from './activity-thread-types'
+import type { ActivityGroupBy } from '../../../../shared/agent-status/presentation/agents-view-thread-filters'
+import type { ActivityThreadGroup } from './threads/activity-thread-types'
 
 export type ActivityFollowMemory = {
   /** The focused agent pane the list last reconciled with; null while no agent pane is focused. */

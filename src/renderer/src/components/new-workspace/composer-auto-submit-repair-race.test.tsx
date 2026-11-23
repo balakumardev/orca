@@ -3,8 +3,8 @@
 import { act, cleanup, render } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { useAppStore } from '@/store/index'
-import { createGlobalSettingsFixture } from '../../../../shared/global-settings-test-fixture'
-import { EMPTY_RETIRED_NAME_REGISTRY } from '../../../../shared/worktree/retired-name-registry'
+import { createGlobalSettingsFixture } from '../../../../shared/settings/global-settings-test-fixture'
+import { EMPTY_RETIRED_NAME_REGISTRY } from '../../../../shared/worktree/naming/retired-name-registry'
 import { replaceRuntimeEnvironmentRevisions } from '@/runtime/rpc/environment-revisions/runtime-environment-revision'
 import { retryBackgroundWorktreeCreation } from '@/lib/workspace/creation/worktree-creation-flow'
 import { openProjectComposer } from '../cmd-j/palette-project-create-composer'
@@ -13,10 +13,10 @@ import {
   replaceProjectCreateRuntime,
   seedHostCollisionProjects
 } from '../worktree-jump/worktree-jump-palette-project-create-test-fixtures'
-import NewWorkspaceComposerModal from '../NewWorkspaceComposerModal'
+import NewWorkspaceComposerModal from './composer/NewWorkspaceComposerModal'
 
 // Presentation is irrelevant to the modal's real auto-submit and creation flow.
-vi.mock('../NewWorkspaceComposerCard', () => ({ default: () => null }))
+vi.mock('./composer/NewWorkspaceComposerCard', () => ({ default: () => null }))
 vi.mock('../agent/AgentSettingsDialog', () => ({ default: () => null }))
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() } }))
 

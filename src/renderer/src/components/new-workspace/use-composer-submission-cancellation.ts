@@ -1,6 +1,6 @@
 import { useCallback, useRef } from 'react'
 import { isPaletteSearchHostCurrent } from '../cmd-j/palette-search-hosts'
-import type { ComposerModalData } from './composer-modal-data'
+import type { ComposerModalData } from './composer/composer-modal-data'
 
 /** Dismissal cancels submissions; hidden ones also expire with their captured search owner. */
 export function useComposerSubmissionCancellation(

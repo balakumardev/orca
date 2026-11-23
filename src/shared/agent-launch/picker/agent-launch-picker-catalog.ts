@@ -1,14 +1,14 @@
-import { modelMenuOptions } from '../../agent-session/options/model-menu-options'
-import { listedModelDescribing } from '../../agent-session/options/structured-agent-session-listed-model'
+import { modelMenuOptions } from '../../agent-session/options/view/model-menu-options'
+import { listedModelDescribing } from '../../agent-session/options/model-catalog/structured-agent-session-listed-model'
 import {
   discoveredModel,
   structuredModelEfforts
-} from '../../agent-session/options/structured-agent-session-discovered-model'
-import { createClaudeCatalogOptions } from '../../agent-session/options/agent-session-option-catalog-claude-codex'
+} from '../../agent-session/options/model-catalog/structured-agent-session-discovered-model'
+import { createClaudeCatalogOptions } from '../../agent-session/options/catalog-providers/agent-session-option-catalog-claude-codex'
 import type {
   CatalogModel,
   CatalogOption
-} from '../../agent-session/options/agent-session-option-catalog-types'
+} from '../../agent-session/options/catalog-providers/agent-session-option-catalog-types'
 import { getAgentSessionOptionLaunchCatalog } from '../../agent-session/options/agent-session-option-catalog'
 import { sourceControlActionOptions } from '../../source-control/ai/recipes/source-control-action-options'
 import {
@@ -16,7 +16,9 @@ import {
   agentPermissionHasTerminalChoice
 } from '../permissions/tui-agent-permission-choice'
 import type { TuiAgent } from '../catalog/tui-agent'
+import { agentChatPermissionModes } from '../permissions/agent-chat-permission-support'
 import type { AgentPickerEntry, AgentPickerModel, AgentPickerSurface } from './agent-launch-picker'
+import { classifyAgentModels } from '../../agent-session/options/model-catalog/legacy-agent-models'
 
 type ModelMenuEntry = Pick<AgentPickerEntry, 'agent' | 'catalog'> &
   Partial<
@@ -114,8 +116,11 @@ export function agentPickerEntryOptions(
 }
 
 export function agentPickerPermissions(agent: TuiAgent, surface: AgentPickerSurface) {
-  return agentPermissionChoices(agent).filter(
-    (choice) => surface === 'chat' || agentPermissionHasTerminalChoice(agent, choice)
+  const chatModes = agentChatPermissionModes(agent)?.modes
+  return agentPermissionChoices(agent).filter((choice) =>
+    surface === 'chat'
+      ? choice === 'own' || !chatModes || chatModes.some((mode) => mode === choice)
+      : agentPermissionHasTerminalChoice(agent, choice)
   )
 }
 
@@ -142,13 +147,16 @@ export function agentPickerModels(
 ): AgentPickerModel[] {
   if (!agentPickerUsesComposerModelMenu(entry, surface)) {
     if (entry.catalog.origin !== 'unknown') {
-      return entry.catalog.models
+      return withLegacyModels(entry.agent, entry.catalog.models)
     }
-    return (getAgentSessionOptionLaunchCatalog(entry.agent)?.models ?? []).map(
-      agentPickerModelFromCatalogModel
+    return withLegacyModels(
+      entry.agent,
+      (getAgentSessionOptionLaunchCatalog(entry.agent)?.models ?? []).map(
+        agentPickerModelFromCatalogModel
+      )
     )
   }
-  return agentPickerModelMenu(entry, surface).rows
+  return withLegacyModels(entry.agent, agentPickerModelMenu(entry, surface).rows)
 }
 
 /** Terminal discovery is a separate change; these menus keep their existing catalog policy. */
@@ -169,4 +177,17 @@ export function agentPickerModelFromCatalogModel(model: CatalogModel): AgentPick
       option.id === 'effort' && option.kind.type === 'select' ? option.kind.choices : []
     )
   }
+}
+
+function withLegacyModels(agent: TuiAgent, models: AgentPickerModel[]): AgentPickerModel[] {
+  const { legacy, hidden } = classifyAgentModels(agent, models)
+  return legacy.size || hidden.size
+    ? models.map((model) =>
+        hidden.has(model.id)
+          ? { ...model, hidden: true }
+          : legacy.has(model.id)
+            ? { ...model, isLegacy: true }
+            : model
+      )
+    : models
 }

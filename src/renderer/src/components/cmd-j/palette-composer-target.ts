@@ -6,10 +6,10 @@ import {
   type WorkspaceCreationTarget,
   type WorkspaceCreationTargetHint
 } from '@/lib/workspace/creation/project-host-workspace-target'
-import { getRepoExecutionHostId } from '../../../../shared/execution-host'
-import { getNewWorkspaceDialogEligibleRepos } from '../../../../shared/new-workspace-dialog-repo'
+import { getRepoExecutionHostId } from '../../../../shared/execution-host/execution-host'
+import { getNewWorkspaceDialogEligibleRepos } from '../../../../shared/new-workspace/new-workspace-dialog-repo'
 import { buildExecutionHostRegistry } from '../../../../shared/execution-host/execution-host-registry'
-import { getHostDisplayLabelOverrides } from '../../../../shared/host-setting-overrides'
+import { getHostDisplayLabelOverrides } from '../../../../shared/execution-host/host-setting-overrides'
 
 export type PaletteComposerTargetState = Pick<
   AppState,

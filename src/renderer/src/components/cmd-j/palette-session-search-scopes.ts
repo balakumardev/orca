@@ -1,5 +1,5 @@
-import type { Repo } from '../../../../shared/repo-types'
-import { getRepoExecutionHostId } from '../../../../shared/execution-host'
+import type { Repo } from '../../../../shared/repository/repo-types'
+import { getRepoExecutionHostId } from '../../../../shared/execution-host/execution-host'
 import { toAiVaultProjectKey } from '../../../../shared/ai-vault/scanning/ai-vault-project-key'
 import type { AiVaultSearchScopeIdentity } from '../../../../shared/ai-vault/search/ai-vault-search-scope'
 import type { PaletteSearchHost } from './palette-search-hosts'

@@ -1,8 +1,8 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { ClaudeManagedAccount } from '../../../shared/managed-account-types'
-import type { Repo } from '../../../shared/repo-types'
+import type { ClaudeManagedAccount } from '../../../shared/agent-accounts/managed-account-types'
+import type { Repo } from '../../../shared/repository/repo-types'
 import { createProjectAgentAccountsStore } from '../../project-agent-accounts/project-agent-accounts-store'
 import {
   describeClaudeProfile,

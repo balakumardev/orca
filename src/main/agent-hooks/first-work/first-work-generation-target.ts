@@ -1,8 +1,8 @@
-import type { CommitMessageGenerationTarget } from '../../text-generation/commit-message-text-generation'
+import type { CommitMessageGenerationTarget } from '../../text-generation/source-control-text-generation-types'
 import {
   prepareLocalCommitMessageAgentEnv,
   type CommitMessageAgentEnvironmentResolvers
-} from '../../text-generation/commit-message-agent-environment'
+} from '../../text-generation/execution/commit-message-agent-environment'
 import { projectClaudeGenerationTarget } from '../../claude-accounts/project-binding/project-claude-workspace'
 import type { ProjectClaudeLocation } from '../../claude-accounts/project-binding/project-claude-binding'
 

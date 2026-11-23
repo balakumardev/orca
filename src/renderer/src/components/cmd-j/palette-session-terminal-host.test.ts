@@ -5,7 +5,7 @@ import { useAppStore } from '@/store/index'
 import { launchAiVaultSessionInNewTab } from '@/lib/agent-session/resume/history/launch-ai-vault-session'
 import { createWebRuntimeSessionTerminalResult } from '@/runtime/hosted-terminals/creation/web-runtime-terminal-create-operation'
 import { buildAiVaultResumeStartupForWorktree } from '@/lib/agent-session/resume/history/ai-vault-resume-command'
-import { createGlobalSettingsFixture } from '../../../../shared/global-settings-test-fixture'
+import { createGlobalSettingsFixture } from '../../../../shared/settings/global-settings-test-fixture'
 import { makeRepo, makeWorktree } from '../worktree-jump/worktree-jump-palette-test-fixtures'
 
 const initialState = useAppStore.getInitialState()

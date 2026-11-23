@@ -3,7 +3,7 @@
 import { cleanup, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { useAppStore } from '@/store/index'
-import type { Repo } from '../../../../shared/repo-types'
+import type { Repo } from '../../../../shared/repository/repo-types'
 import { usePaletteProjectScopedCreate } from './use-palette-project-scoped-create'
 
 const initialAppState = useAppStore.getInitialState()

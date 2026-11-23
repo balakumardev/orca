@@ -1,7 +1,7 @@
 import type React from 'react'
 import type { AiVaultSearchHit } from '../../../../shared/ai-vault/search/ai-vault-search-types'
 import { agentLabel } from '../../../../shared/ai-vault/session-display/ai-vault-session-filters'
-import { getRuntimePathBasename } from '../../../../shared/cross-platform-path'
+import { getRuntimePathBasename } from '../../../../shared/file-access/cross-platform-path'
 import { AgentIcon } from '@/components/agent/icons/AgentIcon'
 import { highlightedSearchSnippet } from '@/components/right-sidebar/ai-vault/search/AiVaultSearchEvidence'
 import { useTranslate } from '@/i18n/use-translate'

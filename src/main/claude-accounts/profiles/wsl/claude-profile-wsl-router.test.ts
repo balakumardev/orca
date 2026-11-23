@@ -13,9 +13,9 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { build } from 'esbuild'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { ClaudeManagedAccount } from '../../../../shared/managed-account-types'
+import type { ClaudeManagedAccount } from '../../../../shared/agent-accounts/managed-account-types'
 import type { WslSpec } from '../../../wsl/execution/wsl-runner'
-import type * as WslPaths from '../../../../shared/wsl-paths'
+import type * as WslPaths from '../../../../shared/file-access/wsl-paths'
 
 const guest = vi.hoisted(
   (): { home: string; failure: { code: number; stdout: string } | null } => ({
@@ -24,13 +24,14 @@ const guest = vi.hoisted(
   })
 )
 // Emulate the guest with local POSIX paths and /bin/sh.
-vi.mock('../../../../shared/wsl-paths', async (original) => ({
+vi.mock('../../../../shared/file-access/wsl-paths', async (original) => ({
   ...(await original<typeof WslPaths>()),
   toWindowsWslPath: (linuxPath: string) => linuxPath
 }))
+const listRunning = vi.hoisted(() => vi.fn(async () => ['Ubuntu']))
 vi.mock('../../../wsl/discovery/distro-catalog', () => ({
   getWslHomeAsync: async (distro: string) => `\\\\wsl.localhost\\${distro}${guest.home}`,
-  listRunningWslDistrosAsync: async () => ['Ubuntu']
+  listRunningWslDistrosAsync: listRunning
 }))
 const gate = vi.hoisted(() => ({
   blocked: vi.fn(
@@ -45,8 +46,13 @@ vi.mock('../../../wsl/execution/wsl-runner', () => ({
     if (guest.failure) {
       return { ...guest.failure, stderr: '', timedOut: false }
     }
+    // Real wsl.exe --exec refuses an empty argument before the guest runs.
+    if (spec.args?.some((arg) => arg === '')) {
+      return { code: 1, stdout: '', stderr: 'Wsl/Service/E_INVALIDARG', timedOut: false }
+    }
     const result = spawnSync('/bin/sh', ['-c', spec.script ?? '', 'sh', ...(spec.args ?? [])], {
-      encoding: 'utf8'
+      encoding: 'utf8',
+      input: spec.input
     })
     return { code: result.status, stdout: result.stdout, stderr: result.stderr, timedOut: false }
   }
@@ -121,6 +127,11 @@ describe.skipIf(!posixHost)('ClaudeWslProfileRouter', () => {
     f.settings.claudeManagedAccounts = []
     await f.router.publish('Ubuntu')
     expect(existsSync(f.pointer)).toBe(false)
+
+    f.settings.claudeManagedAccounts = [{ ...f.account('h'), managedAuthRuntime: 'host' }]
+    listRunning.mockClear()
+    await expect(f.router.runningDistros()).resolves.toEqual([])
+    expect(listRunning).not.toHaveBeenCalled()
   })
 
   it('a launch waiting on setup leaves a selection made meanwhile in the pointer', async () => {
@@ -139,6 +150,17 @@ describe.skipIf(!posixHost)('ClaudeWslProfileRouter', () => {
     release()
     await launch
     expect(readFileSync(f.pointer, 'utf8')).toBe(homeB)
+  })
+
+  it('launches on System default while a managed WSL account still exists', async () => {
+    const f = fixture()
+    mkdirSync(join(f.pointer, '..'), { recursive: true })
+    writeFileSync(f.pointer, f.profileHome)
+    f.wsl.Ubuntu = null
+    await expect(f.router.prepareLaunch('Ubuntu')).resolves.toMatchObject({
+      provenance: 'wsl:Ubuntu:system'
+    })
+    expect(readFileSync(f.pointer, 'utf8')).toBe('')
   })
 
   it("runs an account with no login of its own on the guest's ~/.claude while that is signed in to it", async () => {

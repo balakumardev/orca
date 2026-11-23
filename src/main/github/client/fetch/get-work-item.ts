@@ -1,36 +1,26 @@
-import { withGitHubRepoExecution } from '../../github-repository-identity'
-import type { IssueSourcePreference } from '../../../../shared/repo-types'
 import {
-  acquire,
-  release,
-  classifyGhError,
-  extractExecError,
+  withGitHubRepoExecution,
   type LocalGitExecOptions
-} from '../../gh-utils'
-import {
-  resolveGitHubApiRepository,
-  resolveGitHubApiRepositoryCandidates,
-  resolveIssueGitHubApiRepositorySource,
-  type GitHubApiRepository
-} from '../../github-api-repository'
-import {
-  githubRepoIdentityKey,
-  isDefaultGitHubHost
-} from '../../../../shared/github/repository-identity-key'
+} from '../../repositories/github-repository-identity'
+import type { IssueSourcePreference } from '../../../../shared/repository/repo-types'
+import { acquire, release } from '../../execution/github-operation-slots'
+import { classifyGhError } from '../../api/gh-error-classification'
+import { extractExecError } from '../../../git/command-runner/process-capture/exec-error'
+
+import { resolveIssueGitHubApiRepositorySource } from '../../repositories/github-api-repository'
+import { resolveGitHubWorkItemLinkRepository } from '../../repositories/github-work-item-link-repository'
+import type { GitHubRepositoryIdentity as GitHubApiRepository } from '../../../../shared/github/repositories/repository-identity'
 import type { MainWorkItem } from './../map/work-item-field-coercion'
 import {
   getIssueDetailsViaGraphQL,
   type CollapsedIssueDetails
-} from '../../issue-work-item-details'
+} from '../../issues/issue-work-item-details'
 import {
   fetchIssueWorkItem,
-  fetchWorkItemPreview,
   fetchPullRequestWorkItem,
   fetchPullRequestWorkItemFromCandidates
 } from './work-item-fetch'
-function githubHostKey(host?: string): string {
-  return isDefaultGitHubHost(host) ? 'github.com' : host!.trim().toLowerCase()
-}
+import { fetchWorkItemPreview } from './work-item-preview'
 
 export async function getWorkItem(
   repoPath: string,
@@ -167,28 +157,13 @@ export async function getWorkItemByOwnerRepo(
   options: { preview?: boolean } = {}
 ): Promise<MainWorkItem | null> {
   return withGitHubRepoExecution(repoPath, connectionId, localGitOptions, async () => {
-    const requestedHost = ownerRepo.host?.trim().toLowerCase()
-    const requestedRepository = requestedHost
-      ? { ...ownerRepo, host: requestedHost }
-      : await resolveGitHubApiRepository(repoPath, ownerRepo, connectionId, localGitOptions)
-    if (!requestedRepository) {
-      return null
-    }
-    const { candidates } = await resolveGitHubApiRepositoryCandidates(
+    const matchedRepository = await resolveGitHubWorkItemLinkRepository(
       repoPath,
+      ownerRepo,
+      { allowSameHost: options.preview },
       connectionId,
       localGitOptions
     )
-    const requestedKey = githubRepoIdentityKey(requestedRepository)
-    const requestedHostKey = githubHostKey(requestedRepository.host)
-    // Pasted hosts must match configured remotes before receiving credentials. A preview reads any
-    // repo on such a host, as a link card does: that host's sign-in already serves this workspace.
-    const matchedRepository =
-      candidates.find((candidate) => githubRepoIdentityKey(candidate) === requestedKey) ??
-      (options.preview &&
-      candidates.some((candidate) => githubHostKey(candidate.host) === requestedHostKey)
-        ? requestedRepository
-        : undefined)
     if (!matchedRepository) {
       return null
     }

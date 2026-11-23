@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { FolderPlus, RotateCcw } from 'lucide-react'
-import type { GlobalSettings } from '../../../../../shared/global-settings-types'
+import type { GlobalSettings } from '../../../../../shared/settings/global-settings-types'
 import {
   getFolderSearchLocations,
   MAX_FOLDER_SEARCH_ROOTS

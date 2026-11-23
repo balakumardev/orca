@@ -1,9 +1,10 @@
 import {
   pickApprovedSetupHashes,
   type ApprovedSetupHashes
-} from '../../../../../shared/worktree/approved-setup-hashes'
+} from '../../../../../shared/worktree/creation/approved-setup-hashes'
 import { useAppStore } from '@/store/index'
 import type { WorktreeCreationRequest } from './pending-worktree-creation'
+import { setupHooksCreateSource } from '../../../../../shared/worktree/setup-hooks-create-source'
 import {
   ensureHooksConfirmed,
   readAndConfirmRuntimeIssueCommand
@@ -23,6 +24,7 @@ export async function prepareWorktreeCreationHooks(
     return request
   }
 
+  const trustContext = request.ephemeralVmRecipe ? 'vm' : 'workspace'
   const isCancelled = (): boolean => {
     request.targetGuard?.assertCurrent()
     return !useAppStore.getState().pendingWorktreeCreations[creationId]
@@ -34,14 +36,20 @@ export async function prepareWorktreeCreationHooks(
       kind,
       preparation.executionHostId,
       undefined,
-      isCancelled
+      isCancelled,
+      undefined,
+      undefined,
+      trustContext
     )
   const confirmed = await confirmWorkspaceSetupDecision(
     useAppStore.getState,
     request.repoId,
     request.setupDecision,
     preparation.executionHostId,
-    isCancelled
+    isCancelled,
+    undefined,
+    setupHooksCreateSource(request),
+    trustContext
   )
   if (confirmed === 'cancelled') {
     return null
@@ -54,7 +62,8 @@ export async function prepareWorktreeCreationHooks(
       useAppStore.getState(),
       request.repoId,
       preparation.executionHostId,
-      isCancelled
+      isCancelled,
+      trustContext
     )
     if (isCancelled()) {
       return null
@@ -95,7 +104,14 @@ export async function prepareWorktreeCreationHooks(
 
 /** Setup fields for the create call; the approved hash lets the host check the created branch. */
 export function setupCreateArgs(
-  request: Pick<WorktreeCreationRequest, 'setupOnly' | keyof ApprovedSetupHashes>
-): { setupOnly?: boolean } & ApprovedSetupHashes {
-  return { setupOnly: request.setupOnly, ...pickApprovedSetupHashes(request) }
+  request: Pick<
+    WorktreeCreationRequest,
+    'setupOnly' | 'ephemeralVmRecipe' | keyof ApprovedSetupHashes
+  >
+): { setupOnly?: boolean; hookTrustContext?: 'vm' } & ApprovedSetupHashes {
+  return {
+    setupOnly: request.setupOnly,
+    ...pickApprovedSetupHashes(request),
+    ...(request.ephemeralVmRecipe ? { hookTrustContext: 'vm' as const } : {})
+  }
 }

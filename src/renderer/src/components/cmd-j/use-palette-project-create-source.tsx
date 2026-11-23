@@ -15,7 +15,7 @@ import {
 import { usePaletteProjectCatalog } from './use-palette-project-catalog'
 import { usePaletteSearchHosts } from './use-palette-search-hosts'
 import { getPaletteSearchHosts } from './palette-search-hosts'
-import { PaletteHostBadgeChip } from '../worktree-jump/worktree-jump-palette-primitives'
+import { PaletteHostBadgeChip } from '../worktree-jump/rows/worktree-jump-palette-row-content'
 
 /** Keep store reads outside compiled hooks while capturing each offered row's exact pairing. */
 function readProjectCreateHosts(targets: readonly ProjectCreateTarget[]) {

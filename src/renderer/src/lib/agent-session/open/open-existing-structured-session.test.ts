@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { openDesktopStructuredSessionInteraction } from './open-existing-structured-session'
-import type { StructuredSessionOpenTab } from '../../../../../shared/open-structured-agent-session'
+import type { StructuredSessionOpenTab } from '../../../../../shared/agent-session/view/open-structured-agent-session'
 
 describe('history open authority', () => {
   it('does not activate a refreshed chat after its recording host is retired', async () => {
