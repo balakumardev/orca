@@ -46,6 +46,8 @@ export function createHarness(
     getKnownReleaseUrl: () => undefined,
     performQuitAndInstall: vi.fn(),
     commitStagedMacInstall: vi.fn(),
+    finishMacStaging: () => null,
+    isAwaitingMacStaging: () => false,
     failMacStaging: vi.fn(),
     shouldDeferMacQuitForInstall: () => true,
     sendStatus: vi.fn((status: UpdateStatus) => {

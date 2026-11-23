@@ -57,9 +57,9 @@ export class CustomUpdaterSetup extends UpdaterSetup {
 
   // A staged fork update swaps through Electron's native Squirrel. electron-updater is never loaded on a custom
   // build: with nothing staged this throws, and upstream's install catch restores the app and reports it.
-  protected override invokeNativeQuitAndInstall(supervisorOwnsRelaunch: boolean): void {
+  protected override invokeNativeQuitAndInstall(silent: boolean): void {
     if (!isAutoUpdateDisabledForBuild()) {
-      super.invokeNativeQuitAndInstall(supervisorOwnsRelaunch)
+      super.invokeNativeQuitAndInstall(silent)
       return
     }
     if (!this.customUpdater?.invokeNativeInstall()) {
@@ -79,6 +79,8 @@ export class CustomUpdaterSetup extends UpdaterSetup {
       getKnownReleaseUrl: () => this.getKnownReleaseUrl(),
       performQuitAndInstall: () => this.performQuitAndInstall(),
       commitStagedMacInstall: () => this.commitStagedMacInstall(),
+      finishMacStaging: () => this.finishMacStaging(),
+      isAwaitingMacStaging: () => this.isAwaitingMacStaging(),
       failMacStaging: (error) => this.failMacStaging(error),
       shouldDeferMacQuitForInstall: () => this.updateInstallMode === 'interactive',
       sendStatus: (status) => this.sendStatus(status),

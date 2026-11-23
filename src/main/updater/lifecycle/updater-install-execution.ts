@@ -1,3 +1,4 @@
+import { app } from 'electron'
 import { releaseSessionsForInstaller } from './updater-installer-session-release'
 import { withUpdaterSpan } from '../../observability/instrumentation'
 import { runWithLaunchPath } from '../../startup/shell-environment/hydrate-shell-path'
@@ -15,10 +16,22 @@ import { recordUpdaterLifecycle } from '../updater-lifecycle-diagnostics'
 import { requestServeUpdateHandoff, failServeUpdateHandoff } from '../serve-update-handoff'
 import { UpdaterMacInstallPreflight } from '../mac-install/updater-mac-install-preflight'
 import { prepareThisProcessShipItStaging } from '../mac-install/shipit-leftover-recovery'
-import { MAC_DEFERRED_STAGING_TIMEOUT_MS } from './updater-state'
+import { MAC_DEFERRED_STAGING_TIMEOUT_MS, type UpdateInstallTrigger } from './updater-state'
+import { requiresTeamRelease } from '../releases/updater-release-policy'
 
 export abstract class UpdaterInstallExecution extends UpdaterMacInstallPreflight {
-  protected async performQuitAndInstall(automatic = false): Promise<void> {
+  protected isRequiredTeamUpdate(version: string): boolean {
+    return (
+      requiresTeamRelease(this.getTeamUpdatePolicy?.(), app.getVersion(), version) &&
+      this.allowsCurrentTeamUpdate(version)
+    )
+  }
+
+  protected async performQuitAndInstall(
+    // Defaulted for callers that predate triggers; an unset trigger must stay a user-initiated install.
+    trigger: UpdateInstallTrigger = 'manual',
+    isCurrentTeamRestart?: () => boolean
+  ): Promise<void> {
     if (this.quitAndInstallInProgress) {
       recordUpdaterLifecycle('quit_and_install_ignored', { reason: 'already-in-progress' })
       return
@@ -30,6 +43,14 @@ export abstract class UpdaterInstallExecution extends UpdaterMacInstallPreflight
     }
 
     const pendingVersion = this.getPendingInstallVersion()
+    const canProceed = (): boolean => {
+      if (isCurrentTeamRestart && !isCurrentTeamRestart()) {
+        this.cancelAutomaticInstall(pendingVersion)
+        this.sendToMainWindow('updater:quitAndInstallAborted')
+        return false
+      }
+      return this.canProceedWithInstall(pendingVersion, trigger)
+    }
     if (this.deferHeadlessServeInstall('install', pendingVersion)) {
       return
     }
@@ -58,7 +79,7 @@ export abstract class UpdaterInstallExecution extends UpdaterMacInstallPreflight
       })
       return
     }
-    if (!this.canProceedWithInstall(pendingVersion, automatic)) {
+    if (!canProceed()) {
       return
     }
     this.finishActiveUpdateCheckAttempt()
@@ -67,6 +88,7 @@ export abstract class UpdaterInstallExecution extends UpdaterMacInstallPreflight
 
     // Block activate before any work so the old bundle cannot reopen during ShipIt replacement.
     this.quittingForUpdate = true
+    let preparingProfile = false
 
     try {
       this.sendStatus(
@@ -89,8 +111,29 @@ export abstract class UpdaterInstallExecution extends UpdaterMacInstallPreflight
           macInstallerReady: process.platform === 'darwin' ? isMacInstallerReady() : true
         })
         span.addEvent('pre_quit_cleanup_start')
+        preparingProfile = true
         await this.runBeforeUpdateQuitCleanup()
+        preparingProfile = false
         span.addEvent('pre_quit_cleanup_done')
+        if (trigger !== 'manual' && !(await this.prepareAutomaticInstall(pendingVersion))) {
+          return
+        }
+        if (!canProceed()) {
+          return
+        }
+        await commitServeSupervisorPark(() => getMacUpdateRunningInstances())
+        // Deferred staging begins inside the native install call below.
+        await (this.isMacStagingDeferredToInstall() ? prepareThisProcessShipItStaging() : null)
+        recordUpdaterLifecycle('quit_and_install_invoking_native', {
+          version: pendingVersion || null
+        })
+        // Recovery may have cleared the handoff; never invoke installation afterward.
+        if (!this.quitAndInstallInProgress) {
+          return
+        }
+        if (!canProceed()) {
+          return
+        }
         if (
           this.updateInstallMode === 'supervised-headless-serve' &&
           !requestServeUpdateHandoff(pendingVersion)
@@ -113,28 +156,12 @@ export abstract class UpdaterInstallExecution extends UpdaterMacInstallPreflight
           return
         }
 
-        if (automatic && !(await this.prepareAutomaticInstall(pendingVersion))) {
-          return
-        }
-        await commitServeSupervisorPark(() => getMacUpdateRunningInstances())
-        // Deferred staging begins inside the native install call below.
-        await (this.isMacStagingDeferredToInstall() ? prepareThisProcessShipItStaging() : null)
-        recordUpdaterLifecycle('quit_and_install_invoking_native', {
-          version: pendingVersion || null
-        })
-        // Recovery may have cleared the handoff; never invoke installation afterward.
-        if (!this.quitAndInstallInProgress) {
-          return
-        }
-        if (!this.canProceedWithInstall(pendingVersion, automatic)) {
-          return
-        }
         // Mark before native invoke so synchronous errors can recover; pre-native errors cannot.
         setMacInstallPreflightInProgress(false)
         this.quitAndInstallNativeInvoked = true
         // Invoke before destroying PTYs/close guards so synchronous failure leaves the app usable.
-        const supervisorOwnsRelaunch = this.updateInstallMode === 'supervised-headless-serve'
-        const silent = automatic || supervisorOwnsRelaunch
+        // A supervised serve install relaunches through the surviving CLI supervisor, so it stays silent.
+        const silent = trigger !== 'manual' || this.updateInstallMode.startsWith('supervised')
         runWithLaunchPath(() => this.invokeNativeQuitAndInstall(silent))
         span.addEvent('native_quit_and_install_invoked')
 
@@ -204,6 +231,16 @@ export abstract class UpdaterInstallExecution extends UpdaterMacInstallPreflight
           message: 'Could not start update install'
         }
       )
+      if (preparingProfile && pendingVersion) {
+        this.sendInstallFailureStatus({
+          state: 'error',
+          version: pendingVersion,
+          ...(this.canInstallOnNormalQuit(pendingVersion) ? { installOnQuit: true } : {}),
+          retryAction: 'install',
+          message: this.withInstallFailureCause('Could not prepare the session for restart.', error)
+        })
+        return
+      }
       this.sendInstallFailureStatus({
         state: 'error',
         // A synchronous throw carries the same installer text the 'error' event would have.
@@ -216,13 +253,15 @@ export abstract class UpdaterInstallExecution extends UpdaterMacInstallPreflight
 
   // Overridable so custom builds can swap through the native updater without loading electron-updater.
   protected invokeNativeQuitAndInstall(silent: boolean): void {
-    const supervisorOwnsRelaunch = this.updateInstallMode === 'supervised-headless-serve'
-    this.getAutoUpdater().quitAndInstall(silent, !supervisorOwnsRelaunch)
+    this.getAutoUpdater().quitAndInstall(silent, !this.updateInstallMode.startsWith('supervised'))
   }
 
-  // Supervised serve disables autoInstallOnAppQuit; MacUpdater only stages inside quitAndInstall, so waiting first deadlocks.
+  // These downloads reach Squirrel inside quitAndInstall, after the final policy check.
   protected isMacStagingDeferredToInstall(): boolean {
-    return process.platform === 'darwin' && this.updateInstallMode === 'supervised-headless-serve'
+    return (
+      process.platform === 'darwin' &&
+      (this.macTeamDownloadDeferred || this.updateInstallMode === 'supervised-headless-serve')
+    )
   }
 
   protected isAwaitingMacStaging(): boolean {

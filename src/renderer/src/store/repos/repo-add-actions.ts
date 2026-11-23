@@ -67,6 +67,8 @@ export function createRepoAddActions(
                   { path, kind, ...(displayName ? { displayName } : {}) },
                   {
                     timeoutMs: 15_000,
+                    // Adding a repo is the user's act: it may wake an idle-stopped WSL host (#46567).
+                    wake: true,
                     // Main rechecks the captured runtime after this request leaves its queue.
                     ...(options?.targetGuard
                       ? {

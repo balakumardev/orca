@@ -1,16 +1,14 @@
 import type { Locator, Page } from '@stablyai/playwright-test'
 import { expect } from '@stablyai/playwright-test'
 import { test } from './desktop/electron-fixtures/orca-app'
-import {
-  emitCodexHookStatus,
-  readHookEndpoint
-} from './agents/session-fixtures/agent-hook-endpoint'
 import { getActiveTabId, getActiveWorktreeId } from './desktop/renderer-probes/store'
 import {
   activateTab,
+  emitCodexHookStatus,
   hookAgent,
   openBlankTerminalTab,
   prepareActivityFollowSession,
+  readHookEndpoint,
   rowFor,
   selectedRow,
   settleRender,

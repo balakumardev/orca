@@ -3,12 +3,23 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import type * as UpdaterModule from './updater-service'
 import type { CustomUpdaterHost, CustomUpdaterPort } from './custom/custom-updater-types'
 import type { UpdateStatus } from '../../shared/updater/update-status-types'
-import { updaterMainWindow } from './testing/updater-test-main-window'
+import type { BrowserWindow } from 'electron'
+
+// The window stub used to live in ./testing/updater-test-main-window.ts; upstream deleted that shared
+// test support, so the suite that still needs it carries its own copy.
+function updaterMainWindow(send: (channel: string, ...args: unknown[]) => void): BrowserWindow {
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the updater reaches its window only through isDestroyed and webContents.isDestroyed/send.
+  return {
+    isDestroyed: () => false,
+    webContents: { isDestroyed: () => false, send }
+  } as unknown as BrowserWindow
+}
 
 const {
   appMock,
   autoUpdaterMock,
   armExitWatchdogMock,
+  nativeUpdaterMock,
   recordUpdaterLifecycleMock,
   moduleFactories,
   resetUpdaterMocks
@@ -279,9 +290,16 @@ describe('updater hooks for the self-updater patch', () => {
       fake.invokeNativeInstall.mockReturnValue(true)
       const { send } = await setup('1.4.258+custom.4', fake)
       const host = startedHost(fake)
-      // What the module's native update-downloaded listener does once Squirrel has staged the zip.
+      // What the module's native update-downloaded listener does once Squirrel has staged the zip. A custom
+      // build stops setup before the native handlers are registered, so the test registers the same listener
+      // over the real host and fires the event with the staged version the module would have reported.
       const mac = await import('./mac-install/updater-mac-install')
-      mac.handleMacInstallerReady(false, vi.fn(), vi.fn())
+      mac.registerMacUpdaterEvents({
+        ...host,
+        finishMacStaging: () => '1.4.258+custom.5',
+        isAwaitingMacStaging: () => false
+      })
+      nativeUpdaterMock.emit('update-downloaded')
       host.sendStatus({ state: 'downloaded', version: '1.4.258+custom.5' })
 
       void host.performQuitAndInstall()
@@ -400,7 +418,17 @@ async function createUpdaterMocks() {
   }
 
   const browserWindowMock = { getAllWindows: vi.fn(() => []) }
-  const nativeUpdaterMock = { on: vi.fn() }
+  // Electron's native autoUpdater: an emitter so a test can fire the Squirrel events the module listens for.
+  const nativeUpdaterEvents = new EventEmitter()
+  const nativeUpdaterMock = {
+    on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+      nativeUpdaterEvents.on(event, handler)
+      return nativeUpdaterMock
+    }),
+    emit: (event: string, ...args: unknown[]): void => {
+      nativeUpdaterEvents.emit(event, ...args)
+    }
+  }
   const killAllPtyMock = vi.fn()
   const powerMonitorOnMock = vi.fn()
   const getLinuxRootPackageTypeMock = vi.fn<() => 'deb' | 'rpm' | null>(() => null)
@@ -464,6 +492,7 @@ async function createUpdaterMocks() {
     vi.useRealTimers()
     vi.resetModules()
     autoUpdaterMock.reset()
+    nativeUpdaterEvents.removeAllListeners()
     nativeUpdaterMock.on.mockReset()
     browserWindowMock.getAllWindows.mockReset()
     browserWindowMock.getAllWindows.mockReturnValue([])
@@ -499,6 +528,7 @@ async function createUpdaterMocks() {
     appMock,
     autoUpdaterMock,
     armExitWatchdogMock,
+    nativeUpdaterMock,
     recordUpdaterLifecycleMock,
     moduleFactories,
     resetUpdaterMocks

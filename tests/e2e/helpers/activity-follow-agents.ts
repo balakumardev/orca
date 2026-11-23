@@ -1,9 +1,12 @@
-import type { Locator, Page } from '@stablyai/playwright-test'
+import type { ElectronApplication, Locator, Page } from '@stablyai/playwright-test'
 import { expect } from '@stablyai/playwright-test'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import path from 'node:path'
 import {
-  emitCodexHookStatus,
-  type readHookEndpoint
-} from '../agents/session-fixtures/agent-hook-endpoint'
+  isAgentHookEndpointFileName,
+  parseAgentHookEndpointFile,
+  type AgentHookEndpoint
+} from '../../../src/shared/agent-hook-listener/transport/agent-hook-endpoint-file'
 import { waitForActivePaneHookDescriptor } from '../terminal/input/terminal-active-pane'
 import {
   waitForActiveTerminalManager,
@@ -22,6 +25,100 @@ declare global {
   interface Window {
     __highlightLog?: string[]
     __highlightPatched?: boolean
+  }
+}
+
+// The agent-hook fixtures used to live in ../agents/session-fixtures/agent-hook-endpoint.ts; upstream
+// deleted that shared test support, so the suites that drive the hook listener carry the parts they need.
+
+function findEndpointEnvFile(root: string): string | null {
+  if (!existsSync(root)) {
+    return null
+  }
+  const entries = readdirSync(root, { withFileTypes: true })
+  for (const entry of entries) {
+    const fullPath = path.join(root, entry.name)
+    if (entry.isFile() && isAgentHookEndpointFileName(entry.name)) {
+      return fullPath
+    }
+    if (entry.isDirectory()) {
+      const nested = findEndpointEnvFile(fullPath)
+      if (nested) {
+        return nested
+      }
+    }
+  }
+  return null
+}
+
+/** The running app's agent-hook listener endpoint, read from the file it writes under userData. */
+export async function readHookEndpoint(app: ElectronApplication): Promise<AgentHookEndpoint> {
+  const userDataPath = await app.evaluate(({ app: electronApp }) => electronApp.getPath('userData'))
+  const hookRoot = path.join(userDataPath, 'agent-hooks')
+  let endpointPath: string | null = null
+  await expect
+    .poll(
+      () => {
+        endpointPath = findEndpointEnvFile(hookRoot)
+        return endpointPath
+      },
+      {
+        timeout: 15_000,
+        message: `Agent hook endpoint file not found under ${hookRoot}`
+      }
+    )
+    .not.toBeNull()
+  if (!endpointPath) {
+    throw new Error(`Agent hook endpoint file not found under ${hookRoot}`)
+  }
+  return parseAgentHookEndpointFile(readFileSync(endpointPath, 'utf8'))
+}
+
+/** One Codex hook event for a pane, posted the way the agent's hook script posts it. */
+export async function emitCodexHookStatus(
+  endpoint: AgentHookEndpoint,
+  status: {
+    paneKey: string
+    worktreeId: string
+    state: 'working' | 'done'
+    prompt?: string
+    lastAssistantMessage?: string
+    transcriptPath?: string | null
+    sessionId?: string
+  }
+): Promise<void> {
+  const [tabId] = status.paneKey.split(':')
+  const payload =
+    status.state === 'working'
+      ? {
+          hook_event_name: 'UserPromptSubmit',
+          prompt: status.prompt
+        }
+      : {
+          hook_event_name: 'Stop',
+          last_assistant_message: status.lastAssistantMessage
+        }
+  const response = await fetch(`http://127.0.0.1:${endpoint.port}/hook/codex`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Orca-Agent-Hook-Token': endpoint.token
+    },
+    body: JSON.stringify({
+      paneKey: status.paneKey,
+      tabId,
+      worktreeId: status.worktreeId,
+      env: endpoint.env,
+      version: endpoint.version,
+      payload: {
+        ...payload,
+        ...(status.transcriptPath !== undefined ? { transcript_path: status.transcriptPath } : {}),
+        ...(status.sessionId ? { session_id: status.sessionId } : {})
+      }
+    })
+  })
+  if (response.status !== 204) {
+    throw new Error(`Codex hook POST returned ${response.status}`)
   }
 }
 

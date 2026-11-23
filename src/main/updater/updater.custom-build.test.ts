@@ -1,8 +1,18 @@
 import type { getReleaseDownloadUrl } from './releases/updater-release-readiness'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as UpdaterModule from './updater-service'
-import { updaterMainWindow } from './testing/updater-test-main-window'
 import type { UpdateStatus } from '../../shared/updater/update-status-types'
+import type { BrowserWindow } from 'electron'
+
+// The window stub used to live in ./testing/updater-test-main-window.ts; upstream deleted that shared
+// test support, so the suite that still needs it carries its own copy.
+function updaterMainWindow(send: (channel: string, ...args: unknown[]) => void): BrowserWindow {
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the updater reaches its window only through isDestroyed and webContents.isDestroyed/send.
+  return {
+    isDestroyed: () => false,
+    webContents: { isDestroyed: () => false, send }
+  } as unknown as BrowserWindow
+}
 
 const {
   appMock,

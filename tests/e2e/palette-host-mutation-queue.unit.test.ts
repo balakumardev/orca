@@ -33,7 +33,7 @@ import { callRuntimeEnvironment } from '../../src/main/ipc/runtime-environments/
 import { prepareRuntimeAiVaultSessionResume } from '../../src/main/ai-vault/runtime-hosts/runtime-session-scanner'
 import { enqueueRuntimeCall } from '../../src/main/ipc/runtime-environments/requests/runtime-environment-call-queue'
 import { resetSharedControlSupport } from '../../src/main/ipc/runtime-environments/connections/runtime-environment-shared-control-support'
-import { pairingCode } from '../../src/main/ipc/runtime-environments/runtime-environments-ipc-test-harness'
+import { encodePairingOffer } from '../../src/shared/remote-runtime/pairing/pairing'
 import {
   addEnvironmentFromPairingCode,
   markEnvironmentUsed,
@@ -54,6 +54,20 @@ vi.mock('../../src/main/runtime/construction/runtime-desktop-surface', () => ({
 vi.mock('../../src/shared/remote-runtime/requests/remote-runtime-request-socket', () => ({
   sendRemoteRuntimeRequestOnSocket: sendRequest
 }))
+
+// The runtime-environments IPC test harness that carried pairingCode is gone upstream; this suite builds
+// the same pairing offer itself.
+function pairingCode(
+  endpoint = 'ws://127.0.0.1:6768',
+  { deviceToken = 'device-token', keyByte = 1 }: { deviceToken?: string; keyByte?: number } = {}
+): string {
+  return encodePairingOffer({
+    v: 2,
+    endpoint,
+    deviceToken,
+    publicKeyB64: Buffer.from(new Uint8Array(32).fill(keyByte)).toString('base64')
+  })
+}
 
 const initialState = useAppStore.getInitialState()
 let profile: string

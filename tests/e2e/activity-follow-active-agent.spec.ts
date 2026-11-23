@@ -1,10 +1,6 @@
 import type { Page } from '@stablyai/playwright-test'
 import { expect } from '@stablyai/playwright-test'
 import { test } from './desktop/electron-fixtures/orca-app'
-import {
-  emitCodexHookStatus,
-  readHookEndpoint
-} from './agents/session-fixtures/agent-hook-endpoint'
 import { focusActiveTerminalInput } from './terminal/input/terminal'
 import { waitForActivePaneHookDescriptor } from './terminal/input/terminal-active-pane'
 import {
@@ -23,10 +19,12 @@ import {
 import {
   activateTab,
   clickRow,
+  emitCodexHookStatus,
   hookAgent,
   openBlankTerminalTab,
   prepareActivityFollowSession,
   readHighlightLog,
+  readHookEndpoint,
   rowFor,
   selectedRow,
   settleRender,
