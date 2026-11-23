@@ -4,9 +4,47 @@
 // Prints one JSON object: { checked, near: [{path, lines, cap}], over: [{path, lines, cap}] }.
 // This is an ESTIMATE (a small tokenizer, not oxlint): the real verdict is the oxlint gate. "near" means within
 // MARGIN lines of the cap. Caps mirror .oxlintrc.json overrides: tests 800, .tsx 400, .ts 300, .mjs 600.
+// Files that .oxlintrc.json lists under `ignorePatterns` (generated code) are skipped, because oxlint never checks them either.
 import { existsSync, readFileSync } from 'node:fs'
 
 const MARGIN = 10
+
+function ignoreRegex(pattern) {
+  const body = pattern
+    .split(/(\*\*\/|\*\*|\*)/)
+    .map((part) => {
+      if (part === '**/') {
+        return '(?:.*/)?'
+      }
+      if (part === '**') {
+        return '.*'
+      }
+      if (part === '*') {
+        return '[^/]*'
+      }
+      return part.replace(/[.+^${}()|[\]\\?]/g, '\\$&')
+    })
+    .join('')
+  return new RegExp(`^${body}$`)
+}
+
+// A pattern ignores the path itself and everything under a matching directory, like oxlint's.
+export function isOxlintIgnored(path, patterns) {
+  const parts = path.split('/')
+  return patterns.some((pattern) => {
+    const re = ignoreRegex(pattern)
+    return parts.some((_, i) => re.test(parts.slice(0, i + 1).join('/')))
+  })
+}
+
+function oxlintIgnorePatterns() {
+  try {
+    const patterns = JSON.parse(readFileSync('.oxlintrc.json', 'utf8')).ignorePatterns
+    return Array.isArray(patterns) ? patterns : []
+  } catch {
+    return []
+  }
+}
 
 export function capFor(path) {
   if (/\.(test|spec)\.(ts|tsx|mts|cts)$/.test(path)) {
@@ -99,9 +137,10 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const near = []
   const over = []
   let checked = 0
+  const ignored = oxlintIgnorePatterns()
   for (const path of process.argv.slice(2)) {
     const cap = capFor(path)
-    if (cap === null || !existsSync(path)) {
+    if (cap === null || !existsSync(path) || isOxlintIgnored(path, ignored)) {
       continue
     }
     checked += 1
