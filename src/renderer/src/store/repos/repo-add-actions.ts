@@ -65,6 +65,7 @@ export function createRepoAddActions(
                   target,
                   'repo.add',
                   { path, kind, ...(displayName ? { displayName } : {}) },
+<<<<<<< HEAD
                   {
                     timeoutMs: 15_000,
                     // Main rechecks the captured runtime after this request leaves its queue.
@@ -78,6 +79,12 @@ export function createRepoAddActions(
                         }
                       : {})
                   }
+||||||| 6e73dac4be
+                  { timeoutMs: 15_000 }
+=======
+                  // Adding a repo is the user's act: it may wake an idle-stopped WSL host (#46567).
+                  { timeoutMs: 15_000, wake: true }
+>>>>>>> 6db3097cc90aa6b2bc79593dc3d9cbb653971056
                 )
               ).repo
               // A queued add must keep the selected authority through dispatch and catalog adoption.

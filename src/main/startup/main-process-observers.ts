@@ -1,4 +1,4 @@
-import { app, powerMonitor, powerSaveBlocker } from 'electron'
+import { app, powerMonitor } from 'electron'
 import type { Store } from '../persistence/loading-store/store'
 import type { UsageWorktreeHistory } from '../usage/worktree-attribution/usage-worktree-history'
 import type { AutomationUsageClient } from '../../shared/backend/backend-service-contract'
@@ -6,11 +6,13 @@ import { BackendSupervisor } from '../backend-desktop/backend-supervisor'
 import { provideHostUsageAnalytics } from '../usage/host-usage-analytics'
 import { BACKEND_PUBLIC_USAGE_METHOD } from '../../shared/backend/backend-service-contract'
 import { AgentAwakeService } from '../power/agent-awake-service'
+import { bindAgentAwakeToHookStatus } from '../power/agent-awake-hook-status-binding'
 import { normalizeComputerAwakeMode } from '../../shared/app-lifecycle/computer-awake-mode'
 import { registerSystemResumeBroadcast } from '../power/system-resume-broadcast'
 import { startLidClosedAwake } from '../power/lid-closed-awake/lid-awake-startup'
 import { recordWakeSignal } from '../power/wake-signal-clock'
 import { installBackgroundRunAwakeHold } from '../power/background-run-awake-hold'
+import { holdPowerSaveBlocker } from '../power/power-save-blocker-hold'
 import { readDesktopAwayState } from '../notifications/desktop-away-state'
 import {
   listCapableSharedControlSockets,
@@ -51,14 +53,7 @@ export function initializeMainProcessObservers(store: Store): void {
     state.unsubscribeWakeSignalClock = feedWakeSignalClock()
   }
   // Bots' Tidy-up and Look around hold off idle sleep while they run; display sleep is fine.
-  installBackgroundRunAwakeHold(() => {
-    const id = powerSaveBlocker.start('prevent-app-suspension')
-    return () => {
-      if (powerSaveBlocker.isStarted(id)) {
-        powerSaveBlocker.stop(id)
-      }
-    }
-  })
+  installBackgroundRunAwakeHold(() => holdPowerSaveBlocker('prevent-app-suspension'))
   state.stopDesktopPresenceReporter = startDesktopPresenceReporter({
     readAway: () => readDesktopAwayState(powerMonitor),
     listTargets: listCapableSharedControlSockets,
@@ -84,6 +79,7 @@ export function initializeMainProcessObservers(store: Store): void {
   )
   // Hydrated rows preserve UI only; only this runtime's live hook events may keep the machine awake.
   state.agentAwakeService.setStatuses([])
+<<<<<<< HEAD
   startLidClosedAwake(state.agentAwakeService, { isServeMode: state.isServeMode })
   const unsubscribeStatusChanges = agentHookServer.subscribeStatusRowMutations(
     ({ before, after }) => {
@@ -112,11 +108,41 @@ export function initializeMainProcessObservers(store: Store): void {
   const unsubscribeStatusFreshness = agentHookServer.subscribeStatusFreshness((status) => {
     state.agentAwakeService?.observeStatusFreshness(status)
   })
+||||||| 6e73dac4be
+  const unsubscribeStatusChanges = agentHookServer.subscribeStatusRowMutations(
+    ({ before, after }) => {
+      for (const paneKey of new Set([before?.paneKey, after?.paneKey])) {
+        if (!paneKey) {
+          continue
+        }
+        const row = agentHookServer
+          .getStatusSnapshotForPane(paneKey)
+          .find((row) => !row.providerSessionOnly)
+        state.agentAwakeService?.updateStatus(
+          paneKey,
+          row
+            ? {
+                paneKey,
+                state: row.state,
+                receivedAt: row.receivedAt,
+                observedInCurrentRuntime:
+                  row.isReplay !== true && row.restoredUnconfirmed !== true && !row.paneSleep
+              }
+            : undefined
+        )
+      }
+    }
+  )
+  const unsubscribeStatusFreshness = agentHookServer.subscribeStatusFreshness((status) => {
+    state.agentAwakeService?.observeStatusFreshness(status)
+  })
+=======
+  const unsubscribeHookStatus = bindAgentAwakeToHookStatus(agentHookServer, state.agentAwakeService)
+>>>>>>> 6db3097cc90aa6b2bc79593dc3d9cbb653971056
   // WSL-host agents never reach the hook server; their host's own stream reports them.
   const stopWslHostAgentAwake = startWslHostAgentAwake(state.agentAwakeService)
   state.unsubscribeAgentAwakeStatusChanges = () => {
-    unsubscribeStatusChanges()
-    unsubscribeStatusFreshness()
+    unsubscribeHookStatus()
     stopWslHostAgentAwake()
   }
   // Initialize before IPC/renderers can track; the telemetry client gates dev/disabled cases itself.

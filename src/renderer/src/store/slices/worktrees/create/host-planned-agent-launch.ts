@@ -41,6 +41,7 @@ export async function createWorktreeOnRuntimeHost(
         // Why: an older host's own store defaults would otherwise override the user's choices.
         ...(hostOwnsCreateSettings ? {} : clientCreateSettings)
       },
+<<<<<<< HEAD
       {
         timeoutMs: 10 * 60_000,
         // Validate after capability reads; main also enforces these fences after RPC dequeue.
@@ -53,6 +54,12 @@ export async function createWorktreeOnRuntimeHost(
             }
           : {})
       }
+||||||| 6e73dac4be
+      { timeoutMs: 10 * 60_000 }
+=======
+      // Creating a workspace is the user's act: it may wake an idle-stopped WSL host (#46567).
+      { timeoutMs: 10 * 60_000, wake: true }
+>>>>>>> 6db3097cc90aa6b2bc79593dc3d9cbb653971056
     )),
     ...(hostOwnsCreateSettings ? { hostOwnsCreateSettings: true as const } : {})
   })

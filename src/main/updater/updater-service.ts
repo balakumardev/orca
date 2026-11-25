@@ -14,8 +14,16 @@ import type { ReleaseBuildListOptions } from './releases/updater-release-build-c
 import type { UpdaterSetupOptions } from './lifecycle/updater-setup'
 import { CustomUpdaterSetup } from './custom/custom-updater-setup'
 import type { UpdateInstallMode } from './lifecycle/updater-state'
+import { setDesktopReportUpdateStatus } from '../orca-profiles/cloud-auth/desktop-client-report'
 
+<<<<<<< HEAD
 const updater = new CustomUpdaterSetup()
+||||||| 6e73dac4be
+const updater = new UpdaterSetup()
+=======
+const updater = new UpdaterSetup()
+setDesktopReportUpdateStatus(() => updater.getUpdateStatus())
+>>>>>>> 6db3097cc90aa6b2bc79593dc3d9cbb653971056
 
 export function resolveUpdateInstallMode(isServeMode: boolean): UpdateInstallMode {
   return updater.resolveUpdateInstallMode(isServeMode)
@@ -70,8 +78,20 @@ export function quitAndInstall(): void {
   updater.quitAndInstall()
 }
 
+export function snoozeRequiredUpdate(): Promise<void> {
+  return updater.snoozeRequiredUpdate()
+}
+
 export function isQuittingForUpdate(): boolean {
   return updater.isQuittingForUpdate()
+}
+
+export function isNativeUpdateInstallUnderWay(): boolean {
+  return updater.isNativeUpdateInstallUnderWay()
+}
+
+export function applyTeamPolicyBeforeQuit(): void {
+  updater.applyTeamPolicyBeforeQuit()
 }
 
 export async function getLinuxPackageInstallInstructions(): Promise<LinuxPackageInstallInstructions> {

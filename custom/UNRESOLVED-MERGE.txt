@@ -1,0 +1,16 @@
+This branch contains UNRESOLVED merge conflicts.
+Do not merge it. Resolve the files below, delete this file, commit and push.
+
+src/main/startup/main-process-observers.ts
+src/main/updater/lifecycle/updater-download-install.ts
+src/main/updater/lifecycle/updater-install-execution.ts
+src/main/updater/lifecycle/updater-menu-checks.ts
+src/main/updater/lifecycle/updater-scheduling.ts
+src/main/updater/lifecycle/updater-setup.ts
+src/main/updater/lifecycle/updater-status.ts
+src/main/updater/updater-service.ts
+src/renderer/src/components/ui/command.tsx
+src/renderer/src/lib/agent-session/open/activate-ai-vault-structured-session.ts
+src/renderer/src/lib/agent-session/open/open-existing-structured-session.ts
+src/renderer/src/store/repos/repo-add-actions.ts
+src/renderer/src/store/slices/worktrees/create/host-planned-agent-launch.ts
