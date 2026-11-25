@@ -3,11 +3,21 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import type * as UpdaterModule from './updater-service'
 import type { CustomUpdaterHost, CustomUpdaterPort } from './custom/custom-updater-types'
 import type { UpdateStatus } from '../../shared/updater/update-status-types'
-import { updaterMainWindow } from './testing/updater-test-main-window'
+import type { BrowserWindow } from 'electron'
+
+// The updater reaches its window only through isDestroyed and webContents.isDestroyed/send.
+function updaterMainWindow(send: (channel: string, ...args: unknown[]) => void): BrowserWindow {
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: stands in for the main window the updater talks to.
+  return {
+    isDestroyed: () => false,
+    webContents: { isDestroyed: () => false, send }
+  } as unknown as BrowserWindow
+}
 
 const {
   appMock,
   autoUpdaterMock,
+  nativeUpdaterMock,
   armExitWatchdogMock,
   recordUpdaterLifecycleMock,
   moduleFactories,
@@ -279,9 +289,16 @@ describe('updater hooks for the self-updater patch', () => {
       fake.invokeNativeInstall.mockReturnValue(true)
       const { send } = await setup('1.4.258+custom.4', fake)
       const host = startedHost(fake)
-      // What the module's native update-downloaded listener does once Squirrel has staged the zip.
+      // What the module does at start: register upstream's mac listeners on Electron's native updater.
       const mac = await import('./mac-install/updater-mac-install')
-      mac.handleMacInstallerReady(false, vi.fn(), vi.fn())
+      mac.registerMacUpdaterEvents(host)
+      host.sendStatus({ state: 'downloading', percent: 100, version: '1.4.258+custom.5' })
+      // Squirrel fires its own update-downloaded once the staged zip is on disk: that marks it ready.
+      const nativeDownloaded = nativeUpdaterMock.on.mock.calls.findLast(
+        ([event]) => event === 'update-downloaded'
+      )?.[1] as (() => void) | undefined
+      expect(nativeDownloaded).toBeDefined()
+      nativeDownloaded?.()
       host.sendStatus({ state: 'downloaded', version: '1.4.258+custom.5' })
 
       void host.performQuitAndInstall()
@@ -498,6 +515,7 @@ async function createUpdaterMocks() {
   return {
     appMock,
     autoUpdaterMock,
+    nativeUpdaterMock,
     armExitWatchdogMock,
     recordUpdaterLifecycleMock,
     moduleFactories,

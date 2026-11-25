@@ -1,8 +1,17 @@
 import type { getReleaseDownloadUrl } from './releases/updater-release-readiness'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as UpdaterModule from './updater-service'
-import { updaterMainWindow } from './testing/updater-test-main-window'
 import type { UpdateStatus } from '../../shared/updater/update-status-types'
+import type { BrowserWindow } from 'electron'
+
+// The updater reaches its window only through isDestroyed and webContents.isDestroyed/send.
+function updaterMainWindow(send: (channel: string, ...args: unknown[]) => void): BrowserWindow {
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: stands in for the main window the updater talks to.
+  return {
+    isDestroyed: () => false,
+    webContents: { isDestroyed: () => false, send }
+  } as unknown as BrowserWindow
+}
 
 const {
   appMock,

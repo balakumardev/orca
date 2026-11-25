@@ -43,10 +43,8 @@ describe('activateAiVaultStructuredSession view', () => {
 
     await activateAiVaultStructuredSession(structuredSession, deps(), { kind: 'local' })
 
-    expect(mocks.activateAndRevealWorkspace).toHaveBeenCalledWith('workspace-1', {
-      executionHostId: 'local',
-      providesInitialSurface: true
-    })
+    // A local open names its host only to move off a paired twin.
+    expect(mocks.activateAndRevealWorkspace).toHaveBeenCalledWith('workspace-1')
   })
 
   it('leaves an already shown workspace alone', async () => {

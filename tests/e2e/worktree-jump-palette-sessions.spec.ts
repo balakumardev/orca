@@ -1,9 +1,11 @@
 import type { ElectronApplication, Locator, Page } from '@stablyai/playwright-test'
 import { execFileSync } from 'node:child_process'
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -13,8 +15,89 @@ import os from 'node:os'
 import path from 'node:path'
 import { expect } from '@stablyai/playwright-test'
 import { buildFakeAgentCommandOverride } from './agents/session-fixtures/fake-agent-command-override'
+import { test as base } from './desktop/electron-fixtures/orca-app'
 import { waitForSessionReady } from './desktop/renderer-probes/store'
-import { SUPPORTED, test, type ClaudeStub } from './agents/session-fixtures/structured-claude-stub'
+import { resolveCliCommand } from '../../src/shared/shell/command-resolution/node-cli-command-resolution'
+
+// Skip Windows until the POSIX stub wrapper has a verified .cmd equivalent.
+const SUPPORTED = process.platform !== 'win32'
+const STUB_SCRIPT = path.join(
+  process.cwd(),
+  'tests',
+  'e2e',
+  'fixtures',
+  'structured-claude-stub.cjs'
+)
+
+const SYSTEM_DIRS = ['/usr/bin', '/bin', '/usr/sbin', '/sbin']
+
+type ClaudeStub = {
+  command: string
+  launchLog: string
+  /** Each user message the stub was sent, one JSON line per turn. */
+  inputLog: string
+}
+
+/** Dirs a login shell puts ahead of the launch PATH on macOS (path_helper). */
+function macLoginShellPathDirs(): string[] {
+  if (process.platform !== 'darwin') {
+    return []
+  }
+  const files = [
+    '/etc/paths',
+    ...(existsSync('/etc/paths.d') ? readdirSync('/etc/paths.d') : []).map((name) =>
+      path.join('/etc/paths.d', name)
+    )
+  ]
+  return files.flatMap((file) => readFileSync(file, 'utf8').split('\n').filter(Boolean))
+}
+
+/** Writes the stub `claude` into `dir`; null when a system-wide claude would shadow it on PATH. */
+function writeClaudeStub(dir: string): ClaudeStub | null {
+  const command = path.join(dir, 'claude')
+  const launchLog = path.join(dir, 'launches.jsonl')
+  const inputLog = path.join(dir, 'launches-inputs.jsonl')
+  const emptyHome = path.join(dir, 'empty-home')
+  mkdirSync(emptyHome)
+  // Refuse launch if login-shell PATH or fallback install dirs could select real Claude before the stub.
+  const shadowing = resolveCliCommand('claude', {
+    pathEnv: [...SYSTEM_DIRS, ...macLoginShellPathDirs()].join(path.delimiter),
+    homePath: emptyHome
+  })
+  if (path.isAbsolute(shadowing)) {
+    return null
+  }
+  const quote = (value: string): string => `'${value.replaceAll("'", `'\\''`)}'`
+  writeFileSync(
+    command,
+    `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(STUB_SCRIPT)} ${quote(launchLog)} "$@"\n`
+  )
+  chmodSync(command, 0o755)
+  return { command, launchLog, inputLog }
+}
+
+/** Only the stub's directory and the system tool dirs: no user bin, Homebrew or npm prefix. */
+function claudeStubPath(stub: ClaudeStub): string {
+  return [path.dirname(stub.command), ...SYSTEM_DIRS].join(path.delimiter)
+}
+
+const test = base.extend<{ claudeStub: ClaudeStub }>({
+  // oxlint-disable-next-line no-empty-pattern -- Playwright fixture callbacks require object destructuring here.
+  claudeStub: async ({}, provideFixture, testInfo) => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'orca-e2e-structured-claude-'))
+    const stub = writeClaudeStub(dir)
+    if (!stub) {
+      rmSync(dir, { recursive: true, force: true })
+      testInfo.skip(true, 'a system-wide claude would shadow the stub')
+      return
+    }
+    await provideFixture(stub)
+    rmSync(dir, { recursive: true, force: true })
+  },
+  launchEnv: async ({ claudeStub }, provideFixture) => {
+    await provideFixture({ PATH: claudeStubPath(claudeStub) })
+  }
+})
 
 test.use({ seedTestRepo: false })
 test.skip(!SUPPORTED, 'the Claude stub wrapper is POSIX-only')

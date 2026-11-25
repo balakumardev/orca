@@ -79,7 +79,11 @@ export class CustomUpdaterSetup extends UpdaterSetup {
       getKnownReleaseUrl: () => this.getKnownReleaseUrl(),
       performQuitAndInstall: () => this.performQuitAndInstall(),
       commitStagedMacInstall: () => this.commitStagedMacInstall(),
+      // Upstream counts a native update-downloaded as readiness only when it names the version being
+      // staged; this module stages through Squirrel itself, so its download is that staging.
+      finishMacStaging: () => this.finishMacStaging() ?? (this.getPendingInstallVersion() || null),
       failMacStaging: (error) => this.failMacStaging(error),
+      isAwaitingMacStaging: () => this.isAwaitingMacStaging(),
       shouldDeferMacQuitForInstall: () => this.updateInstallMode === 'interactive',
       sendStatus: (status) => this.sendStatus(status),
       isInstalling: () =>

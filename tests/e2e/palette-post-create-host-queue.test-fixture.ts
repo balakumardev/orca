@@ -18,16 +18,26 @@ import { replaceRuntimeEnvironmentRevisions } from '@/runtime/rpc/environment-re
 import { callRuntimeEnvironment } from '../../src/main/ipc/runtime-environments/requests/runtime-environment-transport-routing'
 import { enqueueRuntimeCall } from '../../src/main/ipc/runtime-environments/requests/runtime-environment-call-queue'
 import { resetSharedControlSupport } from '../../src/main/ipc/runtime-environments/connections/runtime-environment-shared-control-support'
-import { pairingCode } from '../../src/main/ipc/runtime-environments/runtime-environments-ipc-test-harness'
 import {
   addEnvironmentFromPairingCode,
   markEnvironmentUsed,
   resolveEnvironment
 } from '../../src/shared/remote-runtime/host-store/runtime-environment-store'
+import { encodePairingOffer } from '../../src/shared/remote-runtime/pairing/pairing'
 import { redactRuntimeEnvironment } from '../../src/shared/remote-runtime/host-catalog/runtime-environments'
 import type { FolderSearchEntry } from '../../src/shared/folder-search-types'
 import type { Repo } from '../../src/shared/repository/repo-types'
 import type { Worktree } from '../../src/shared/worktree/types'
+
+// A pairing code the host store accepts, built the way the runtime-environments IPC harness did.
+function pairingCode(endpoint = 'ws://127.0.0.1:6768'): string {
+  return encodePairingOffer({
+    v: 2,
+    endpoint,
+    deviceToken: 'device-token',
+    publicKeyB64: Buffer.from(new Uint8Array(32).fill(1)).toString('base64')
+  })
+}
 
 const { sendRequest, getPath } = vi.hoisted(() => ({ sendRequest: vi.fn(), getPath: vi.fn() }))
 vi.mock('electron', () => ({

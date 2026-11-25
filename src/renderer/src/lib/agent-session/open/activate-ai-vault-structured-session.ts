@@ -3,12 +3,16 @@ import type { StructuredSessionOpenAdapterDeps } from './open-existing-structure
 import { showAgentPaneUnavailable } from '@/components/terminal-pane/agent-status/stale-agent-row'
 import { translate } from '@/i18n/i18n'
 import { toast } from 'sonner'
-import {
-  activateAndRevealWorkspace,
-  activateAndRevealWorktree
-} from '../../workspace/activation/worktree-activation'
+import { activateAndRevealWorkspace } from '../../workspace/activation/worktree-activation'
 import { activateWslMovedWorkspace } from '../../workspace/activation/wsl-moved-chat-activation'
 import { useAppStore } from '@/store/index'
+import { runtimeEnvironmentIdOrLocalUnlessTwin } from '../../workspace/ownership/worktree-runtime-owner'
+import {
+  LOCAL_EXECUTION_HOST_ID,
+  parseExecutionHostId,
+  toRuntimeExecutionHostId,
+  type ExecutionHostId
+} from '../../../../../shared/execution-host/execution-host'
 import { readBotGroups } from '../../bot-group-catalog-snapshot'
 import { openBotGroupRoom } from '../../bot-group-catalog'
 import { botGroupRoomOfRow } from '../../bot-group-room-history'
@@ -19,11 +23,13 @@ import type {
   StructuredSessionOpenDeps
 } from '../../../../../shared/agent-session/view/open-structured-agent-session'
 import type { RuntimeClientTarget } from '../../../../../shared/remote-runtime/host-catalog/runtime-client-target'
-import { executionHostIdForStructuredTarget } from '@/runtime/native-chat/session-ownership/structured-agent-session-owner'
 import type { RuntimeTargetGuard } from '@/runtime/rpc/targets/runtime-target-guard'
+import { nativeChatRestartStillStarting } from '@/components/native-chat-recovery/offers/native-chat-restart-runtimes'
+import { showChatOpenUnavailable, type ChatOpenUnavailable } from './chat-open-failure-toast'
+import { parseOrcaSessionAddress } from '../../../../../shared/agent-session/identity/orca-session-address'
 
 type StructuredSessionActivationDeps = StructuredSessionOpenAdapterDeps & {
-  unavailable: (agent?: string) => void
+  unavailable: (agent?: string, context?: ChatOpenUnavailable) => void
   gone: (agent?: string) => void
   hostCannotOpen: (agent?: string) => void
 }
@@ -37,11 +43,6 @@ export type StructuredSessionOpenFeedback = Pick<
 
 /** The open remedies' words, so labelled opens (the orchestration panel) say the same thing. */
 export const structuredSessionOpenFeedbackText = {
-  unavailable: () =>
-    translate(
-      'auto.lib.activateAiVaultStructuredSession.unavailable',
-      'The structured agent session is not available yet. Retry in a moment.'
-    ),
   gone: () =>
     translate(
       'auto.lib.activateAiVaultStructuredSession.gone',
@@ -66,7 +67,7 @@ export const structuredSessionOpenFeedbackText = {
 }
 
 export const structuredSessionOpenFeedback: StructuredSessionOpenFeedback = {
-  unavailable: () => toast.error(structuredSessionOpenFeedbackText.unavailable()),
+  unavailable: (agent, context) => showChatOpenUnavailable(context, agent),
   gone: () => toast.error(structuredSessionOpenFeedbackText.gone()),
   hostCannotOpen: () => toast.error(structuredSessionOpenFeedbackText.hostCannotOpen())
 }
@@ -91,79 +92,164 @@ export async function activateAiVaultStructuredSession(
   }
   await openDesktopStructuredSession(
     { kind: 'history', structuredSession: session.structuredSession, agent: session.agent },
-    target,
-    deps,
-    undefined,
-    undefined,
-    current,
-    expectedEnvironmentRuntimeId,
-    targetGuard
+    {
+      target,
+      deps,
+      retry: () =>
+        activateAiVaultStructuredSession(
+          session,
+          deps,
+          target,
+          current,
+          expectedEnvironmentRuntimeId,
+          targetGuard
+        ),
+      current,
+      expectedEnvironmentRuntimeId,
+      targetGuard
+    }
   )
   return true
 }
 
+type DesktopStructuredSessionOpenOptions = {
+  target?: RuntimeClientTarget
+  deps?: StructuredSessionActivationDeps
+  locate?: StructuredSessionOpenDeps['locate']
+  feedback?: StructuredSessionOpenFeedback
+  retry?: 'open' | (() => Promise<unknown>)
+  current?: () => boolean
+  expectedEnvironmentRuntimeId?: string
+  targetGuard?: RuntimeTargetGuard
+}
+
 export function openDesktopStructuredSession(
   source: StructuredSessionOpenSource,
-  host?: RuntimeClientTarget,
-  deps?: StructuredSessionActivationDeps,
-  locate?: StructuredSessionOpenDeps['locate'],
-  feedback?: StructuredSessionOpenFeedback,
-  current?: () => boolean,
-  expectedEnvironmentRuntimeId?: string,
-  targetGuard?: RuntimeTargetGuard
+  options: DesktopStructuredSessionOpenOptions = {}
 ): Promise<StructuredSessionOpenResult> {
+  const {
+    target,
+    deps,
+    locate,
+    feedback,
+    retry,
+    current,
+    expectedEnvironmentRuntimeId,
+    targetGuard
+  } = options
+  // Read when the open starts: the selection may move before it settles.
+  const pairedHostId = openingPairedHostId(source, target)
+  const retryOpen = retry === 'open' ? () => openDesktopStructuredSession(source, options) : retry
   return openDesktopStructuredSessionInteraction(source, {
-    target: host,
+    target,
     deps,
     locate,
     current,
     // Keep the search-selected runtime through restoration and the main-process queue.
     expectedEnvironmentRuntimeId,
-    present: (result) =>
+    present: (result, owner) =>
       presentDesktopStructuredSession(
         result,
         source,
         feedback ?? deps ?? structuredSessionOpenFeedback,
-        host,
-        targetGuard
+        pairedHostId,
+        { owner, retry: retryOpen, targetGuard }
       )
   })
+}
+
+/** The chat an open is for, when the source names one before the host answers. */
+function openingSessionId(source: StructuredSessionOpenSource): string | undefined {
+  return source.kind === 'history'
+    ? source.structuredSession.sessionId
+    : source.kind === 'notification'
+      ? source.sessionId
+      : (source.party.orcaSessionId ??
+        source.fallback?.sessionId ??
+        parseOrcaSessionAddress(source.party.address) ??
+        undefined)
+}
+
+/** The host an open targets, so its same-id workspace is selected, never a twin on another host. */
+function openingPairedHostId(
+  source: StructuredSessionOpenSource,
+  host: RuntimeClientTarget | undefined
+): ExecutionHostId | null {
+  if (host) {
+    return host.kind === 'environment'
+      ? toRuntimeExecutionHostId(host.environmentId)
+      : LOCAL_EXECUTION_HOST_ID
+  }
+  const workspace =
+    source.kind === 'history'
+      ? source.structuredSession.workspaceId
+      : source.kind === 'notification'
+        ? source.worktreeId
+        : null
+  const environmentId = workspace
+    ? runtimeEnvironmentIdOrLocalUnlessTwin(useAppStore.getState(), workspace)
+    : null
+  return environmentId ? toRuntimeExecutionHostId(environmentId) : null
+}
+
+/** Whether the selection shows another host's copy; a local open only moves off a paired twin. */
+function selectsOtherHost(
+  selected: ExecutionHostId | null,
+  wanted: ExecutionHostId | null,
+  workspace: string
+): boolean {
+  if (wanted === null) {
+    return false
+  }
+  if (wanted === LOCAL_EXECUTION_HOST_ID) {
+    return parseExecutionHostId(selected)?.kind === 'runtime'
+  }
+  if (selected !== null) {
+    return selected !== wanted
+  }
+  // An unstamped selection still names the wanted host when only that host has this workspace.
+  const owner = runtimeEnvironmentIdOrLocalUnlessTwin(useAppStore.getState(), workspace)
+  return !owner || toRuntimeExecutionHostId(owner) !== wanted
 }
 
 function presentDesktopStructuredSession(
   result: StructuredSessionOpenResult,
   source: StructuredSessionOpenSource,
   deps: StructuredSessionOpenFeedback,
-  host?: RuntimeClientTarget,
-  targetGuard?: RuntimeTargetGuard
+  pairedHostId: ExecutionHostId | null,
+  opening: {
+    owner: RuntimeClientTarget
+    retry?: () => Promise<unknown>
+    targetGuard?: RuntimeTargetGuard
+  }
 ): void {
   if (result.kind === 'opened') {
     const workspace = result.target.worktreeId
-    const state = useAppStore.getState()
-    const { activeWorktreeId, activeView } = state
-    // Explicit history owners select the right copy even when both hosts use the same workspace ID.
-    if (host) {
-      const executionHostId = executionHostIdForStructuredTarget(host)
-      // Settings or another page may cover the chat's own workspace; its tab is selected but not shown.
-      if (
-        activeWorktreeId !== workspace ||
-        state.activeWorkspaceExecutionHostId !== executionHostId ||
-        activeView !== 'terminal'
-      ) {
-        activateAndRevealWorkspace(workspace, {
-          executionHostId,
-          providesInitialSurface: true,
-          ...(targetGuard ? { targetGuard } : {})
-        })
-      }
-      return
-    }
+    const { activeWorktreeId, activeView, activeWorkspaceExecutionHostId } = useAppStore.getState()
     // Settings or another page may cover the chat's own workspace; its tab is selected but not shown.
+    // A same-id twin on another host can be selected while the chat lives on this one.
+    const otherHostSelected = selectsOtherHost(
+      activeWorkspaceExecutionHostId,
+      pairedHostId,
+      workspace
+    )
+    const onPairedHost = pairedHostId !== null && pairedHostId !== LOCAL_EXECUTION_HOST_ID
     if (
-      (activeWorktreeId !== workspace || activeView !== 'terminal') &&
-      !activateWslMovedWorkspace(workspace)
+      (activeWorktreeId !== workspace || activeView !== 'terminal' || otherHostSelected) &&
+      // A moved WSL workspace is this machine's; it never stands in for a paired host's copy.
+      (onPairedHost || !activateWslMovedWorkspace(workspace))
     ) {
-      activateAndRevealWorktree(workspace)
+      // A local open names its host only to move off a paired twin, as every other local open does.
+      // A folder workspace has no worktree row, so reveal through the workspace-scoped activation.
+      if (pairedHostId && (onPairedHost || otherHostSelected)) {
+        activateAndRevealWorkspace(workspace, {
+          executionHostId: pairedHostId,
+          providesInitialSurface: true,
+          ...(opening.targetGuard ? { targetGuard: opening.targetGuard } : {})
+        })
+      } else {
+        activateAndRevealWorkspace(workspace)
+      }
     }
   } else if (result.kind === 'failed') {
     const agent = source.kind === 'sender' ? (source.displayName ?? '') : (source.agent ?? '')
@@ -174,10 +260,15 @@ function presentDesktopStructuredSession(
               'auto.lib.activateAiVaultStructuredSession.folderWorkspaceRemoved',
               'The folder workspace was removed.'
             )
-          : translate(
-              'auto.lib.activateAiVaultStructuredSession.worktreeDeleted',
-              'The worktree was deleted.'
-            )
+          : result.failure.workspaceKind === 'project'
+            ? translate(
+                'auto.lib.activateAiVaultStructuredSession.projectRemoved',
+                'The project was removed from Orca.'
+              )
+            : translate(
+                'auto.lib.activateAiVaultStructuredSession.worktreeDeleted',
+                'The worktree was deleted.'
+              )
       )
     } else if (result.failure.reason === 'gone') {
       if (result.failure.surface === 'terminal') {
@@ -196,7 +287,19 @@ function presentDesktopStructuredSession(
         toast.error(structuredSessionOpenFeedbackText.notLocated(agent))
       }
     } else {
-      deps.unavailable(agent)
+      const sessionId = openingSessionId(source)
+      const { code, detail } = result.failure
+      const { retry } = opening
+      deps.unavailable(agent, {
+        starting: !!sessionId && nativeChatRestartStillStarting(opening.owner, sessionId),
+        detail: detail ?? code,
+        retry:
+          retry &&
+          (() =>
+            void Promise.resolve()
+              .then(retry)
+              .catch(() => {}))
+      })
     }
   }
 }

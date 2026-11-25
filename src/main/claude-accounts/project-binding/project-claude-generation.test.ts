@@ -15,11 +15,21 @@ import {
   projectClaudeTestWorktree as worktree,
   removeProjectClaudeFixtures
 } from './project-claude-binding.test-fixture'
-import { withPlatform } from '../../text-generation/execution/commit-message-text-generation-test-harness'
 import {
   projectClaudeGenerationTarget,
   projectClaudeTerminalPreparation
 } from './project-claude-workspace'
+
+// The target is chosen synchronously, so the platform only has to hold for that call.
+function withPlatform<T>(platform: NodeJS.Platform, fn: () => T): T {
+  const original = process.platform
+  Object.defineProperty(process, 'platform', { configurable: true, value: platform })
+  try {
+    return fn()
+  } finally {
+    Object.defineProperty(process, 'platform', { configurable: true, value: original })
+  }
+}
 
 const POINTER = 'ORCA_CLAUDE_PROFILE_POINTER'
 const INJECTED = 'ORCA_CLAUDE_INJECTED_CONFIG_DIR'

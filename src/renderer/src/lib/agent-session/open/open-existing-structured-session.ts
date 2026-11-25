@@ -88,7 +88,7 @@ type DesktopInteractionOptions = {
   initialize?: () => boolean
   current?: () => boolean
   expectedEnvironmentRuntimeId?: string
-  present: (result: StructuredSessionOpenResult) => void
+  present: (result: StructuredSessionOpenResult, owner: RuntimeClientTarget) => void
   onError?: () => void
 }
 
@@ -160,7 +160,7 @@ export async function openDesktopStructuredSessionInteraction(
           return { kind: 'superseded' as const }
         }
         if (initialized) {
-          options.present(result)
+          options.present(result, owner)
         }
         return result
       },
