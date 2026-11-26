@@ -6,6 +6,7 @@ name: custom-sync
 #
 #   detect   newest stable upstream release vs custom/BASE; quiet exit when there is nothing new. A stale PR of the tag that nobody
 #            touched (custom moved on while it ran) is not "nothing new": it is replaced (custom/scripts/stale-sync-pr.sh).
+#            A scheduled run also stops, loudly, after 3 failed runs of this workflow in 24 h (custom/scripts/sync-spend-cap.sh).
 #   merge    merge the release into sync/<tag> by script (clean, or scripted conflict rules), no model
 #   gates0   (only when no conflict remains) the gates of that merge, round 0
 #   agent1   (only when conflicts remain) Flash resolves the conflicted files    } custom-agent.yml, environment `agent`
@@ -69,6 +70,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+      actions: read # the spend cap counts the failed runs of this workflow (custom/scripts/sync-spend-cap.sh)
     outputs:
       proceed: ${{ steps.detect.outputs.proceed }}
       reason: ${{ steps.detect.outputs.reason }}

@@ -98,7 +98,7 @@ if jq -e '.unresolved == true and ((.agent.rounds // []) | length > 0) and all(.
   model_api_refused "$refused" || die "the facts of $branch carry an api_status that is not a refusal: '$refused'"
   printf '::error title=No PR opened: the model API refused every round::HTTP %s on every model round of %s, nothing was resolved. Fix the DeepInfra balance or DEEPINFRA_API_KEY; the next scheduled sync starts this tag over by itself.\n' "$refused" "$branch" >&2
   if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
-    printf '### custom-sync: no PR opened for %s\nThe model API refused every round (HTTP %s) and nothing was resolved. A draft PR would block the retry, so none was opened. Fix the DeepInfra balance or DEEPINFRA_API_KEY; the next scheduled sync starts this tag over.\n' "$branch" "$refused" >>"$GITHUB_STEP_SUMMARY"
+    printf '### custom-sync: no PR opened for %s\nThe model API refused every round (HTTP %s) and nothing was resolved. A draft PR would block the retry, so none was opened. Fix the DeepInfra balance or DEEPINFRA_API_KEY; the next scheduled sync starts this tag over (after 3 failed syncs in 24 h scheduled syncs pause by themselves: then dispatch custom-sync by hand).\n' "$branch" "$refused" >>"$GITHUB_STEP_SUMMARY"
   fi
   exit 1
 fi
@@ -127,7 +127,7 @@ if [ -n "$crash_rounds" ]; then
   crash_rounds="$(printf '%s' "$crash_rounds" | tr -cd 'A-Za-z0-9 ,:')"
   printf '::error title=No PR opened: no model round left a candidate::The agent jobs of %s crashed or were cancelled (%s) and nothing was resolved. A draft PR would block the retry, so none was opened; the next scheduled sync starts this tag over by itself.\n' "$branch" "$crash_rounds" >&2
   if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
-    printf '### custom-sync: no PR opened for %s\nNo model round left a candidate (%s): a lost runner, a job timeout or a crashed step. A draft PR would block the retry, so none was opened; the next scheduled sync starts this tag over. If every run ends like this, the crash repeats: read the agent job logs (each such run can spend paid model rounds).\n' "$branch" "$crash_rounds" >>"$GITHUB_STEP_SUMMARY"
+    printf '### custom-sync: no PR opened for %s\nNo model round left a candidate (%s): a lost runner, a job timeout or a crashed step. A draft PR would block the retry, so none was opened; the next scheduled sync starts this tag over. Each such run can spend paid model rounds, so after 3 failed syncs in 24 h scheduled syncs pause by themselves (custom/scripts/sync-spend-cap.sh): read the agent job logs, then dispatch custom-sync by hand to retry.\n' "$branch" "$crash_rounds" >>"$GITHUB_STEP_SUMMARY"
   fi
   exit 1
 fi
