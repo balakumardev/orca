@@ -227,4 +227,29 @@ has "$body" 'Model round(s) 2, 3 ran in this sync, but none of their edits is in
   && ok "...and the summary and diff section stay those of a clean merge" || bad "round 0 summary: $(grep -F 'Clean merge' "$body")"
 jq -e '.draft == true and (.title | startswith("[gates failed] "))' "$tmp/out-round0/pr-meta.json" > /dev/null && ok "...a red candidate stays a [gates failed] draft, as before" || bad "round 0 draft: $(cat "$tmp/out-round0/pr-meta.json")"
 
+# ---- the stop check: one honest line, and a caveat when it never ran or failed ----------------------------------------------------------
+# The record carries only numbers and fixed words (agent-round.sh normalises what the sandbox user wrote); the PR body adds nothing it cannot say.
+jq '[.[] | .stop_hook = {installed: true, blocks: 2, calls: 3, spent_s: 40, outcome: "green", groups: ["conflict-markers", "typecheck"]}]' "$tmp/rounds-repaired.json" > "$tmp/rounds-stop-green.json"
+FACTS_FILE="$tmp/facts-repaired.json" ROUNDS_FILE="$tmp/rounds-stop-green.json" render stopgreen "$tmp/dispatch-only.yml"
+has "$body" 'Stop check (a script, not the model; the gates still decide): round 2: 2 block(s) (conflict-markers, typecheck), every check was green at the last stop attempt.' \
+  && ok "the stop check line says how often it refused, why, and that the gates still decide" || bad "stop check line: $(grep -F 'Stop check' "$body")"
+! has "$body" 'the stop check never ran' && ! has "$body" 'the stop check failed' && ok "...and a green end raises no caveat" || bad "stop check caveat on green"
+jq '[.[] | .stop_hook = {installed: true, blocks: 6, calls: 7, spent_s: 900, outcome: "block-cap", groups: ["typecheck"]}]' "$tmp/rounds-repaired.json" > "$tmp/rounds-stop-cap.json"
+FACTS_FILE="$tmp/facts-repaired.json" ROUNDS_FILE="$tmp/rounds-stop-cap.json" render stopcap "$tmp/dispatch-only.yml"
+has "$body" 'round 2: 6 block(s) (typecheck), gave up at its block limit, so a check may still have been red.' \
+  && ok "a block cap is reported as a give-up, not as green" || bad "block-cap line: $(grep -F 'Stop check' "$body")"
+jq '[.[] | .stop_hook = {installed: true, blocks: 0, calls: 0, spent_s: 0, outcome: "never-ran", groups: []}]' "$tmp/rounds-repaired.json" > "$tmp/rounds-stop-never.json"
+FACTS_FILE="$tmp/facts-repaired.json" ROUNDS_FILE="$tmp/rounds-stop-never.json" render stopnever "$tmp/dispatch-only.yml"
+has "$body" 'Agent round 2: the stop check never ran, so the round ended when the model said it was done.' && has "$body" 'round 2: 0 block(s), the CLI never ran it.' \
+  && ok "an installed stop check the CLI never ran is a caveat" || bad "never-ran: $(grep -F 'stop check' "$body")"
+jq '[.[] | .stop_hook = {installed: true, blocks: 1, calls: 2, spent_s: 3, outcome: "hook-error", groups: ["lint-caps"]}]' "$tmp/rounds-repaired.json" > "$tmp/rounds-stop-err.json"
+FACTS_FILE="$tmp/facts-repaired.json" ROUNDS_FILE="$tmp/rounds-stop-err.json" render stoperr "$tmp/dispatch-only.yml"
+has "$body" 'Agent round 2: the stop check failed, so the round ended when the model said it was done.' && ok "a stop check that failed (fail open) is a caveat" || bad "hook-error caveat: $(grep -F 'stop check' "$body")"
+jq '[.[] | .stop_hook = {installed: false, why: "a managed settings file already exists"}]' "$tmp/rounds-repaired.json" > "$tmp/rounds-stop-off.json"
+FACTS_FILE="$tmp/facts-repaired.json" ROUNDS_FILE="$tmp/rounds-stop-off.json" render stopoff "$tmp/dispatch-only.yml"
+! has "$body" 'Stop check (' && ! has "$body" 'the stop check' && ok "no stop check installed: no line and no caveat (a round without it is what the PR was before)" || bad "not installed: $(grep -F -i 'stop check' "$body")"
+jq '[.[] | .stop_hook = {installed: true, blocks: 1, calls: 2, spent_s: 3, outcome: "::error::x", groups: ["::set-output name=a::b", "typecheck"]}]' "$tmp/rounds-repaired.json" > "$tmp/rounds-stop-hostile.json"
+FACTS_FILE="$tmp/facts-repaired.json" ROUNDS_FILE="$tmp/rounds-stop-hostile.json" render stophostile "$tmp/dispatch-only.yml"
+has "$body" 'ended for a reason this report does not know' && ! has "$body" '::error::x' && ! has "$body" 'set-output' && ok "an unknown outcome and a malformed group name are not echoed into the PR body" || bad "hostile record: $(grep -F 'Stop check' "$body")"
+
 exit "$([ "$fails" -eq 0 ] && echo 0 || echo 1)"

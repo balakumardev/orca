@@ -121,6 +121,10 @@ cmd_prepare() {
   fi
   nfiles="$(printf '%s\n' "$files" | grep -c . || true)"
 
+  # The files this round may edit, for the stop check the agent runs inside (agent-stop-check.sh, installed by agent-sandbox.sh setup): the
+  # list sync-merge.sh finish enforces, so the check judges exactly what can reach the candidate.
+  allowed_edit_tsv "$SYNC_OUT/sync-facts.json" "$([ "$MODE" = repair ] && echo 1 || true)" "$(facts_get .upstream_sha)" > "$SYNC_OUT/stop-check-files.tsv"
+
   # Previous check output, as data. Gate output comes from our scripts; unresolved markers come from the facts.
   check=""
   if [ "$MODE" != first ]; then
@@ -237,6 +241,33 @@ safe_name() {
   if grep -q -F -f <(leak_needles "$DEEPINFRA_API_KEY") <<<"$1"; then printf '<name contained the key>'; else printf '%s' "$1"; fi
 }
 
+# stop_hook_record ON SB_USER STATE_DIR WHY: the JSON object that says what the stop check did in this round (agent-run.json `stop_hook`, then the
+# round record, the job summary and the PR). The state file belongs to the sandbox user, who can write anything into it, so it is read AS that
+# user (a symlink it plants cannot reach this user's files) and only numbers and words from a fixed list survive; a text that is not on the list
+# becomes `unknown`. `calls` 0 with the check installed means the CLI never ran it (the canary for a silently ineffective hook).
+stop_hook_record() {
+  local on="$1" user="$2" dir="$3" why="$4" raw="" line
+  if [ "$on" != 1 ]; then
+    jq -n -c --arg why "$why" '{installed: false} + (if $why == "" then {} else {why: $why} end)'
+    return 0
+  fi
+  raw="$(sudo -n -u "$user" cat -- "$dir/state.json" 2>/dev/null | trunc_bytes 8192)" || raw=""
+  [ -n "$raw" ] || raw='{}'
+  jq -c '
+    def num: if type == "number" then (floor | if . < 0 then 0 elif . > 9999 then 9999 else . end) else 0 end;
+    def words: [.[]? | strings | select(test("^[a-z-]{1,24}$"))] | .[0:20];
+    ["green", "block-cap", "time-budget", "check-timeout", "no-progress", "out-of-scope", "hook-error", "block"] as $ok
+    | (.outcome | if type == "string" then . else "" end) as $o
+    | {installed: true, calls: (.calls | num), blocks: (.blocks | num), spent_s: (.spent_s | num),
+       outcome: (if (.calls | num) == 0 then "never-ran" elif $o == "block" then "ended-blocked" elif ($ok | index($o)) != null then $o else "unknown" end),
+       groups: (.groups | words), waived: (.waived | words)}' <<<"$raw" 2>/dev/null \
+    || printf '{"installed":true,"calls":0,"blocks":0,"spent_s":0,"outcome":"unreadable","groups":[],"waived":[]}\n'
+  # The round log (one line per decision, with the reason) goes to this step's log, each line behind a fixed prefix so that no text from the
+  # sandbox can start a workflow command.
+  sudo -n -u "$user" tail -n 12 -- "$dir/stop-hook.log" 2>/dev/null | tr -cd '[:print:]\n' | cut -c1-240 | while IFS= read -r line; do log "stop check: $line"; done || true
+  return 0
+}
+
 cmd_run() {
   : "${DEEPINFRA_API_KEY:?DEEPINFRA_API_KEY must be set for this step}"
   local plan="$SYNC_OUT/agent-plan.json" wall out="$SYNC_OUT/agent-out.json" started rc=0
@@ -256,6 +287,28 @@ cmd_run() {
     sandbox=1
     sb_repo="$(jq -r .repo "$SYNC_OUT/sandbox.json")"; sb_user="$(jq -r .user "$SYNC_OUT/sandbox.json")"; sb_path="$(jq -r .path "$SYNC_OUT/sandbox.json")"
     [ -d "$sb_repo" ] && [ -n "$sb_user" ] || die "the sandbox copy or its user is missing"
+  fi
+  # The stop check (agent-stop-check.sh). It is registered once, in Claude Code's root-owned managed settings, by agent-sandbox.sh setup, so this
+  # one invocation serves every mode (first, repair, continue, retry) and nothing is passed on the command line (`--settings` would be ignored:
+  # --safe-mode switches off its hooks). Only a sandbox that is there and says the check is installed gets it; before the agent starts we check
+  # that the files are really there, and the state it leaves is read back after the run.
+  local stop_on=0 stop_hook="" stop_settings="" stop_state="" stop_why="" v val
+  local -a stop_env=()
+  if [ "$sandbox" = 1 ]; then
+    stop_hook="$(jq -r '.stop_hook.hook // ""' "$SYNC_OUT/sandbox.json")"; stop_settings="$(jq -r '.stop_hook.settings // ""' "$SYNC_OUT/sandbox.json")"
+    stop_state="$(jq -r '.stop_hook.state_dir // ""' "$SYNC_OUT/sandbox.json")"
+    if [ "$(jq -r '.stop_hook.installed // false' "$SYNC_OUT/sandbox.json")" != true ]; then
+      stop_why="$(jq -r '.stop_hook.why // "not installed"' "$SYNC_OUT/sandbox.json" | tr -d '\000-\037' | trunc_bytes 300)"
+    elif [ -x "$stop_hook" ] && [ -s "$stop_settings" ] && [ -n "$stop_state" ] && jq -e --arg c "$stop_hook" '.hooks.Stop[0].hooks[0].command == $c' "$stop_settings" >/dev/null 2>&1; then
+      stop_on=1
+      for v in AGENT_STOP_MAX_BLOCKS AGENT_STOP_BUDGET_SECONDS AGENT_STOP_CHECK_TIMEOUT; do
+        val="${!v:-}"
+        case "$val" in '' | *[!0-9]*) ;; *) stop_env+=("$v=$val") ;; esac
+      done
+    else
+      stop_why="installed according to sandbox.json, but the hook or its registration is not there"
+      log "stop check: $stop_why; the agent runs without it"
+    fi
   fi
   local top
   # Resolved BEFORE the agent runs: no git after it. In the sandbox variant no repository code has run in this tree at all.
@@ -306,7 +359,7 @@ cmd_run() {
       cd "$sb_repo"
       sudo -n -u "$sb_user" -H env -i PATH="$sb_path" HOME="/home/$sb_user" LANG=C.UTF-8 TMPDIR=/tmp CI=true \
         ANTHROPIC_BASE_URL="http://127.0.0.1:$port" ANTHROPIC_AUTH_TOKEN="local-proxy-no-key" \
-        CLAUDE_CONFIG_DIR="/home/$sb_user/.claude-round-$ROUND" "${model_env[@]}" \
+        CLAUDE_CONFIG_DIR="/home/$sb_user/.claude-round-$ROUND" "${model_env[@]}" ${stop_env[@]+"${stop_env[@]}"} \
         timeout -k 30 "$wall" claude "${claude_args[@]}" < "$SYNC_OUT/agent-prompt.txt" > "$raw_out" 2> "$raw_err"
     ) || rc=$?
     # Whatever the agent left running (a test runner that outlived the CLI) and the proxy are stopped before anything else.
@@ -326,6 +379,8 @@ cmd_run() {
     ) || rc=$?
   fi
   local wall_s=$(( $(date +%s) - started ))
+  local stop_json
+  stop_json="$(stop_hook_record "$stop_on" "$sb_user" "$stop_state" "$stop_why")"
 
   # Fail closed (a backstop; the raw output is not in SYNC_OUT until the scan has passed): if anything below dies before
   # the scan has run to the end, whatever model output reached SYNC_OUT is deleted rather than shipped.
@@ -364,9 +419,9 @@ cmd_run() {
     [ ! -f "$raw_err" ] || mv "$raw_err" "$out.err"
   fi
 
-  jq -n -c --argjson rc "$rc" --argjson wall "$wall_s" --argjson leaks "$leaks" \
+  jq -n -c --argjson rc "$rc" --argjson wall "$wall_s" --argjson leaks "$leaks" --argjson stop "$stop_json" \
     --argjson files "$(printf '%s\n' ${hits[@]+"${hits[@]}"} | jq -R -s -c 'split("\n") | map(select(length > 0))')" \
-    '{exit_code: $rc, wall_s: $wall, key_leaks: $leaks, key_leak_files: $files}' > "$SYNC_OUT/agent-run.json"
+    '{exit_code: $rc, wall_s: $wall, key_leaks: $leaks, key_leak_files: $files, stop_hook: $stop}' > "$SYNC_OUT/agent-run.json"
   gh_out key_leaks "$leaks"
   log "agent finished: exit $rc after ${wall_s}s (key leak check: $leaks)"
   SCAN_DONE=1
@@ -377,8 +432,9 @@ cmd_run() {
 cmd_finish() {
   local run out="$SYNC_OUT/agent-out.json" plan="$SYNC_OUT/agent-plan.json"
   run="$(cat "$SYNC_OUT/agent-run.json" 2>/dev/null || echo '{"exit_code":-1,"wall_s":0,"key_leaks":0,"key_leak_files":[]}')"
-  local leaks leak_files
+  local leaks leak_files stop_hook
   leaks="$(jq -r '.key_leaks // 0' <<<"$run")"; leak_files="$(jq -c '.key_leak_files // []' <<<"$run")"
+  stop_hook="$(jq -c '.stop_hook // {installed: false}' <<<"$run")"
   local usage_ok=false
   jq -e . "$out" >/dev/null 2>&1 && usage_ok=true
   local report="" lost_lines="" in_tok=0 out_tok=0 cached_tok=0 turns=0 stop="" errflag=true api_status=0
@@ -412,7 +468,7 @@ cmd_finish() {
   tmp="$(mktemp)"
   jq --argjson run "$run" --argjson plan "$(cat "$plan")" --arg report "$report" --argjson lost "$(jq -R -s -c 'split("\n") | map(select(length > 0))' <<<"$lost_lines")" --argjson in_tok "$in_tok" --argjson out_tok "$out_tok" \
      --argjson turns "$turns" --arg stop "$stop" --arg iserr "$errflag" --argjson cost "$cost" --arg usage_ok "$usage_ok" \
-     --argjson leak_files "$leak_files" --argjson api_status "$api_status" --argjson cached_tok "$cached_tok" \
+     --argjson leak_files "$leak_files" --argjson api_status "$api_status" --argjson cached_tok "$cached_tok" --argjson stop_hook "$stop_hook" \
      --argjson p_in "$PRICE_IN" --argjson p_out "$PRICE_OUT" --argjson p_cached "$PRICE_CACHED" --arg p_src "$price_src" \
     '.agent = ((.agent // {rounds: []}) | .rounds += [{
         round: $plan.round, mode: $plan.mode, model: $plan.model, tier: $plan.tier,
@@ -420,7 +476,7 @@ cmd_finish() {
         skipped: ($run.skipped // false),
         is_error: ($iserr == "true"), api_status: $api_status, output_parsed: ($usage_ok == "true"), input_tokens: $in_tok, output_tokens: $out_tok,
         cached_tokens: $cached_tok, price_in: $p_in, price_out: $p_out, price_cached: $p_cached, price_source: $p_src,
-        estimated_cost_usd: $cost, report: $report, lost_lines: $lost }])' "$SYNC_OUT/sync-facts.json" > "$tmp" && mv "$tmp" "$SYNC_OUT/sync-facts.json"
+        estimated_cost_usd: $cost, report: $report, lost_lines: $lost, stop_hook: $stop_hook }])' "$SYNC_OUT/sync-facts.json" > "$tmp" && mv "$tmp" "$SYNC_OUT/sync-facts.json"
 
   # Fixed wording per status (never the API's own text, which is not ours to put in a workflow command).
   if model_api_refused "$api_status"; then
@@ -445,8 +501,10 @@ cmd_finish() {
     elif [ "$usage_ok" != true ]; then why="no readable output; edits kept; gates decide"
     elif [ "$rc" != 0 ] || [ "$errflag" = true ]; then why="ended with an error (exit $rc, stop: ${stop_word:-none}); edits kept; gates decide"
     fi
-    printf -- '- Agent round %s (%s, %s): %s turns, exit code %s, **estimated $%s** (%s prompt tokens, %s of them cached; %s output; per million tokens $%s in, $%s cached, $%s out; prices: %s). Result: %s.\n' \
-      "$ROUND" "$MODE" "$TIER" "$turns" "$rc" "$cost" "$in_tok" "$cached_tok" "$out_tok" "$PRICE_IN" "$PRICE_CACHED" "$PRICE_OUT" "$price_src" "$why" >> "$GITHUB_STEP_SUMMARY"
+    local stop_text=" Stop check: not active."
+    if [ "$(jq -r '.installed // false' <<<"$stop_hook")" = true ]; then stop_text=" Stop check: $(jq -r '"\(.blocks) block(s) in \(.calls) call(s), ended: \(.outcome)"' <<<"$stop_hook")."; fi
+    printf -- '- Agent round %s (%s, %s): %s turns, exit code %s, **estimated $%s** (%s prompt tokens, %s of them cached; %s output; per million tokens $%s in, $%s cached, $%s out; prices: %s). Result: %s.%s\n' \
+      "$ROUND" "$MODE" "$TIER" "$turns" "$rc" "$cost" "$in_tok" "$cached_tok" "$out_tok" "$PRICE_IN" "$PRICE_CACHED" "$PRICE_OUT" "$price_src" "$why" "$stop_text" >> "$GITHUB_STEP_SUMMARY"
   fi
 
   # AGENT_KEY_LEAK=1 makes sync-merge.sh throw away every edit of this round and mark the candidate unresolved.
