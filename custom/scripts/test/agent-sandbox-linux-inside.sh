@@ -149,13 +149,21 @@ checks_f() {
   if [ "$before" = "$after" ] && [ ! -e "$hd/pwned" ] && [ -x "$hd/agent-stop-check.sh" ]; then ok "F4 the script, its helpers, its inputs and the registration are byte-identical after 15 write, delete, move and chmod attempts as agentrun"; else bad "F4 the stop check's files changed ($before -> $after)"; fi
   # The hook as the agent's CLI runs it: JSON on stdin, cwd = the sandbox copy, as agentrun through the real sudo chain.
   local red='export const a = 1\n<<<<<<< HEAD\nx\n=======\ny\n>>>>>>> t\n'
-  agent_sh "cd $sbr && printf '$red' > src/a.ts && printf '{\"cwd\":\"$sbr\",\"hook_event_name\":\"Stop\"}' | $hd/agent-stop-check.sh; echo rc=\$?" > "$ATT/hook-red.out" 2>&1 < /dev/null
+  agent_sh "cd $sbr && printf '$red' > src/a.ts && cd / && printf '{\"cwd\":\"/\",\"hook_event_name\":\"Stop\"}' | $hd/agent-stop-check.sh; echo rc=\$?" > "$ATT/hook-red.out" 2>&1 < /dev/null
   if grep -q '"decision":"block"' "$ATT/hook-red.out" && grep -q 'src/a.ts' "$ATT/hook-red.out" && grep -q '^rc=0$' "$ATT/hook-red.out"; then ok "F5 as agentrun with conflict markers in src/a.ts: a block decision naming the file, exit 0 ($(jq -r '[.outcome, .blocks, .calls] | join(" ")' "$sd/state.json"))"; else bad "F5 hook output: $(first_line "$ATT/hook-red.out")"; fi
   if [ "$(stat -c %U "$sd/state.json")" = agentrun ]; then ok "F6 the state file the hook wrote belongs to agentrun"; else bad "F6 state file owner: $(stat -c %U "$sd/state.json" 2>&1)"; fi
-  agent_sh "cd $sbr && printf 'export const a = 1\n' > src/a.ts && printf '{\"cwd\":\"$sbr\"}' | $hd/agent-stop-check.sh; echo rc=\$?" > "$ATT/hook-green.out" 2>&1 < /dev/null
+  if grep -qx 'RUN_AS=agentrun' "$hd/hook.conf" && grep -qx "REPO=$sbr" "$hd/hook.conf"; then ok "F6b hook.conf in a real setup: RUN_AS=agentrun, REPO=$sbr"; else bad "F6b hook.conf: $(tr '\n' ' ' < "$hd/hook.conf")"; fi
+  # The managed settings apply to every claude on the machine: the round's CLI as the RUNNER user (the fallback when the sandbox step dies after
+  # the install) must get a silent allow with nothing run, even in a tree full of conflict markers.
+  local sh0 sh1 sa0 sa1; sh0="$(sha256sum "$sd/state.json" | cut -c1-16)"; sa0="$(sha256sum "$REAL/src/a.ts" | cut -c1-16)"
+  as_runner bash -c "cd '$REAL' && printf '$red' > src/a.ts && printf '{\"cwd\":\"$REAL\"}' | $hd/agent-stop-check.sh; echo rc=\$?" > "$ATT/hook-runner.out" 2>&1 < /dev/null
+  as_runner bash -c "cd '$REAL' && printf 'export const a = 1\n' > src/a.ts" < /dev/null
+  sh1="$(sha256sum "$sd/state.json" | cut -c1-16)"; sa1="$(sha256sum "$REAL/src/a.ts" | cut -c1-16)"
+  if [ "$(cat "$ATT/hook-runner.out")" = "rc=0" ] && [ "$sh0" = "$sh1" ] && [ "$sa0" = "$sa1" ]; then ok "F6c run by the runner user in the real tree with conflict markers in src/a.ts: silent, exit 0, the sandbox state untouched (the hook only acts for agentrun)"; else bad "F6c runner-user hook: $(first_line "$ATT/hook-runner.out") state $sh0/$sh1 tree $sa0/$sa1"; fi
+  agent_sh "cd $sbr && printf 'export const a = 1\n' > src/a.ts && cd / && printf '{\"cwd\":\"/\"}' | $hd/agent-stop-check.sh; echo rc=\$?" > "$ATT/hook-green.out" 2>&1 < /dev/null
   if [ "$(cat "$ATT/hook-green.out")" = "rc=0" ]; then ok "F7 after the fix the same hook is silent and exits 0 (outcome $(jq -r .outcome "$sd/state.json"))"; else bad "F7 hook output: $(first_line "$ATT/hook-green.out")"; fi
   # The documented limit: the state is the agent's, so it can end the blocking early. It cannot widen anything else.
-  agent_sh "cd $sbr && printf '$red' > src/a.ts && printf '{\"calls\":1,\"blocks\":99,\"spent_s\":0,\"groups\":[],\"waived\":[],\"sigs\":{}}\n' > $sd/state.json && printf '{\"cwd\":\"$sbr\"}' | $hd/agent-stop-check.sh; echo rc=\$?" > "$ATT/hook-tamper.out" 2>&1 < /dev/null
+  agent_sh "cd $sbr && printf '$red' > src/a.ts && printf '{\"calls\":1,\"blocks\":99,\"spent_s\":0,\"groups\":[],\"waived\":[],\"sigs\":{}}\n' > $sd/state.json && cd / && printf '{\"cwd\":\"/\"}' | $hd/agent-stop-check.sh; echo rc=\$?" > "$ATT/hook-tamper.out" 2>&1 < /dev/null
   info "F8 known limit: the agent rewrote its own state (blocks=99); the hook then let go: $(tr '\n' ' ' < "$ATT/hook-tamper.out" | cut -c1-90) (outcome $(jq -r .outcome "$sd/state.json")); the gates, not this check, are the real defence"
   agent_sh "cd $sbr && printf 'export const a = 1\n' > src/a.ts && rm -f $sd/state.json $sd/stop-hook.log" < /dev/null > /dev/null 2>&1
 }

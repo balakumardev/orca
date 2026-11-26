@@ -72,9 +72,9 @@ chmod +x "$stubs/pnpm"
 
 # case_dir NAME: a fresh world for one CLI run: work dir with a file the stop check watches, config dir, request log, hook dir.
 case_dir() {
-  c="$tmp/cases/$1"; rm -rf "${c:?}"; mkdir -p "$c/work/src" "$c/cfg" "$c/logs" "$c/hook" "$c/home" "$c/tc"
-  printf 'export const a = 1\n' > "$c/work/src/a.ts"
-  (cd "$c/work" && git init -q -b main . && git add -A && git -c user.name=t -c user.email=t@example.invalid commit -q -m base)
+  c="$tmp/cases/$1"; rm -rf "${c:?}"; mkdir -p "$c/sb/repo/src" "$c/cfg" "$c/logs" "$c/hook" "$c/home" "$c/tc"
+  printf 'export const a = 1\n' > "$c/sb/repo/src/a.ts"
+  (cd "$c/sb/repo" && git init -q -b main . && git add -A && git -c user.name=t -c user.email=t@example.invalid commit -q -m base)
   printf 'green' > "$c/tc/mode"; : > "$c/tc/calls"
 }
 # raw_hook NAME BODY: a hook script that counts its calls (hook/count) and then does BODY; settings.json registers it.
@@ -94,7 +94,7 @@ run_cli() {
   for _ in $(seq 1 100); do [ -s "$c/logs/port" ] && break; sleep 0.1; done
   [ -s "$c/logs/port" ] || { kill "$spid" 2>/dev/null || true; echo "the fake model did not start"; exit 2; }
   rc=0
-  ( cd "$c/work" && printf 'finish the task\n' | env -i PATH="$stubs:$PATH" HOME="$c/home" LANG=C.UTF-8 TMPDIR="$c" CI=true TC_DIR="$c/tc" \
+  ( cd "$c/sb/repo" && printf 'finish the task\n' | env -i PATH="$stubs:$PATH" HOME="$c/home" LANG=C.UTF-8 TMPDIR="$c" CI=true TC_DIR="$c/tc" \
       ANTHROPIC_BASE_URL="http://127.0.0.1:$(cat "$c/logs/port")" ANTHROPIC_AUTH_TOKEN=local-proxy-no-key CLAUDE_CONFIG_DIR="$c/cfg" \
       ANTHROPIC_API_KEY="" ANTHROPIC_MODEL=fake-model ANTHROPIC_DEFAULT_SONNET_MODEL=fake-model ANTHROPIC_DEFAULT_OPUS_MODEL=fake-model ANTHROPIC_DEFAULT_HAIKU_MODEL=fake-model \
       CLAUDE_CODE_MAX_CONTEXT_TOKENS=131072 CLAUDE_CODE_MAX_OUTPUT_TOKENS=16384 CLAUDE_CODE_SUBAGENT_MODEL=inherit \
@@ -148,12 +148,12 @@ if [ "$rc" = 0 ] && [ "$calls" -ge 8 ] && [ "$calls" -le 10 ] && [ "$reqs" = "$c
 # install_stop_check NAME MANAGED_DIR: the real installer for this case; the files the round may edit: src/a.ts as a content conflict.
 install_stop_check() {
   printf 'content\tsrc/a.ts\n' > "$c/stop-check-files.tsv"
-  jq -n -c --arg u "$(git -C "$c/work" rev-parse HEAD)" '{upstream_sha: $u}' > "$c/sync-facts.json"
+  jq -n -c --arg u "$(git -C "$c/sb/repo" rev-parse HEAD)" '{upstream_sha: $u}' > "$c/sync-facts.json"
   AGENT_SANDBOX_SUDO=none AGENT_TOOLS_DIR="$c/tools" AGENT_SANDBOX_DIR="$c/sb" AGENT_CLAUDE_MANAGED_DIR="$1" SYNC_OUT="$c" \
     bash "$scripts/agent-sandbox.sh" install-stop-hook 1 > "$c/install.json" 2> "$c/install.err"
   jq -e '.installed == true' "$c/install.json" >/dev/null || { cat "$c/install.err"; echo "the installer failed"; exit 2; }
   state="$c/sb/stop-hook-state"
-  # A counting wrapper in front of the real hook (the installed managed file is what check 6 uses; here --settings is the carrier).
+  # A counting wrapper in front of the real hook (the installed managed file is exercised by sections F and G of test-agent-sandbox-linux.sh; here --settings is the carrier).
   printf '#!/usr/bin/env bash\nd="%s"; n=0; [ -f "$d/count" ] && n="$(cat "$d/count")"; echo $((n + 1)) > "$d/count"\nexec "%s"\n' "$c/hook" "$c/tools/stop-hook/agent-stop-check.sh" > "$c/hook/wrap.sh"
   chmod +x "$c/hook/wrap.sh"
   jq -n -c --arg cmd "$c/hook/wrap.sh" '{hooks: {Stop: [{hooks: [{type: "command", command: $cmd, timeout: 1500}]}]}}' > "$c/settings.json"

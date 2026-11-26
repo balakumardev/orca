@@ -105,7 +105,7 @@ export PATH="$bin:$PATH"
 round() {
   local name="$1" mode="$2" stub="$3" n="$4" tier="$5" prev="${6:-}" repo="$tmp/$1.repo" out="$tmp/$1.out" sbx="$tmp/$1.sbx" etc="$tmp/$1.etc"
   git clone -q --no-hardlinks "$src" "$repo"; git -C "$repo" checkout -q custom
-  printf '%s' "$stub" > "$bin/mode"; rm -f "$bin/args-last" "$bin/env-last"
+  printf '%s' "$stub" > "$bin/mode"; rm -f "$bin/args-last" "$bin/env-last" "$bin/managed-path" "$bin/sandbox-json-path-target"
   local env_=(SYNC_OUT="$out" TOOLS_DIR="$scripts" ROUND="$n" MODE="$mode" TIER="$tier" RUNNER_TEMP="$tmp/$name.runner"
     UPSTREAM_SHA="$UPSTREAM_SHA" BASE_SHA="$BASE_SHA" BASE_BRANCH=custom BRANCH="sync/test-$name" LABEL=test TAG=v1.0.1 IS_TEST=true TAG_IS_RELEASE=false)
   [ -z "$prev" ] || env_+=(PREV_DIR="$tmp/$prev.out")

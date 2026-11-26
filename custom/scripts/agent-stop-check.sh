@@ -58,6 +58,12 @@ with_timeout() { # SECONDS CMD...
   else "$@"; fi
 }
 
+# The managed settings that register this script apply to EVERY `claude` on the machine. Only the sandbox user's runs are ours: anyone else
+# (for example the round's CLI running as the runner user, in the real tree and with the key in its environment, when the sandbox step died after
+# the install) gets a silent allow before anything runs: no check, no `pnpm tc`, nothing written.
+RUN_AS="$(conf_get RUN_AS)"
+if [ -n "$RUN_AS" ] && [ "$(id -un)" != "$RUN_AS" ]; then DECIDED=1; exit 0; fi
+
 STATE_DIR="$(conf_get STATE_DIR)"
 [ -n "$STATE_DIR" ] && [ -d "$STATE_DIR" ] || exit 1
 STATE_FILE="$STATE_DIR/state.json"
@@ -175,9 +181,10 @@ $errs"
 sig_of() { printf '%s' "$1" | cksum | tr -d ' ' ; }
 
 START="$(date +%s)"
-input="$(cat || true)"
-cwd="$(jq -r '.cwd // empty' <<<"$input" 2>/dev/null || true)"
-if [ -n "$cwd" ] && [ -d "$cwd" ]; then cd "$cwd"; fi
+cat > /dev/null || true # the CLI's JSON on stdin; not used: the cwd of the session can be anywhere, the files to check are the sandbox copy's
+REPO="$(conf_get REPO)"
+[ -n "$REPO" ] && [ -d "$REPO" ] || exit 1
+cd "$REPO"
 
 if [ -s "$STATE_FILE" ]; then S_JSON="$(jq -c . "$STATE_FILE")"; fi
 S_CALLS="$(jq -r '(.calls // 0) | if type == "number" then floor else 0 end' <<<"$S_JSON")"

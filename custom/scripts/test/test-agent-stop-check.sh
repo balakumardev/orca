@@ -18,7 +18,7 @@ ok() { printf 'ok   %s\n' "$1"; }
 bad() { printf 'FAIL %s\n' "$1"; fails=$((fails + 1)); }
 check() { local name="$1"; shift; if "$@" >/dev/null 2>&1; then ok "$name"; else bad "$name"; fi; }
 
-repo="$tmp/repo"; out="$tmp/out"; stubs="$tmp/stubs"; tc="$tmp/tc"
+repo="$tmp/sb/repo"; out="$tmp/out"; stubs="$tmp/stubs"; tc="$tmp/tc"
 mkdir -p "$repo/src" "$out" "$stubs" "$tc"
 (
   cd "$repo"
@@ -55,7 +55,7 @@ hook="$tmp/tools/stop-hook/agent-stop-check.sh"; state="$tmp/sb/stop-hook-state"
 TAB="$(printf '\t')"
 # install_hook DEPS FILES_TSV_BODY: the real installer, with no privilege change (AGENT_SANDBOX_SUDO=none) and every directory in the temp dir.
 install_hook() {
-  rm -rf "${tmp:?}/tools" "${tmp:?}/sb" "${tmp:?}/etc"
+  rm -rf "${tmp:?}/tools" "${tmp:?}/sb/stop-hook-state" "${tmp:?}/etc"
   printf '%b' "$2" > "$out/stop-check-files.tsv"
   jq -n -c --arg u "$up" '{upstream_sha: $u}' > "$out/sync-facts.json"
   AGENT_SANDBOX_SUDO=none AGENT_TOOLS_DIR="$tmp/tools" AGENT_SANDBOX_DIR="$tmp/sb" AGENT_CLAUDE_MANAGED_DIR="$tmp/etc" SYNC_OUT="$out" \
@@ -64,7 +64,7 @@ install_hook() {
 # run_hook [ENV=VALUE...]: one stop attempt, as Claude Code makes it (JSON on stdin, cwd = the repo). Sets h_rc and h_out (also in $tmp/h.out).
 run_hook() {
   h_rc=0
-  h_out="$(printf '{"cwd":"%s","hook_event_name":"Stop","stop_hook_active":false}' "$repo" | env PATH="$stubs:$PATH" "$@" bash "$hook" 2> "$tmp/hook.err")" || h_rc=$?
+  h_out="$(cd / && printf '{"cwd":"/","hook_event_name":"Stop","stop_hook_active":false}' | env PATH="$stubs:$PATH" "$@" bash "$hook" 2> "$tmp/hook.err")" || h_rc=$?
   printf '%s' "$h_out" > "$tmp/h.out"
 }
 blocked() { [ "$h_rc" = 0 ] && jq -e '.decision == "block"' "$tmp/h.out" >/dev/null 2>&1; }
@@ -82,7 +82,8 @@ check "the managed directory holds only that file (no --settings file: --safe-mo
 check "the hook directory and the registration are not writable by group or others" test -z "$(find "$tmp/tools/stop-hook" "$tmp/etc/managed-settings.json" \( -perm -g+w -o -perm -o+w \))"
 check "the state directory exists and is the agent's to write" test -d "$state" -a -w "$state"
 check "the installer reports itself" jq -e --arg h "$hook" '.installed == true and .hook == $h' "$tmp/install.json"
-check "hook.conf names the state directory, the dependency flag and the upstream commit" bash -c "grep -qx 'STATE_DIR=$state' '$tmp/tools/stop-hook/hook.conf' && grep -qx 'DEPS=1' '$tmp/tools/stop-hook/hook.conf' && grep -qx 'UPSTREAM=$up' '$tmp/tools/stop-hook/hook.conf'"
+check "hook.conf names the state directory, the dependency flag, the upstream commit and the sandbox copy it checks" bash -c "grep -qx 'STATE_DIR=$state' '$tmp/tools/stop-hook/hook.conf' && grep -qx 'DEPS=1' '$tmp/tools/stop-hook/hook.conf' && grep -qx 'UPSTREAM=$up' '$tmp/tools/stop-hook/hook.conf' && grep -qx 'REPO=$repo' '$tmp/tools/stop-hook/hook.conf'"
+check "with the privilege changes off there is no user to compare with: RUN_AS is empty (the Linux test F2 shows it is agentrun in a real setup)" grep -qx 'RUN_AS=' "$tmp/tools/stop-hook/hook.conf"
 mkdir -p "$tmp/etc2"; printf '{"mine":true}\n' > "$tmp/etc2/managed-settings.json"
 rc=0; AGENT_SANDBOX_SUDO=none AGENT_TOOLS_DIR="$tmp/tools2" AGENT_SANDBOX_DIR="$tmp/sb2" AGENT_CLAUDE_MANAGED_DIR="$tmp/etc2" SYNC_OUT="$out" bash "$scripts/agent-sandbox.sh" install-stop-hook 1 > "$tmp/install2.json" 2>/dev/null || rc=$?
 check "an existing managed settings file is never overwritten: the stop check is reported as not installed" bash -c "test '$rc' = 0 && jq -e '.installed == false and (.why | test(\"already exists\"))' '$tmp/install2.json' && grep -q mine '$tmp/etc2/managed-settings.json' && test ! -e '$tmp/tools2'"
@@ -98,7 +99,7 @@ echo "group 1: conflict markers"
 install_hook 1 "content${TAB}src/a.ts\nowned${TAB}src/b.ts\n"; set_tc green
 printf 'export const a = 1\n<<<<<<< HEAD\nx\n=======\ny\n>>>>>>> theirs\n' > "$repo/src/a.ts"
 run_hook
-check "markers in a file the round may edit block the stop with a JSON decision" blocked
+check "markers in a file the round may edit block the stop with a JSON decision (the hook starts in / and its JSON says cwd /: it checks the copy named in hook.conf, never the session directory)" blocked
 check "the reason names the file and the check" reason_has src/a.ts conflict-markers
 check "and is short" test "$(reason_bytes)" -lt 1500
 check "it stops at the first red group: pnpm tc was not run" test "$(tc_calls)" = 0
@@ -175,6 +176,21 @@ if command -v timeout >/dev/null 2>&1; then
   check "state: check-timeout, and the log line says so" bash -c "[ \"\$(jq -r .outcome '$state/state.json')\" = check-timeout ] && grep -q 'allow (check-timeout)' '$state/stop-hook.log'"
 else echo "skip a per-check timeout test: no timeout command"; fi
 
+install_hook 1 "content${TAB}src/a.ts\n"; set_tc red-in
+run_hook AGENT_STOP_MAX_BLOCKS=0
+if silent && [ "$(tc_calls)" = 0 ] && [ "$(st .outcome)" = block-cap ]; then ok "a limit of 0 blocks switches the stop check off: allowed at once, no check run, outcome block-cap"; else bad "limit 0: rc=$h_rc out=[$h_out] calls $(tc_calls)"; fi
+
+echo "another user's claude (the managed settings apply to every claude on the machine)"
+printf 'export const a = 1\n<<<<<<< HEAD\nx\n=======\ny\n>>>>>>> theirs\n' > "$repo/src/a.ts"
+install_hook 1 "content${TAB}src/a.ts\n"; set_tc red-in
+sed -i.bak 's/^RUN_AS=.*/RUN_AS=nobody-such-user-xyz/' "$tmp/tools/stop-hook/hook.conf"
+run_hook
+if silent && [ "$(tc_calls)" = 0 ] && [ ! -e "$state/state.json" ] && [ ! -e "$state/stop-hook.log" ]; then ok "run by any user but the sandbox user: silent allow, no check, no pnpm tc, nothing written (markers were there to find)"; else bad "other user: rc=$h_rc out=[$h_out] calls $(tc_calls) state $(ls "$state")"; fi
+sed -i.bak "s/^RUN_AS=.*/RUN_AS=$(id -un)/" "$tmp/tools/stop-hook/hook.conf"
+run_hook
+check "run by the sandbox user itself (same files, same markers): it blocks" blocked
+printf 'export const a = 1\n' > "$repo/src/a.ts"
+
 echo "no progress"
 awk 'BEGIN { for (i = 1; i <= 302; i++) printf "export const v%d = %d\n", i, i }' > "$repo/src/big.ts"
 install_hook 1 "owned${TAB}src/big.ts\ncontent${TAB}src/a.ts\n"; set_tc red-same
@@ -200,7 +216,7 @@ install_hook 1 "content${TAB}src/a.ts\n"; rm -rf "${state:?}"; run_hook
 check "a missing state directory: exit 0, no output" silent
 install_hook 1 "content${TAB}src/a.ts\n"; mkdir -p "$tmp/badjq"
 printf '#!/usr/bin/env bash\nexit 2\n' > "$tmp/badjq/jq"; chmod +x "$tmp/badjq/jq"
-h_rc=0; h_out="$(printf '{"cwd":"%s"}' "$repo" | env PATH="$tmp/badjq:$stubs:$PATH" bash "$hook" 2>/dev/null)" || h_rc=$?
+h_rc=0; h_out="$(cd / && printf '{"cwd":"/"}' | env PATH="$tmp/badjq:$stubs:$PATH" bash "$hook" 2>/dev/null)" || h_rc=$?
 check "a tool that fails with exit 2 (which would BLOCK if it leaked out) still ends in exit 0 with no output" silent
 install_hook 1 "content${TAB}src/a.ts\n"; set_tc red-in
 h_rc=0; h_out="$(env PATH="$stubs:$PATH" bash "$hook" < /dev/null 2>/dev/null)" || h_rc=$?

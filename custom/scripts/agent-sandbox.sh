@@ -60,7 +60,9 @@ install_stop_hook_core() { # DEPS(0|1): prints the stop_hook object, or the reas
   if [ -s "$SYNC_OUT/stop-check-files.tsv" ]; then cp "$SYNC_OUT/stop-check-files.tsv" "$stage/files.tsv"; else : > "$stage/files.tsv"; fi
   up="$(jq -r '.upstream_sha // ""' "$SYNC_OUT/sync-facts.json" 2>/dev/null || true)"
   [[ "$up" =~ ^[0-9a-f]{40}$ ]] || up=""
-  printf 'STATE_DIR=%s\nDEPS=%s\nUPSTREAM=%s\n' "$state_dir" "$deps" "$up" > "$stage/hook.conf"
+  # RUN_AS: the managed settings apply to every claude on the machine, so the hook does nothing unless it runs as the sandbox user (empty when
+  # the privilege changes are switched off, in tests). REPO: the sandbox copy it checks, whatever directory the session is in.
+  printf 'STATE_DIR=%s\nDEPS=%s\nUPSTREAM=%s\nREPO=%s\nRUN_AS=%s\n' "$state_dir" "$deps" "$up" "$AGENT_SANDBOX_DIR/repo" "$([ "${#SUDO[@]}" -eq 0 ] || printf '%s' "$AGENT_USER")" > "$stage/hook.conf"
   chmod 755 "$stage/agent-stop-check.sh"
   as_root rm -rf "$hook_dir" && as_root mkdir -p "$hook_dir" && as_root cp -R "$stage/." "$hook_dir/" || { echo "cannot install $hook_dir"; return 1; }
   [ "${#SUDO[@]}" -eq 0 ] || as_root chown -R root:root "$hook_dir"
