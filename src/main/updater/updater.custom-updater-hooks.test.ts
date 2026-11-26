@@ -288,8 +288,9 @@ describe('updater hooks for the self-updater patch', () => {
       fake.invokeNativeInstall.mockReturnValue(true)
       const { send } = await setup('1.4.258+custom.4', fake)
       const host = startedHost(fake)
-      // What the module's native update-downloaded listener does once Squirrel has staged the zip.
-      await stageNativeMacUpdate('1.4.258+custom.5')
+      // The module's order: downloading 100 %, Squirrel stages the zip, then it reports downloaded.
+      host.sendStatus({ state: 'downloading', percent: 100, version: '1.4.258+custom.5' })
+      await stageNativeMacUpdate(host)
       host.sendStatus({ state: 'downloaded', version: '1.4.258+custom.5' })
 
       void host.performQuitAndInstall()
@@ -347,25 +348,12 @@ function setPlatform(platform: NodeJS.Platform): void {
 }
 
 /**
- * Plays the native Squirrel staging event MacUpdater delivers once it holds the zip. Upstream keeps the installer-ready
- * handler private, so the test registers the exported events hook with a host that reports staging as finished and fires
- * the 'update-downloaded' listener that lands on the mocked native updater.
+ * Plays the native Squirrel staging event MacUpdater delivers once it holds the zip. Registers upstream's events
+ * with the host the updater really builds, as CustomUpdater.startChecked does, so the test sees what production sees.
  */
-async function stageNativeMacUpdate(version: string): Promise<void> {
+async function stageNativeMacUpdate(host: CustomUpdaterHost): Promise<void> {
   const { registerMacUpdaterEvents } = await import('./mac-install/updater-mac-install')
-  registerMacUpdaterEvents({
-    getCurrentStatus: () => ({ state: 'idle' }),
-    hasInstallableDownloadedVersion: () => false,
-    getPendingInstallVersion: () => version,
-    getKnownReleaseUrl: () => undefined,
-    performQuitAndInstall: vi.fn(),
-    commitStagedMacInstall: vi.fn(),
-    finishMacStaging: () => version,
-    failMacStaging: vi.fn(),
-    isAwaitingMacStaging: () => false,
-    shouldDeferMacQuitForInstall: () => true,
-    sendStatus: vi.fn()
-  })
+  registerMacUpdaterEvents(host)
   const listeners = nativeUpdaterMock.on.mock.calls.filter(
     ([event]) => event === 'update-downloaded'
   )
