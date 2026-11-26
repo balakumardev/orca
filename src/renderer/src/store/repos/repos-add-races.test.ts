@@ -1,13 +1,13 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import type { Repo } from '../../../../shared/repository/repo-types'
 import { createTestStore } from '../testing/app-store-test-fixture'
-import {
-  installReposRuntimeRoutingHarness,
-  localRepo,
-  reposAdd,
-  runtimeEnvironmentCall
-} from './repo-runtime-routing.test-fixture'
 import { runExclusiveForRuntimeEnvironment } from './pending-runtime-repo-removals'
+import { replaceRuntimeEnvironmentRevisions } from '../../runtime/rpc/environment-revisions/runtime-environment-revision'
+import { clearRuntimeCompatibilityCache } from '../../runtime/rpc/compatibility/runtime-compatibility-cache'
+import {
+  createCompatibleRuntimeStatusResponseIfNeeded,
+  type RuntimeEnvironmentCallRequest
+} from '../../runtime/rpc/testing/runtime-compatibility-test-fixture'
 
 vi.mock('sonner', () => ({
   toast: {
@@ -18,7 +18,54 @@ vi.mock('sonner', () => ({
   }
 }))
 
-installReposRuntimeRoutingHarness()
+const localRepo: Repo = {
+  id: 'local-repo',
+  path: '/local',
+  displayName: 'Local',
+  badgeColor: '#000',
+  addedAt: 1
+}
+
+const reposAdd: Mock = vi.fn()
+const reposList: Mock = vi.fn()
+const reposPickFolder: Mock = vi.fn()
+const runtimeEnvironmentCall: Mock = vi.fn()
+const runtimeEnvironmentTransportCall: Mock = vi.fn()
+const runtimeEnvironmentsList: Mock = vi.fn()
+const orcaProfileFindProjectProfiles: Mock = vi.fn()
+const uiSet: Mock = vi.fn()
+
+// Why: the add path routes through the environment transport, which answers protocol probes first.
+beforeEach(() => {
+  replaceRuntimeEnvironmentRevisions([])
+  clearRuntimeCompatibilityCache()
+  reposAdd.mockReset()
+  reposList.mockReset()
+  reposPickFolder.mockReset()
+  runtimeEnvironmentCall.mockReset()
+  orcaProfileFindProjectProfiles.mockReset()
+  uiSet.mockReset().mockResolvedValue(undefined)
+  runtimeEnvironmentTransportCall.mockReset()
+  runtimeEnvironmentTransportCall.mockImplementation((args: RuntimeEnvironmentCallRequest) => {
+    return createCompatibleRuntimeStatusResponseIfNeeded(args) ?? runtimeEnvironmentCall(args)
+  })
+  runtimeEnvironmentsList.mockReset().mockResolvedValue([])
+  vi.stubGlobal('window', {
+    api: {
+      repos: { list: reposList, add: reposAdd, pickFolder: reposPickFolder },
+      orcaProfiles: { findProjectProfiles: orcaProfileFindProjectProfiles },
+      runtimeEnvironments: {
+        call: runtimeEnvironmentTransportCall,
+        list: runtimeEnvironmentsList
+      },
+      ui: { set: uiSet }
+    }
+  })
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 
 describe('repo add/catalog races', () => {
   it('does not add a selected folder to a replacement server while the add was queued', async () => {

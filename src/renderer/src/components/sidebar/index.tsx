@@ -41,7 +41,12 @@ import { PROJECTS_SECTION_GROUP_KEY } from '../../../../shared/sidebar-list/sect
 import { useBotsEnabled } from '@/lib/bot-catalog'
 import { StartupWorktreeRefreshStatus } from './worktree-list/listing/StartupWorktreeRefreshStatus'
 import { WorktreeCardsIntroNotice } from './workspace-card/template/WorktreeCardsIntroNotice'
-import { WORKSPACE_LIST_REGION_ID } from '@/components/app-rail/app-rail-layout'
+import {
+  selectRailPageHidesWorkspaceList,
+  selectWorkspaceListOpen,
+  WORKSPACE_LIST_REGION_ID
+} from '@/components/app-rail/app-rail-layout'
+import { useRailPageListFocusRelease } from '@/components/app-rail/rail-page-list-focus-loss'
 import { setWorkspaceListRegionPresent } from '@/components/app-rail/workspace-list-region-presence'
 import { WorktreeCardsUpdateNotice } from './workspace-card/template/WorktreeCardsUpdateNotice'
 
@@ -103,7 +108,13 @@ function Sidebar({
   worktreeScrollOffsetRef,
   worktreeScrollAnchorRef
 }: SidebarProps): React.JSX.Element {
-  const sidebarOpen = useAppStore((s) => s.sidebarOpen)
+  // Whether the list shows: collapsed on a rail page (rail on) while the saved choice stays.
+  const sidebarOpen = useAppStore(selectWorkspaceListOpen)
+  // Why the saved choice: a rail page only hides the rows (zero width, inert), so their drafts, open dialogs, sort
+  // session and smart-sort latch survive the visit; only the user's own collapse unmounts them.
+  const rowsMounted = useAppStore((s) => s.sidebarOpen)
+  const hiddenByRailPage = useAppStore(selectRailPageHidesWorkspaceList)
+  useRailPageListFocusRelease(hiddenByRailPage)
   const sidebarWidth = useAppStore((s) => s.sidebarWidth)
   const setSidebarWidth = useAppStore((s) => s.setSidebarWidth)
   const repos = useAppStore((s) => s.repos)
@@ -112,7 +123,6 @@ function Sidebar({
   const settings = useAppStore((s) => s.settings)
   const sidebarBody = useAppStore((s) => s.sidebarBody ?? 'workspaces')
   const activityPaneOpen = useAppStore((s) => s.activityPaneOpen)
-  const toggleActivityPane = useAppStore((s) => s.toggleActivityPane)
   const showAgentDashboard = settings?.experimentalAgentDashboardPopout === true
   const agentDashboardDrawerOpen = useAppStore((s) => s.agentDashboardDrawerOpen)
   const setAgentDashboardDrawerOpen = useAppStore((s) => s.setAgentDashboardDrawerOpen)
@@ -276,9 +286,12 @@ function Sidebar({
           id={WORKSPACE_LIST_REGION_ID}
           className="relative min-h-0 flex-shrink-0 bg-worktree-sidebar flex flex-col overflow-hidden"
           style={leftSidebarStyle}
+          // Hidden rows stay mounted but out of the tab order, pointer and accessibility tree.
+          inert={hiddenByRailPage || undefined}
+          aria-hidden={hiddenByRailPage || undefined}
           {...dropHandlers}
         >
-          {sidebarOpen && (
+          {rowsMounted && (
             <>
               <SidebarStackedBody
                 activityOpen={activityPaneOpen}
@@ -303,31 +316,25 @@ function Sidebar({
                 }
                 activityHeader={
                   <SidebarActivityHeader
-                    open={activityPaneOpen}
-                    onToggle={toggleActivityPane}
                     badgeTarget={setAgentBadgeTarget}
                     optionsTarget={setAgentOptionsTarget}
                   />
                 }
                 activity={
-                  <React.Suspense
-                    fallback={activityPaneOpen ? <div className="min-h-0 flex-1" /> : null}
-                  >
-                    <ActivityThreadCollapseContext.Provider value={agentsCollapseState}>
-                      <SidebarAgentsList
-                        active={activityPaneOpen}
-                        readFilter={agentReadFilter}
-                        setReadFilter={setAgentReadFilter}
-                        groupBy={agentGroupBy}
-                        setGroupBy={setAgentGroupBy}
-                        query={agentQuery}
-                        setQuery={setAgentQuery}
-                        optionsTarget={agentOptionsTarget}
-                        badgeTarget={agentBadgeTarget}
-                        scrollTopRef={agentsScrollTopRef}
-                      />
-                    </ActivityThreadCollapseContext.Provider>
-                  </React.Suspense>
+                  <ActivityThreadCollapseContext.Provider value={agentsCollapseState}>
+                    <SidebarAgentsList
+                      active={activityPaneOpen}
+                      readFilter={agentReadFilter}
+                      setReadFilter={setAgentReadFilter}
+                      groupBy={agentGroupBy}
+                      setGroupBy={setAgentGroupBy}
+                      query={agentQuery}
+                      setQuery={setAgentQuery}
+                      optionsTarget={agentOptionsTarget}
+                      badgeTarget={agentBadgeTarget}
+                      scrollTopRef={agentsScrollTopRef}
+                    />
+                  </ActivityThreadCollapseContext.Provider>
                 }
               />
 

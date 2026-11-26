@@ -50,8 +50,9 @@ export const STRUCTURED_AGENT_LAUNCH_ARGS_REQUIRED =
 export const STRUCTURED_AGENT_SESSION_LOGGER_REQUIRED =
   'structured agent-session host requires a logger'
 
+/** A factory runs only when this call installs: building deps has side effects (e.g. the bot tool-secret sweep). */
 export function ensureStructuredAgentSessionHost(
-  deps: StructuredAgentSessionRuntimeDeps
+  deps: StructuredAgentSessionRuntimeDeps | (() => StructuredAgentSessionRuntimeDeps)
 ): Promise<StructuredAgentSessionHost> {
   // With no host admitted before the census, internal Chat starts cannot race a source handoff.
   assertSourceUpdateSessionStartAllowed()
@@ -60,7 +61,7 @@ export function ensureStructuredAgentSessionHost(
   }
   // A failed open must not poison the slot forever — the next call retries.
   if (!installing) {
-    const pending = install(deps).catch((error) => {
+    const pending = install(typeof deps === 'function' ? deps() : deps).catch((error) => {
       if (installing === pending) {
         installing = null
       }

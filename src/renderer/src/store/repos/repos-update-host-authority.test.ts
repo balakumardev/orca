@@ -1,16 +1,46 @@
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi, type Mock } from 'vitest'
 import type { Repo } from '../../../../shared/repository/repo-types'
 import { createTestStore } from '../testing/app-store-test-fixture'
+import { replaceRuntimeEnvironmentRevisions } from '../../runtime/rpc/environment-revisions/runtime-environment-revision'
+import { clearRuntimeCompatibilityCache } from '../../runtime/rpc/compatibility/runtime-compatibility-cache'
 import {
-  installReposRuntimeRoutingHarness,
-  remoteRepo,
-  runtimeEnvironmentCall
-} from './repo-runtime-routing.test-fixture'
+  createCompatibleRuntimeStatusResponseIfNeeded,
+  type RuntimeEnvironmentCallRequest
+} from '../../runtime/rpc/testing/runtime-compatibility-test-fixture'
 
 vi.mock('sonner', () => ({
   toast: { error: vi.fn(), info: vi.fn(), success: vi.fn(), warning: vi.fn() }
 }))
-installReposRuntimeRoutingHarness()
+
+const remoteRepo: Repo = {
+  id: 'remote-repo',
+  path: '/remote',
+  displayName: 'Remote',
+  badgeColor: '#111',
+  addedAt: 2
+}
+
+const runtimeEnvironmentCall: Mock = vi.fn()
+const runtimeEnvironmentTransportCall: Mock = vi.fn()
+
+// The repo-update path routes through the environment transport, which answers protocol probes first.
+beforeEach(() => {
+  replaceRuntimeEnvironmentRevisions([])
+  clearRuntimeCompatibilityCache()
+  runtimeEnvironmentCall.mockReset()
+  runtimeEnvironmentTransportCall.mockReset()
+  runtimeEnvironmentTransportCall.mockImplementation((args: RuntimeEnvironmentCallRequest) => {
+    return createCompatibleRuntimeStatusResponseIfNeeded(args) ?? runtimeEnvironmentCall(args)
+  })
+  vi.stubGlobal('window', {
+    api: {
+      runtimeEnvironments: {
+        call: runtimeEnvironmentTransportCall
+      }
+    }
+  })
+})
+
 afterEach(() => {
   vi.unstubAllGlobals()
   vi.restoreAllMocks()

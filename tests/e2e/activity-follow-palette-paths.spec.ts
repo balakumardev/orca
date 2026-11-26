@@ -1,7 +1,6 @@
 import type { ElectronApplication, Locator, Page } from '@stablyai/playwright-test'
 import { expect } from '@stablyai/playwright-test'
 import { test } from './desktop/electron-fixtures/orca-app'
-import { readHookEndpoint } from './agents/session-fixtures/agent-hook-endpoint'
 import { waitForPaneIdentitySnapshot } from './terminal/input/terminal'
 import { waitForActivePaneHookDescriptor } from './terminal/input/terminal-active-pane'
 import {
@@ -22,6 +21,7 @@ import {
   hookAgent,
   openBlankTerminalTab,
   prepareActivityFollowSession,
+  readHookEndpoint,
   settleRender,
   startAgentThroughHook,
   waitForFocusedAgentPane
