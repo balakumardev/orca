@@ -181,13 +181,14 @@ gate_format() {
 
 # unit_red_verdict FIRST_LOG RC: what a red vitest run (`unit` or `unit-related`) means; prints the reasons, returns 0 only when all of it is covered.
 unit_red_verdict() {
-  local first="$1" rc="$2" decision f rc2=0 suite_decision
+  local first="$1" rc="$2" decision f rc2=0 suite_decision rerun_log
   local -a rerun=() suites=()
-  # Red run. Real failures stay red. Three exceptions, each checked on its own, and the gate passes only when every part of the
+  # Red run. Real failures stay red. Four exceptions, each checked on its own, and the gate passes only when every part of the
   # red is covered: (1) a test file outside this change's scope that failed to LOAD gets one re-run alone, because a file an earlier
   # one in the same worker left half-loaded passes on its own (unit_suite_decide); (2) failed tests that are not ours and fail the same
   # way on the pristine upstream release are the runner's, not this merge's (unit_baseline_gate); (3) an unhandled error that a test
-  # file outside this change's scope raised gets that file one re-run (unit_flake_decide).
+  # file outside this change's scope raised gets that file one re-run (unit_flake_decide); (4) when that re-run raises it again, it is
+  # not counted only if the pristine upstream release raises the same error too (unit_unhandled_baseline_gate).
   local covered=0 n_suites=0
   if [ "$rc" -eq 1 ]; then
     suite_decision="$(unit_suite_decide "$first" "$TEST_SCOPE" "$ALL_TARGETS")"
@@ -223,17 +224,22 @@ unit_red_verdict() {
     echo "unit flake check: the gate stays red (${decision#keep-red: })"
     return "$rc"
   fi
-  rm -f "$first"
   while IFS= read -r f; do [ -z "$f" ] || rerun+=("$f"); done < <(tail -n +2 <<<"$decision")
   for f in "${rerun[@]}"; do
-    [ -f "$f" ] || { echo "unit flake check: the gate stays red ($f does not exist in this checkout)"; return "$rc"; }
+    [ -f "$f" ] || { rm -f "$first"; echo "unit flake check: the gate stays red ($f does not exist in this checkout)"; return "$rc"; }
   done
   echo "unit flake check: vitest exited $rc with $([ "$covered" -eq 1 ] && echo 'no failed test that the upstream baseline does not cover' || echo 'no failed test'); its only other complaint is an unhandled error raised while running ${rerun[*]}, which this change does not touch. Re-running just those files once."
-  with_timeout 600 pnpm exec vitest run --config config/vitest.config.ts "${rerun[@]}" || rc2=$?
+  rerun_log="$(mktemp)"
+  with_timeout 600 pnpm exec vitest run --config config/vitest.config.ts "${rerun[@]}" 2>&1 | tee "$rerun_log" || rc2=$?
   if [ "$rc2" -ne 0 ]; then
-    echo "unit flake check: the re-run exited with code $rc2, so the gate stays red"
+    echo "unit flake check: the re-run exited with code $rc2"
+    # (4) The error came back: it is not counted only when the pristine upstream release raises it too (unit-baseline.sh).
+    if unit_unhandled_baseline_gate "$rc2" "$rerun_log" "$first" "${rerun[@]}"; then rm -f "$first" "$rerun_log"; return 0; fi
+    rm -f "$first" "$rerun_log"
+    echo "unit flake check: the gate stays red"
     return "$rc"
   fi
+  rm -f "$first" "$rerun_log"
   note "first run threw an unhandled error that did not reproduce: ${rerun[*]} passed on a re-run"
   warn_note "The first unit run threw an unhandled error that did not reproduce: ${rerun[*]} (a test file this change does not touch) passed on a re-run. The gate passed on that re-run."
 }
