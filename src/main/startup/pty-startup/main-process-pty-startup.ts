@@ -44,6 +44,7 @@ import { mainProcessState as state } from '../main-process-state'
 import { shortPluginBranchName } from '../../../shared/plugins/events/plugin-events'
 import { notifyWorkspaceCreatedPluginHook } from '../../plugins/hooks/workspace-create-plugin-hook'
 import { pluginListedWorkspaceId } from '../../plugins/workers/host-api/plugin-workspace-projection'
+import { isManagedSourceUpdateHost } from '../../updater/custom/source-update-host-mode'
 
 export function emitPluginWorktreeLifecycle(event: RuntimeWorktreeLifecycleEvent): void {
   const folder = parseWorkspaceKey(event.worktreeId)?.type === 'folder'
@@ -169,12 +170,17 @@ export function startTerminalRuntimeStartupServices(): WindowsDesktopStartupServ
       agentHookServer.setTransportInterferenceListener((report) => {
         track('agent_hook_transport_blocked', { count: report.count })
       })
+      // Surviving agents retain the packaged profile's endpoint and session cache across source builds.
+      const managedSource = isManagedSourceUpdateHost({
+        isPackaged: app.isPackaged,
+        isServeMode: state.isServeMode
+      })
       await agentHookServer.start({
         statusHooksEnabled: isAgentStatusHooksEnabled(settings),
-        env: app.isPackaged ? 'production' : 'development',
+        env: app.isPackaged || managedSource ? 'production' : 'development',
         // Hooks read this file at invocation to reach the new process after restart; namespace dev worktrees sharing orca-dev.
         userDataPath: app.getPath('userData'),
-        endpointNamespace: state.devAgentHookEndpointNamespace
+        endpointNamespace: managedSource ? undefined : state.devAgentHookEndpointNamespace
       })
       logStartupMilestone('startup-service-done', { service: 'agent-hook-server' })
     },

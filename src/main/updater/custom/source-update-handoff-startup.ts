@@ -13,6 +13,7 @@ import { quitProcess } from '../../startup/quit/process-quit-request'
 import { prepareRendererForUpdate } from '../../window/renderer-relays/native-unload-coordinator'
 import { configureSourceUpdateHandoff, SourceUpdateHandoff } from './source-update-handoff'
 import { holdSourceUpdateSessionStarts } from './source-update-session-admission'
+import { isManagedSourceUpdateHost } from './source-update-host-mode'
 
 // Let the owner socket acknowledge before normal quit begins closing transports.
 const SOURCE_UPDATE_REPLY_GRACE_MS = 150
@@ -35,12 +36,8 @@ function blockingReason(): string | null {
 
 /** Opt in only the Mac source launch managed by the external updater. */
 export function installSourceUpdateHandoff(): void {
-  if (
-    process.platform !== 'darwin' ||
-    app.isPackaged ||
-    state.isServeMode ||
-    process.env.ORCA_SOURCE_UPDATE_HANDOFF !== '1'
-  ) {
+  // Share the opt-in boundary with the profile-stable hook endpoint selection.
+  if (!isManagedSourceUpdateHost({ isPackaged: app.isPackaged, isServeMode: state.isServeMode })) {
     return
   }
   configureSourceUpdateHandoff(
