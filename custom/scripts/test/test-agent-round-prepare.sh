@@ -150,7 +150,7 @@ node -e '
 ' > "$tmp/gates/gates-1-static/gates.json"
 gates_bytes="$(jq -r '.gates[] | select(.status == "fail") | "### \(.name) (exit \(.exit_code))\n\(.output_tail)"' "$tmp/gates/gates-1-static/gates.json" | wc -c | tr -d ' ')"
 check "fixture: the failing gates' output is far over the budget and over a pipe buffer" test "$gates_bytes" -gt 150000
-if [ -s "$tmp/r1b.out/merge.bundle" ] && round r2 repair noop 2 pro r1b "$tmp/gates"; then
+if [ -s "$tmp/r1b.out/merge.bundle" ] && round r2 repair noop 2 flash r1b "$tmp/gates"; then
   prompt2="$tmp/r2.out/agent-prompt.txt"
   n="$(block_bytes "$prompt2" '^CHECK OUTPUT' '^FINISH by printing')"
   check "prepare exited 0 for a repair round with a huge check output" test -s "$prompt2"
@@ -184,7 +184,7 @@ jq -n '{checked: 5, affected: 4, files: [
   {old: "src/old/deleted.ts", mapped: "src/old/deleted.ts", missing: 3, total: 3, removed: true, samples: ["x"]},
   {old: "CLAUDE.md", mapped: "CLAUDE.md", missing: 1, total: 1, removed: false, samples: ["y"]},
   {old: "src/escape.ts", mapped: "../outside.ts", missing: 1, total: 1, removed: false, samples: ["z"]}]}' > "$tmp/gates3/gates-1-static/hunk-survival.json"
-if [ -s "$tmp/r1b.out/merge.bundle" ] && round r3 repair noop 3 pro r1b "$tmp/gates3"; then
+if [ -s "$tmp/r1b.out/merge.bundle" ] && round r3 repair noop 3 flash r1b "$tmp/gates3"; then
   prompt3="$tmp/r3.out/agent-prompt.txt"
   check "the repair prompt shows the advisory block with its heading" grep -q -F 'Advisory, not a failing check: lines of ours that vanished.' "$prompt3"
   check "the advisory block carries the finding of the gate" grep -q -F 'lostLineMark()' "$prompt3"
