@@ -10,6 +10,7 @@ import { buildInheritedLocalPtyEnvironment } from '../../providers/local-pty/loc
 import { spawnPtyExecutable } from '../../providers/local-pty/local-pty-executable-spawn'
 import { destroyPtyProcess } from '../../providers/local-pty/local-pty-termination'
 import { buildPlainSshTerminalArgs } from './plain-ssh-terminal-args'
+import { assertSourceUpdateSessionStartAllowed } from '../../updater/custom/source-update-session-admission'
 
 export type PlainSshTerminalDeps = {
   getTarget: (targetId: string) => SshTarget | undefined
@@ -108,6 +109,8 @@ export async function openPlainSshTerminal(
   request: { targetId: unknown; cols: unknown; rows: unknown; owner: number },
   sink: PlainSshTerminalSink
 ): Promise<PlainSshTerminalOpenResult> {
+  // These app-owned SSH processes cannot outlive a source handoff.
+  assertSourceUpdateSessionStartAllowed()
   const targetId = typeof request.targetId === 'string' ? request.targetId : ''
   const target = targetId ? deps.getTarget(targetId) : undefined
   // Internal server-owned SSH hops are not user hosts.
@@ -270,6 +273,11 @@ export function closePlainSshTerminalsOwnedBy(owner: number): void {
       releaseSlot(targetId, slot)
     }
   }
+}
+
+/** Include pending opens: these sessions cannot survive an automatic app restart. */
+export function hasPlainSshTerminalSessions(): boolean {
+  return slots.size > 0 || sessions.size > 0
 }
 
 /** Kill ephemeral sessions on quit and wait for their exits. */

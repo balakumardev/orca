@@ -8,7 +8,10 @@ import {
   type InstalledRuntime
 } from './structured-agent-session-runtime-teardown'
 import type { StructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/host/structured-agent-session-host'
-import { setStructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/host/structured-agent-session-registry'
+import {
+  getStructuredAgentSessionHost,
+  setStructuredAgentSessionHost
+} from '../../../native-chat/agent-session-wire/host/structured-agent-session-registry'
 import { stopAgentSessionAttachments } from './structured-agent-session-attachment-wiring'
 import {
   closeAgentSessionRecordStoreDatabase,
@@ -21,6 +24,7 @@ import {
   type StructuredAgentSessionLogger
 } from '../../../native-chat/agent-session-wire/host/structured-agent-session-logger'
 import { migrateLegacyNativeChatVisualsFolders } from '../../../native-chat/conversation-files/native-chat-scratch-folder-migration'
+import { assertSourceUpdateSessionStartAllowed } from '../../../updater/custom/source-update-session-admission'
 
 import type { StructuredAgentSessionRuntimeDeps } from './structured-agent-session-runtime-contract'
 
@@ -31,6 +35,11 @@ import {
 
 let installing: Promise<InstalledRuntime> | null = null
 let stopping: Promise<void> | null = null
+
+/** An installed Chat host can start children internally; defer even when its children are idle. */
+export function hasStructuredAgentSessionProcesses(): boolean {
+  return stopping !== null || installing !== null || getStructuredAgentSessionHost() !== null
+}
 
 export const CLAUDE_STRUCTURED_AUTH_POLICY_REQUIRED =
   'structured agent-session host requires a Claude auth policy resolver'
@@ -44,6 +53,8 @@ export const STRUCTURED_AGENT_SESSION_LOGGER_REQUIRED =
 export function ensureStructuredAgentSessionHost(
   deps: StructuredAgentSessionRuntimeDeps
 ): Promise<StructuredAgentSessionHost> {
+  // With no host admitted before the census, internal Chat starts cannot race a source handoff.
+  assertSourceUpdateSessionStartAllowed()
   if (stopping) {
     return stopping.then(() => ensureStructuredAgentSessionHost(deps))
   }
