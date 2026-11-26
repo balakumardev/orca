@@ -13,8 +13,8 @@
 #           the best earlier candidate, chosen by pick-repair-base.sh). When that candidate is only PARTLY resolved (its facts
 #           list unresolved files) the round CONTINUES it: the prompt lists just the files that still hold conflict markers,
 #           the resolved ones stay as they are.
-#   retry   a fresh merge again, with the earlier attempt's gate output as context. Round 3 only when no earlier round left
-#           a resolved merge commit to repair.
+#   retry   a fresh merge again, with the earlier attempt's gate output as context (none when PREV_DIR is empty). Round 3 when no
+#           earlier round left a candidate to repair or continue, and round 2 when round 1's job crashed (custom-sync.yml).
 # prepare also: PREV_DIR (dir holding the previous round's sync-facts.json and, for repair, merge.bundle),
 #               PREV_GATES (dir holding the previous round's gates.json, optional),
 #               and for MODE first|retry the start variables of sync-merge.sh (UPSTREAM_SHA BASE_SHA BASE_BRANCH BRANCH
@@ -131,9 +131,13 @@ cmd_prepare() {
       # trunc_bytes is the byte backstop, since the block counts characters.
       check="$check
 $(failing_gates_block 28000 "${gate_files[@]}" | trunc_bytes 28000)"
-    else
+    elif [ -n "${prev_facts:-}" ] && [ -s "$prev_facts" ]; then
       check="$check
-(no check output; the previous attempt left these files unresolved: $(jq -r '(.unresolved_files // []) | join(", ")' "${prev_facts:-/dev/null}" 2>/dev/null))"
+(no check output; the previous attempt left these files unresolved: $(jq -r '(.unresolved_files // []) | join(", ")' "$prev_facts" 2>/dev/null))"
+    else
+      # A retry after rounds whose jobs crashed: there is no earlier attempt to show.
+      check="$check
+(no check output: no earlier round left a candidate, so this round starts again from the merge)"
     fi
     # The hunk-survival gate never fails; its findings are warnings. Show them, so that the model checks each against upstream's new file.
     local advisory=""

@@ -19,7 +19,7 @@ scripts="${SCRIPTS_DIR:-$(cd "$here/.." && pwd)}"
 for t in jq git; do command -v "$t" >/dev/null 2>&1 || { echo "missing tool: $t"; exit 2; }; done
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
-unset GITHUB_OUTPUT GITHUB_STEP_SUMMARY GITHUB_RUN_ATTEMPT
+unset GITHUB_OUTPUT GITHUB_STEP_SUMMARY GITHUB_RUN_ATTEMPT GITHUB_REF AGENT_RESULTS AGENT_KEY_LEAKS
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.com GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
 
 fails=0
@@ -280,5 +280,54 @@ world none; agent_facts false 402
 run SUPERSEDE='[]' ORPHAN_BRANCH=false
 if [ "$o_rc" = 0 ] && called '^pr create '; then ok "a resolved candidate is opened whatever a round's status says"
 else bad "resolved: rc=$o_rc out=[$o_out]"; fi
+
+# ---- the agent jobs crashed and no round left a candidate: no PR, a red run (v1.4.274: a lost runner became a draft that blocked the tag) ---
+round0_facts() { # IS_TEST: the facts of round 0 (the scripts' merge with its markers; no agent record)
+  jq --argjson t "$1" '. + {unresolved: true, is_test: $t, outcome: "conflicts"} | del(.agent)' "$tmp/facts.json" > "$tmp/f.tmp" && mv "$tmp/f.tmp" "$tmp/facts.json"
+}
+CRASH=(GITHUB_REF=refs/heads/custom 'AGENT_RESULTS=1=failure 2=failure 3=failure' 'AGENT_KEY_LEAKS=1=unknown 2= 3=unknown')
+world none; round0_facts false; : > "$tmp/summary.md"
+run SUPERSEDE='[]' ORPHAN_BRANCH=false GITHUB_STEP_SUMMARY="$tmp/summary.md" "${CRASH[@]}"
+if [ "$o_rc" = 1 ] && ! called '^pr create ' && ! called '^pr close ' && ! called '-X DELETE' && ! called '^pr edit ' && [ "$(origin_sha)" = none ] && [ -z "$(out_of pr_number)" ] \
+   && grep -qF '::error title=No PR opened: no model round left a candidate::' <<<"$o_out" && grep -qF 'round 1: failure, round 2: failure, round 3: failure' <<<"$o_out" \
+   && grep -qF 'next scheduled sync starts this tag over' "$tmp/summary.md"; then ok "crash: every agent job failed and round 0 is the candidate: no branch pushed, no PR, the run is red, the summary says why"
+else bad "crash: rc=$o_rc origin=$(origin_sha) log=[$(tr '\n' ';' < "$tmp/gh.log")] out=[$o_out]"; fi
+world none; round0_facts false
+run SUPERSEDE='[]' ORPHAN_BRANCH=false GITHUB_REF=refs/heads/custom 'AGENT_RESULTS=1=cancelled 2=skipped 3=skipped' 'AGENT_KEY_LEAKS=1= 2= 3='
+if [ "$o_rc" = 1 ] && ! called '^pr create ' && grep -qF 'round 1: cancelled' <<<"$o_out"; then ok "crash: a cancelled round 1 (job timeout) with no output at all counts too"
+else bad "crash (cancelled): rc=$o_rc out=[$o_out]"; fi
+world none; round0_facts false; jq '.unresolved = false' "$tmp/facts.json" > "$tmp/f.tmp" && mv "$tmp/f.tmp" "$tmp/facts.json"
+run SUPERSEDE='[]' ORPHAN_BRANCH=false "${CRASH[@]}"
+if [ "$o_rc" = 1 ] && ! called '^pr create '; then ok "crash: round 0 'resolved' only by leaving the marker-free conflicts as git placed them still opens no PR (no model decided them)"
+else bad "crash (round 0 resolved): rc=$o_rc out=[$o_out]"; fi
+world none; round0_facts false
+run SUPERSEDE='[]' ORPHAN_BRANCH=false GITHUB_REF=refs/heads/custom 'AGENT_RESULTS=1=failure 2=skipped 3=skipped' 'AGENT_KEY_LEAKS=1=3 2= 3='
+if [ "$o_rc" = 0 ] && called '^pr create ' && [ "$(origin_sha)" = "$MERGE_SHA" ]; then ok "a crashed round whose scan had COUNTED a leak keeps its draft PR (and its banner) as before"
+else bad "crash with a counted leak: rc=$o_rc out=[$o_out]"; fi
+world none; round0_facts false
+run SUPERSEDE='[]' ORPHAN_BRANCH=false GITHUB_REF=refs/heads/feature/x 'AGENT_RESULTS=1=failure 2=skipped 3=skipped' 'AGENT_KEY_LEAKS=1= 2= 3='
+if [ "$o_rc" = 0 ] && called '^pr create '; then ok "a run from another branch (the agent environment refuses it, so its job fails) opens the draft as before"
+else bad "feature branch: rc=$o_rc out=[$o_out]"; fi
+world none sync-test/x; round0_facts true
+run SUPERSEDE='[]' ORPHAN_BRANCH=false "${CRASH[@]}"
+if [ "$o_rc" = 0 ] && called '^pr create '; then ok "a rehearsal (is_test, sync-test/*) opens its draft as before"
+else bad "rehearsal: rc=$o_rc out=[$o_out]"; fi
+BRANCH="sync/v1.4.258"
+world none; round0_facts false
+run SUPERSEDE='[]' ORPHAN_BRANCH=false GITHUB_REF=refs/heads/custom 'AGENT_RESULTS=1=skipped 2=skipped 3=skipped' 'AGENT_KEY_LEAKS=1= 2= 3='
+if [ "$o_rc" = 0 ] && called '^pr create '; then ok "skip_agent (every agent job skipped) opens the draft as before"
+else bad "skip_agent: rc=$o_rc out=[$o_out]"; fi
+world none; round0_facts false
+run SUPERSEDE='[]' ORPHAN_BRANCH=false GITHUB_REF=refs/heads/custom
+if [ "$o_rc" = 0 ] && called '^pr create '; then ok "without AGENT_RESULTS (an older caller) nothing changes"
+else bad "no AGENT_RESULTS: rc=$o_rc out=[$o_out]"; fi
+world none; agent_facts true 0
+run SUPERSEDE='[]' ORPHAN_BRANCH=false GITHUB_REF=refs/heads/custom 'AGENT_RESULTS=1=failure 2=success 3=failure' 'AGENT_KEY_LEAKS=1=unknown 2=0 3=unknown'
+if [ "$o_rc" = 0 ] && called '^pr create '; then ok "round 1 crashed but a later round left a candidate: its draft PR is opened as before"
+else bad "later round left a candidate: rc=$o_rc out=[$o_out]"; fi
+world none; agent_facts true 402 402
+run SUPERSEDE='[]' ORPHAN_BRANCH=false GITHUB_REF=refs/heads/custom 'AGENT_RESULTS=1=failure 2=success 3=success' 'AGENT_KEY_LEAKS=1=unknown 2=0 3=0'
+if [ "$o_rc" = 1 ] && ! called '^pr create ' && grep -qF 'No PR opened: the model API refused every round::HTTP 402' <<<"$o_out" && ! grep -qF 'no model round left a candidate' <<<"$o_out"; then ok "round 1 crashed and the retries were refused (402): the refusal path, unchanged"
+else bad "crash then 402: rc=$o_rc out=[$o_out]"; fi
 
 exit "$([ "$fails" -eq 0 ] && echo 0 || echo 1)"

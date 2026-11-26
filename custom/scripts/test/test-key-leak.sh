@@ -380,6 +380,24 @@ check "count only: round 1 listed" grep -q '^> - Round 1: (no file names recorde
 PR_TITLE="Sync upstream v1.0.1" AGENT_RESULTS="1=success 2=skipped 3=skipped" AGENT_KEY_LEAKS="1=0 2= 3=" \
   node "$scripts/make-pr-body.mjs" --facts "$tmp/noop.out/sync-facts.json" --raw "$tmp/raw" --out "$tmp/pr-g2" --agent-rounds "$tmp/empty-rounds.json" 2> /dev/null || bad "make-pr-body ran (zero)"
 check "zero leaks: no caution block" test "$(grep -c 'CAUTION' "$tmp/pr-g2/pr-body.md" || true)" = 0
+# With ROUNDS_DIR (the downloaded round-N/ directories) a round whose job failed before its check and that uploaded nothing is told apart:
+# the check did not run and nothing of it left the runner (v1.4.274, PR #75, told the owner to rotate the key for exactly that).
+mkdir -p "$tmp/rd-killed/round-0" "$tmp/rd-uploaded/round-0" "$tmp/rd-uploaded/round-1" "$tmp/pr-g3" "$tmp/pr-g4" "$tmp/pr-g5"
+PR_TITLE="Sync upstream v1.0.1" AGENT_RESULTS="1=failure 2=skipped 3=skipped" AGENT_KEY_LEAKS="1=unknown 2= 3=" ROUNDS_DIR="$tmp/rd-killed" \
+  node "$scripts/make-pr-body.mjs" --facts "$tmp/noop.out/sync-facts.json" --raw "$tmp/raw" --out "$tmp/pr-g3" --agent-rounds "$tmp/empty-rounds.json" 2> /dev/null || bad "make-pr-body ran (killed)"
+check "killed before the check, nothing uploaded: a note, not a caution" test "$(head -n 1 "$tmp/pr-g3/pr-body.md")" = "> [!NOTE]"
+check "killed: says the check did not run and nothing was uploaded or used" grep -qF "The key-leak check of agent round 1 did not run: the round's job ended (round 1: failure) before the check, so nothing from that round was uploaded or used in this candidate." "$tmp/pr-g3/pr-body.md"
+check "killed: does not tell anyone to rotate the key" test "$(grep -c -i 'rotate\|CAUTION\|exposed' "$tmp/pr-g3/pr-body.md" || true)" = 0
+check "killed: the caveat says the same, not 'Key leak in agent round 1'" bash -c "grep -qF 'The key-leak check of agent round 1 did not run: the round was killed first' '$tmp/pr-g3/pr-body.md' && ! grep -qF 'Key leak in agent round' '$tmp/pr-g3/pr-body.md'"
+PR_TITLE="Sync upstream v1.0.1" AGENT_RESULTS="1=failure 2=skipped 3=skipped" AGENT_KEY_LEAKS="1=unknown 2= 3=" ROUNDS_DIR="$tmp/rd-uploaded" \
+  node "$scripts/make-pr-body.mjs" --facts "$tmp/noop.out/sync-facts.json" --raw "$tmp/raw" --out "$tmp/pr-g4" --agent-rounds "$tmp/empty-rounds.json" 2> /dev/null || bad "make-pr-body ran (uploaded)"
+check "unknown and the round DID upload an artifact: the caution and the rotate warning stay" bash -c "test \"\$(head -n 1 '$tmp/pr-g4/pr-body.md')\" = '> [!CAUTION]' && grep -q 'Treat DEEPINFRA_API_KEY as exposed and rotate it' '$tmp/pr-g4/pr-body.md'"
+PR_TITLE="Sync upstream v1.0.1" AGENT_RESULTS="1=success 2=skipped 3=skipped" AGENT_KEY_LEAKS="1=unknown 2= 3=" ROUNDS_DIR="$tmp/rd-killed" \
+  node "$scripts/make-pr-body.mjs" --facts "$tmp/noop.out/sync-facts.json" --raw "$tmp/raw" --out "$tmp/pr-g5" --agent-rounds "$tmp/empty-rounds.json" 2> /dev/null || bad "make-pr-body ran (unknown, job ok)"
+check "unknown for a job that did not fail: the caution and the rotate warning stay" grep -q 'Treat DEEPINFRA_API_KEY as exposed and rotate it' "$tmp/pr-g5/pr-body.md"
+PR_TITLE="Sync upstream v1.0.1" AGENT_RESULTS="1=failure 2=skipped 3=skipped" AGENT_KEY_LEAKS="1=4 2= 3=" ROUNDS_DIR="$tmp/rd-killed" \
+  node "$scripts/make-pr-body.mjs" --facts "$tmp/noop.out/sync-facts.json" --raw "$tmp/raw" --out "$tmp/pr-g5" --agent-rounds "$tmp/empty-rounds.json" 2> /dev/null || bad "make-pr-body ran (count, killed)"
+check "a COUNT from a job that died afterwards is still a leak: rotate" grep -qF "The agent's output contained the API key; its edits were discarded. Rotate DEEPINFRA_API_KEY." "$tmp/pr-g5/pr-body.md"
 
 echo
 if [ "$fails" -eq 0 ]; then echo "all key-leak checks passed"; else echo "$fails check(s) FAILED"; exit 1; fi
