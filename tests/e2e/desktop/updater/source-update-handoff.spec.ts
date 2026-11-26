@@ -3,9 +3,11 @@ import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { RuntimeClient } from '../../../../src/cli/runtime/client'
+import { getManagedScript } from '../../../../src/main/claude/hooks/hook-script'
 import { PROTOCOL_VERSION } from '../../../../src/main/daemon/protocol/daemon-protocol-version'
 import { parseDaemonPidFile } from '../../../../src/main/daemon/endpoint/identity/daemon-pid-file-parse'
 import type { SourceUpdateHandoffResult } from '../../../../src/main/updater/custom/source-update-handoff'
+import type { RuntimeMobileSessionTabsResult } from '../../../../src/shared/remote-runtime/session-graph/runtime-session-contracts'
 import { quotePosixShell } from '../../../../src/shared/shell/launch/shell-argument-quoting'
 import { PTY_SESSION_ID_SEPARATOR } from '../../../../src/shared/terminal/pty/lifecycle/pty-session-id-format'
 import {
@@ -35,10 +37,21 @@ function readEvidence(filePath: string): string {
   return existsSync(filePath) ? readFileSync(filePath, 'utf8') : ''
 }
 
+async function readAgentStatus(client: RuntimeClient, ptyId: string) {
+  const response = await client.call<{ snapshots: RuntimeMobileSessionTabsResult[] }>(
+    'session.tabs.listAll'
+  )
+  const tab = response.result.snapshots
+    .flatMap((snapshot) => snapshot.tabs)
+    .find((tab) => tab.type === 'terminal' && tab.ptyId === ptyId)
+  return tab?.type === 'terminal' ? tab.agentStatus : undefined
+}
+
 test('source-update quit preserves the running terminal and output produced while Electron is absent', async ({
   testRepoPath
 }, testInfo) => {
   test.skip(process.platform !== 'darwin', 'Source-update handoff is macOS-only')
+  // Two cold Electron launches and daemon reattachment share this lifecycle test's budget.
   test.setTimeout(300_000)
   const session = createRestartSession(testInfo, {
     ORCA_BACKGROUND_LAUNCH: '1',
@@ -50,6 +63,8 @@ test('source-update quit preserves the running terminal and output produced whil
     const evidenceDir = path.join(session.userDataDir, 'handoff-evidence')
     mkdirSync(evidenceDir)
     const scriptPath = path.join(evidenceDir, 'persistent-shell.sh')
+    const hookScriptPath = path.join(evidenceDir, 'claude-hook.sh')
+    writeFileSync(hookScriptPath, getManagedScript('posix'))
     const nonce = randomUUID().replaceAll('-', '').slice(0, 16)
     // The file gate makes the second PTY output impossible before the app has actually exited.
     writeFileSync(
@@ -58,20 +73,32 @@ test('source-update quit preserves the running terminal and output produced whil
 set -eu
 evidence_dir=$1
 nonce=$2
+export ORCA_AGENT_HOOK_ENDPOINT=$3
+hook_script=$4
+post_hook() {
+  printf '{"hook_event_name":"%s","session_id":"handoff-session","prompt":"%s"}' "$1" "$2" | /bin/sh "$hook_script"
+}
 stty -echo
 trap 'stty echo' EXIT
+post_hook SessionStart before-update
+post_hook UserPromptSubmit before-update
 printf '\\033[2J\\033[HREADY:%s:%s\\n' "$nonce" "$$"
 printf '%s\\n' "$$" > "$evidence_dir/child.pid"
 while [ ! -f "$evidence_dir/app-exited" ]; do sleep 0.1; done
 printf 'ABSENT:%s:%s\\n' "$nonce" "$$"
 printf '%s\\n' "$$" > "$evidence_dir/absent.pid"
 while IFS= read -r request; do
+  post_hook UserPromptSubmit after-update
   printf 'REATTACHED:%s:%s:%s\\n' "$nonce" "$$" "$request"
 done
 `
     )
 
-    const first = await session.launch()
+    const first = await session.launch({
+      extraEnv: {
+        ORCA_DEV_REPO_ROOT: path.join(path.parse(session.userDataDir).root, 'source-one')
+      }
+    })
     app = first.app
     await first.page.setViewportSize({ width: 1440, height: 900 })
     await attachRepoAndOpenTerminal(first.page, testRepoPath)
@@ -91,7 +118,8 @@ done
     await execInTerminal(
       first.page,
       ptyId,
-      `/bin/sh ${quotePosixShell(scriptPath)} ${quotePosixShell(evidenceDir)} ${quotePosixShell(nonce)}`
+      // A surviving packaged agent retains this profile-relative endpoint across source generations.
+      `/bin/sh ${quotePosixShell(scriptPath)} ${quotePosixShell(evidenceDir)} ${quotePosixShell(nonce)} ${quotePosixShell(path.join(session.userDataDir, 'agent-hooks', 'endpoint.env'))} ${quotePosixShell(hookScriptPath)}`
     )
     const childPidPath = path.join(evidenceDir, 'child.pid')
     await expect.poll(() => readEvidence(childPidPath), { timeout: 30_000 }).toMatch(/^[1-9]\d*\n$/)
@@ -112,6 +140,12 @@ done
     recordedProcesses.push(...(await recordProcessTree(daemon)))
 
     const client = new RuntimeClient(session.userDataDir, 30_000, null, null)
+    await expect
+      .poll(() => readAgentStatus(client, ptyId))
+      .toMatchObject({
+        providerSession: { id: 'handoff-session' },
+        prompt: 'before-update'
+      })
     const before = await client.call('status.get')
     const firstProcess = first.app.process()
     const response = await client.call<SourceUpdateHandoffResult>(
@@ -139,7 +173,11 @@ done
     await session.close(first.app)
     app = undefined
 
-    const second = await session.launch()
+    const second = await session.launch({
+      extraEnv: {
+        ORCA_DEV_REPO_ROOT: path.join(path.parse(session.userDataDir).root, 'source-two')
+      }
+    })
     app = second.app
     await second.page.setViewportSize({ width: 1440, height: 900 })
     await waitForSessionReady(second.page)
@@ -159,6 +197,12 @@ done
     ).toBeVisible()
     await expectTerminalAccessibilityText(second.page, tabId, `READY:${nonce}:${childPid}`)
     await expectTerminalAccessibilityText(second.page, tabId, `ABSENT:${nonce}:${childPid}`)
+    // The agent has sent no new hook yet; its session identity must come from the restart cache.
+    await expect
+      .poll(() => readAgentStatus(client, ptyId))
+      .toMatchObject({
+        providerSession: { id: 'handoff-session' }
+      })
 
     // Repeated probes are harmless input to this reader while restored xterm replay drains.
     const challenge = randomUUID().slice(0, 8)
@@ -180,6 +224,12 @@ done
         { timeout: 15_000, message: 'the reattached terminal could not reach the original shell' }
       )
       .toContain(`REATTACHED:${nonce}:${childPid}:${challenge}`)
+    await expect
+      .poll(() => readAgentStatus(client, ptyId))
+      .toMatchObject({
+        providerSession: { id: 'handoff-session' },
+        prompt: 'after-update'
+      })
   } finally {
     try {
       await session.dispose(app)
