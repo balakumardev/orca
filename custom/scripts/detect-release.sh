@@ -11,9 +11,11 @@
 # tag contains which, while a higher version number always means a later cut.
 #
 # An existing PR for sync/<tag> ends the search (an open one is the answer, a merged one means custom/BASE moved on, one a person
-# closed means "no"), with ONE exception that lets a sync heal itself: an open PR that is stale (custom moved on while it ran, so
-# `land` refused it) and untouched automation output is replaced. This script only decides and reports it (outputs replace_pr and
-# replace_head, orphan_branch true, orphan_sha: the commit the branch held); open-pr.sh re-checks it and closes the PR. The rules and the safety guards are in stale-sync-pr.sh.
+# closed means "no"), with TWO exceptions that let a sync heal itself: an open PR that is stale (custom moved on while it ran, so
+# `land` refused it) and untouched automation output is replaced, and so is a FAILED DRAFT ("[needs manual merge]" / "[gates failed]")
+# that is at least 6 hours old and that nobody but the automation touched. This script only decides and reports it (outputs replace_pr,
+# replace_head, replace_draft, replace_retry, orphan_branch true, orphan_sha: the commit the branch held); open-pr.sh re-checks it and
+# closes the PR. The rules and the safety guards are in stale-sync-pr.sh.
 # shellcheck source=lib.sh
 . "$(dirname "$0")/lib.sh"
 # shellcheck source=stale-sync-pr.sh
@@ -45,6 +47,8 @@ IS_TEST=false
 TAG_IS_RELEASE=false
 REPLACE_PR=""
 REPLACE_HEAD=""
+REPLACE_DRAFT=false
+REPLACE_RETRY=""
 ORPHAN_SHA=""
 if [ -z "$REF" ]; then
   releases="$(gh api "repos/$UPSTREAM_REPO/releases?per_page=100")"
@@ -89,12 +93,14 @@ else
   TITLE="Sync upstream $TAG"
   # A PR in ANY state for this tag ends the search: an open one is already the answer, a closed one
   # (owner said no) must not be reopened every three hours, a merged one means custom/BASE moved on.
-  # Exception (stale-sync-pr.sh): a stale, untouched automation PR is replaced; PRs the automation itself closed that way are
-  # counted, and the third replacement is the last.
+  # Exception (stale-sync-pr.sh): a stale, untouched automation PR, or an old failed draft nobody touched, is replaced; PRs the
+  # automation itself closed that way are counted, and the third replacement is the last.
   classify_sync_prs "$REPO" "$BRANCH" "$BASE_BRANCH" "$BASE_SHA" "$UPSTREAM_SHA"
   [ -z "$SYNC_PR_STOP" ] || stop "$SYNC_PR_STOP"
   REPLACE_PR="$SYNC_PR_REPLACE"
   REPLACE_HEAD="$SYNC_PR_REPLACE_HEAD"
+  REPLACE_DRAFT="${SYNC_PR_REPLACE_DRAFT:-false}"
+  REPLACE_RETRY="$SYNC_PR_REPLACE_RETRY"
   # The branch may already exist: the head of the PR being replaced, or a leftover of an interrupted run with no PR. open-pr.sh
   # deletes it only while it still points at the commit seen here (orphan_sha), so a push or a PR that came in since is never lost.
   ORPHAN=false
@@ -124,7 +130,9 @@ fi
 
 log "Sync target: $TAG ($UPSTREAM_SHA) onto $BASE_BRANCH ($BASE_SHA, BASE $BASE_TAG), test=$IS_TEST, branch=$BRANCH"
 gh_out proceed true
-if [ -n "$REPLACE_PR" ]; then gh_out reason "sync $TAG onto $BASE_BRANCH, replacing stale PR #$REPLACE_PR"; else gh_out reason "sync $TAG onto $BASE_BRANCH"; fi
+if [ "$REPLACE_DRAFT" = true ]; then gh_out reason "sync $TAG onto $BASE_BRANCH, replacing the unattended failed draft PR #$REPLACE_PR (automatic retry $REPLACE_RETRY of $SYNC_PR_RETRY_CAP)"
+elif [ -n "$REPLACE_PR" ]; then gh_out reason "sync $TAG onto $BASE_BRANCH, replacing stale PR #$REPLACE_PR"
+else gh_out reason "sync $TAG onto $BASE_BRANCH"; fi
 gh_out is_test "$IS_TEST"
 gh_out tag "$TAG"
 gh_out tag_is_release "$TAG_IS_RELEASE"
@@ -141,3 +149,5 @@ gh_out orphan_branch "$ORPHAN"
 gh_out orphan_sha "$ORPHAN_SHA"
 gh_out replace_pr "$REPLACE_PR"
 gh_out replace_head "$REPLACE_HEAD"
+gh_out replace_draft "$REPLACE_DRAFT"
+gh_out replace_retry "$REPLACE_RETRY"

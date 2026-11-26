@@ -5,7 +5,9 @@ name: custom-sync
 # started, it merges the PR itself and dispatches custom-release.yml once. In every other case the PR waits for a human.
 #
 #   detect   newest stable upstream release vs custom/BASE; quiet exit when there is nothing new. A stale PR of the tag that nobody
-#            touched (custom moved on while it ran) is not "nothing new": it is replaced (custom/scripts/stale-sync-pr.sh).
+#            touched (custom moved on while it ran) is not "nothing new": it is replaced (custom/scripts/stale-sync-pr.sh). So is a
+#            FAILED DRAFT ("[needs manual merge]" / "[gates failed]") that is 6 hours old and that nobody but the automation touched,
+#            at most 3 times per tag.
 #            A scheduled run also stops, loudly, after 3 failed runs of this workflow in 24 h (custom/scripts/sync-spend-cap.sh).
 #   merge    merge the release into sync/<tag> by script (clean, or scripted conflict rules), no model
 #   gates0   (only when no conflict remains) the gates of that merge, round 0
@@ -70,6 +72,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+      issues: read # the events and comments of a failed draft (custom/scripts/stale-sync-pr.sh); a pull request is an issue to those endpoints
       actions: read # the spend cap counts the failed runs of this workflow (custom/scripts/sync-spend-cap.sh)
     outputs:
       proceed: ${{ steps.detect.outputs.proceed }}
@@ -90,6 +93,8 @@ jobs:
       orphan_sha: ${{ steps.detect.outputs.orphan_sha }}
       replace_pr: ${{ steps.detect.outputs.replace_pr }}
       replace_head: ${{ steps.detect.outputs.replace_head }}
+      replace_draft: ${{ steps.detect.outputs.replace_draft }}
+      replace_retry: ${{ steps.detect.outputs.replace_retry }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -372,6 +377,7 @@ jobs:
       contents: write
       pull-requests: write
       statuses: write
+      issues: read # re-reads the events and comments of a failed draft right before it is replaced (custom/scripts/stale-sync-pr.sh)
     outputs:
       pr_number: ${{ steps.open.outputs.pr_number }}
       merge_sha: ${{ steps.open.outputs.merge_sha }}
@@ -459,11 +465,14 @@ jobs:
           SUPERSEDE: ${{ needs.detect.outputs.supersede }}
           ORPHAN_BRANCH: ${{ needs.detect.outputs.orphan_branch }}
           ORPHAN_SHA: ${{ needs.detect.outputs.orphan_sha }}
-          # A stale, untouched PR for this same branch: open-pr.sh re-checks it against this head sha, closes it and takes its name.
+          # A stale, untouched PR (or an old failed draft nobody touched: REPLACE_DRAFT, REPLACE_RETRY) for this same branch: open-pr.sh
+          # re-checks it against this head sha, closes it and takes its name.
           REPLACE_PR: ${{ needs.detect.outputs.replace_pr }}
           REPLACE_HEAD: ${{ needs.detect.outputs.replace_head }}
+          REPLACE_DRAFT: ${{ needs.detect.outputs.replace_draft }}
+          REPLACE_RETRY: ${{ needs.detect.outputs.replace_retry }}
           # The same two strings as the step above. When no model round left a candidate because their jobs crashed, open-pr.sh opens no
-          # PR and fails (a draft would stop every later sync of this tag), so the next scheduled sync starts the tag over.
+          # PR and fails (a draft would hold this tag back for at least 6 hours), so the next scheduled sync starts the tag over.
           AGENT_RESULTS: ${{ format('1={0} 2={1} 3={2}', needs.agent1.result, needs.agent2.result, needs.pick3.result == 'failure' && 'failure' || needs.agent3.result) }}
           AGENT_KEY_LEAKS: ${{ format('1={0} 2={1} 3={2}', needs.agent1.outputs.key_leaks, needs.agent2.outputs.key_leaks, needs.agent3.outputs.key_leaks) }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

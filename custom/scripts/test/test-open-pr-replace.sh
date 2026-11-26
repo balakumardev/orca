@@ -12,6 +12,12 @@
 # number is output. A branch is deleted only while it still points at the commit detect saw (REPLACE_HEAD / ORPHAN_SHA) and no
 # other open PR uses it: a re-run (attempt 2) that built another candidate, a PR opened on an orphan branch, a person's push after
 # detect, a fork's PR with the same branch name and a PR against another base all have a case.
+#
+# An old failed DRAFT (REPLACE_DRAFT=true, REPLACE_RETRY=n; section "an old failed draft" below): the same close, delete, push, create
+# flow, with the draft rules in place of "must be ready": the PR must still be a draft with the automation's failed-sync title, still
+# 6 hours old, and still touched by nobody but the automation (events, comments, reviews, no key-leak banner), read again at this
+# moment because the sync took hours. The closing comment carries the new text and the same marker. Without REPLACE_DRAFT a draft is
+# never replaced.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -26,6 +32,7 @@ fails=0
 ok() { printf 'ok   %s\n' "$1"; }
 bad() { printf 'FAIL %s\n' "$1"; fails=$((fails + 1)); }
 BRANCH="sync/v1.4.258"
+NOW="$(jq -n '"2026-11-26T12:00:00Z" | fromdateiso8601')" # "now" of every run (NOW_EPOCH); the draft below is 8 hours old
 MARK=$'superseded: custom moved on, syncing again\n\n<!-- custom-sync:superseded -->\n'
 
 mkdir "$tmp/bin"
@@ -62,6 +69,9 @@ case "$1 $2" in
         sha="$(git --git-dir="$ORIGIN" rev-parse -q --verify "refs/heads/${path#*/git/ref/heads/}")" || { echo '{"message":"Not Found","documentation_url":"https://docs.github.com/rest/git/refs#get-a-reference","status":"404"}'; echo "gh: Not Found (HTTP 404)" >&2; exit 1; } # the real gh prints the body on stdout
         if [ -n "$jqprog" ]; then jq -n -r --arg s "$sha" '{object: {sha: $s}}' | jq -r "$jqprog"; else echo "$sha"; fi ;;
       "GET repos/"*/issues/*/comments) emit "$FIX/comments-$(basename "$(dirname "$path")").json" ;;
+      "GET repos/"*/issues/*/events) emit "$FIX/events-$(basename "$(dirname "$path")").json" ;;
+      "GET repos/"*/pulls/*/reviews) emit "$FIX/reviews-$(basename "$(dirname "$path")").json" ;;
+      "GET repos/"*/pulls/*/comments) emit "$FIX/revcomments-$(basename "$(dirname "$path")").json" ;;
       "POST repos/"*/statuses/*) ;;
       *) if [[ "$path" == */statuses/* ]]; then :; else echo "stub gh: no route for: $*" >&2; exit 1; fi ;;
     esac ;;
@@ -120,7 +130,7 @@ run() { # env assignments... -> o_out o_rc
   : > "$tmp/gh.log"
   o_rc=0
   o_out="$(cd "$WORK" && env PATH="$tmp/bin:$PATH" GH_LOG="$tmp/gh.log" FIX="$FIX" ORIGIN="$ORIGIN" BRANCH="$BRANCH" \
-    GH_TOKEN=dummy REPO=balakumardev/orca FACTS="$tmp/facts.json" PR_OUT="$tmp/pr" RUN_URL=https://example.invalid/run "$@" \
+    GH_TOKEN=dummy REPO=balakumardev/orca FACTS="$tmp/facts.json" PR_OUT="$tmp/pr" RUN_URL=https://example.invalid/run NOW_EPOCH="$NOW" "$@" \
     bash "$scripts/open-pr.sh" 2>&1)" || o_rc=$?
 }
 out_of() { local v; v="$(sed -n "s/^OUTPUT $1=//p" <<<"$o_out")"; printf '%s' "${v%%$'\n'*}"; }
@@ -255,6 +265,80 @@ NAME_PREFIX="draft: "
 world old; view 43 OPEN "$OLD_SHA" custom false app/github-actions "$BRANCH" true
 run SUPERSEDE='[]' ORPHAN_BRANCH=true REPLACE_PR=43 REPLACE_HEAD="$OLD_SHA"; untouched "the PR became a draft between detect and open-pr (a person, or red gates): nothing closed, deleted or pushed"
 if grep -qF "draft" <<<"$o_out"; then ok "draft: and the warning says it is a draft"; else bad "draft text: $o_out"; fi
+NAME_PREFIX=""
+
+# ---- an old failed draft: the same flow, the draft rules ---------------------------------------------------------------------
+T_MANUAL="[needs manual merge] Sync upstream v1.4.258"
+dview() { # NUMBER [HEAD] [TITLE] [CREATED_AT]: an open draft of the automation's, as `gh pr view` reads it, 8 hours old by default
+  view "$1" OPEN "${2:-$OLD_SHA}" custom false app/github-actions "$BRANCH" true
+  jq --arg t "${3:-$T_MANUAL}" --arg c "${4:-2026-11-26T04:00:00Z}" '. + {title: $t, createdAt: $c, body: "**Merge with a MERGE COMMIT.** Sync of upstream v1.4.258."}' \
+    "$FIX/view-$1.json" > "$FIX/v.tmp" && mv "$FIX/v.tmp" "$FIX/view-$1.json"
+  jq -n '[{event: "labeled", actor: {login: "github-actions[bot]"}}]' > "$FIX/events-$1.json"
+  echo '[]' > "$FIX/comments-$1.json"; echo '[]' > "$FIX/reviews-$1.json"; echo '[]' > "$FIX/revcomments-$1.json"
+}
+DRAFT=(SUPERSEDE='[]' ORPHAN_BRANCH=true REPLACE_PR=43 REPLACE_DRAFT=true REPLACE_RETRY=2)
+NAME_PREFIX="failed draft: "
+world old; dview 43
+run "${DRAFT[@]}" REPLACE_HEAD="$OLD_SHA"
+v="$(line_of '^pr view 43 --repo balakumardev/orca --json state')"; c="$(line_of '^pr close 43 ')"; d="$(line_of '-X DELETE repos/balakumardev/orca/git/refs/heads/sync/v1.4.258')"; cr="$(line_of '^pr create ')"
+if [ "$o_rc" = 0 ] && [ -n "$v" ] && [ -n "$c" ] && [ -n "$d" ] && [ -n "$cr" ] && [ "$v" -lt "$c" ] && [ "$c" -lt "$d" ] && [ "$d" -lt "$cr" ] && [ "$(origin_sha)" = "$MERGE_SHA" ] && [ "$(out_of pr_number)" = 99 ]; then
+  ok "an old unattended failed draft: re-checked, closed, its branch deleted, the new PR created, in that order, and the new commit is on origin"
+else bad "draft replace: rc=$o_rc v=$v c=$c d=$d cr=$cr origin=$(origin_sha) out=[$o_out] log=[$(tr '\n' ';' < "$tmp/gh.log")]"; fi
+if called 'unattended failed draft older than 6 hours' && called 'automatic retry 2 of 3' && called 'Automatic retries left after this one: 1' && called 'custom-sync:superseded' \
+   && ! called 'superseded: custom moved on, syncing again'; then ok "the close comment says unattended failed draft, older than 6 hours, automatic retry 2 of 3, 1 left, with the shared marker (not the stale-PR text)"
+else bad "draft close call: $(grep '^pr close' "$tmp/gh.log")"; fi
+if called 'pr view 43 .*--json body' && called 'issues/43/events' && called 'issues/43/comments' && called 'pulls/43/reviews' && called 'pulls/43/comments'; then ok "the draft was judged again right before it was closed (description, events, comments, reviews, inline comments read)"
+else bad "re-read lists: $(tr '\n' ';' < "$tmp/gh.log")"; fi
+world old; dview 43
+run "${DRAFT[@]}" REPLACE_RETRY=3 REPLACE_HEAD="$OLD_SHA"
+if [ "$o_rc" = 0 ] && called 'automatic retry 3 of 3' && called 'No automatic retry is left after this one'; then ok "the third automatic retry's comment says that none is left"; else bad "retry 3: $(grep '^pr close' "$tmp/gh.log")"; fi
+world old; dview 43; comments 43 "github-actions[bot]" "$(printf 'superseded: this was an unattended failed draft older than 6 hours\n\n<!-- custom-sync:superseded -->\n')"; view 43 CLOSED "$OLD_SHA"
+run "${DRAFT[@]}" REPLACE_HEAD="$OLD_SHA"
+if [ "$o_rc" = 0 ] && ! called '^pr close ' && called '-X DELETE' && [ "$(origin_sha)" = "$MERGE_SHA" ] && [ "$(out_of pr_number)" = 99 ]; then ok "a draft an earlier attempt of this job already closed with the marker: no second close, the branch is replaced and the PR opened"
+else bad "draft closed by an earlier attempt: rc=$o_rc out=[$o_out]"; fi
+
+# Everything is read again now: what changed since detect looked leaves the draft alone and nothing is closed, deleted or pushed.
+world old; dview 43; comments 43 balakumardev "I am fixing this one"
+run "${DRAFT[@]}" REPLACE_HEAD="$OLD_SHA"; untouched "a person commented while the sync ran"
+if grep -qF "commented on it" <<<"$o_out"; then ok "failed draft: and the warning says so"; else bad "warning: $o_out"; fi
+world old; dview 43; jq '. + [{event: "labeled", actor: {login: "balakumardev"}}]' "$FIX/events-43.json" > "$FIX/e.tmp" && mv "$FIX/e.tmp" "$FIX/events-43.json"
+run "${DRAFT[@]}" REPLACE_HEAD="$OLD_SHA"; untouched "a person edited its labels while the sync ran"
+world old; dview 43; jq '. + [{event: "convert_to_draft", actor: {login: "balakumardev"}}]' "$FIX/events-43.json" > "$FIX/e.tmp" && mv "$FIX/e.tmp" "$FIX/events-43.json"
+run "${DRAFT[@]}" REPLACE_HEAD="$OLD_SHA"; untouched "a person turned it back into a draft"
+world old; dview 43; jq -n '[{user: {login: "balakumardev"}}]' > "$FIX/reviews-43.json"
+run "${DRAFT[@]}" REPLACE_HEAD="$OLD_SHA"; untouched "a person reviewed it"
+world old; dview 43; jq -n '[{user: {login: "balakumardev"}}]' > "$FIX/revcomments-43.json"
+run "${DRAFT[@]}" REPLACE_HEAD="$OLD_SHA"; untouched "a person left an inline review comment"
+world old; dview 43 "$OLD_SHA" "[needs manual merge] Sync upstream v1.4.258 (mine)"
+run "${DRAFT[@]}" REPLACE_HEAD="$OLD_SHA"; untouched "its title was edited"
+world old; dview 43; jq '. + {body: "> [!CAUTION]\n> **Rotate DEEPINFRA_API_KEY.**"}' "$FIX/view-43.json" > "$FIX/v.tmp" && mv "$FIX/v.tmp" "$FIX/view-43.json"
+run "${DRAFT[@]}" REPLACE_HEAD="$OLD_SHA"; untouched "its description carries a key-leak banner"
+world old; dview 43; rm "$FIX/events-43.json"
+run "${DRAFT[@]}" REPLACE_HEAD="$OLD_SHA"; untouched "its events cannot be read (never read as 'nobody acted')"
+world old; dview 43
+run "${DRAFT[@]}" REPLACE_HEAD=dddddddddddddddddddddddddddddddddddddddd; untouched "its head is not the commit detect judged"
+world old; view 43 OPEN "$OLD_SHA" custom false app/github-actions "$BRANCH" false
+run "${DRAFT[@]}" REPLACE_HEAD="$OLD_SHA"; untouched "it was marked ready for review meanwhile (detect judged a draft)"
+if grep -qF "not a draft any more" <<<"$o_out"; then ok "failed draft: and the warning says it is not a draft any more"; else bad "warning: $o_out"; fi
+world old; dview 43 "$OLD_SHA" "$T_MANUAL" "2026-11-26T09:00:00Z"
+run "${DRAFT[@]}" REPLACE_HEAD="$OLD_SHA"; untouched "it is younger than 6 hours at the re-check (a clock or a wrong age is never trusted)"
+world old; dview 43; addopen 45 "$OLD_SHA" false main
+run "${DRAFT[@]}" REPLACE_HEAD="$OLD_SHA"; untouched "another open PR (base main) has the branch as its head: the branch rule holds for a draft too"
+world old; dview 43
+run SUPERSEDE='[]' ORPHAN_BRANCH=true REPLACE_PR=43 REPLACE_HEAD="$OLD_SHA"; untouched "a quiet old draft WITHOUT REPLACE_DRAFT (detect judged it a ready PR): never replaced"
+world old; view 43 OPEN "$OLD_SHA" custom false app/github-actions "$BRANCH" false
+run "${DRAFT[@]}" REPLACE_HEAD="$OLD_SHA"; untouched "REPLACE_DRAFT=true on a ready PR: left alone"
+world old; dview 43
+run SUPERSEDE='[]' ORPHAN_BRANCH=true REPLACE_PR=43 REPLACE_DRAFT=true REPLACE_HEAD="$OLD_SHA"
+if [ "$o_rc" != 0 ] && ! called '^pr close ' && ! called '-X DELETE' && [ "$(origin_sha)" = "$OLD_SHA" ] && grep -qF "REPLACE_RETRY" <<<"$o_out"; then ok "REPLACE_DRAFT=true without a retry number: the job dies before it closes anything"
+else bad "no retry number: rc=$o_rc out=[$o_out]"; fi
+world old; dview 43
+run SUPERSEDE='[]' ORPHAN_BRANCH=true REPLACE_PR=43 REPLACE_DRAFT=true REPLACE_RETRY=4 REPLACE_HEAD="$OLD_SHA"
+if [ "$o_rc" != 0 ] && ! called '^pr close '; then ok "a retry number above the cap (4) is refused before anything is closed"; else bad "retry 4: rc=$o_rc out=[$o_out]"; fi
+# The ready PR keeps its own comment text.
+world old; view 43 OPEN "$OLD_SHA"
+run SUPERSEDE='[]' ORPHAN_BRANCH=true REPLACE_PR=43 REPLACE_HEAD="$OLD_SHA" REPLACE_DRAFT=false
+if [ "$o_rc" = 0 ] && called 'superseded: custom moved on, syncing again' && ! called 'unattended failed draft'; then ok "a stale READY PR (REPLACE_DRAFT=false) is closed with the old text, unchanged"; else bad "ready replace text: $(grep '^pr close' "$tmp/gh.log")"; fi
 NAME_PREFIX=""
 
 # ---- the model API refused every round: no PR, a red run (a draft would block the retry) ---------------------------------------
