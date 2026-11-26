@@ -34,8 +34,9 @@
 #   - custom-sync only: every infrastructure job is one whose re-run is coherent: detect, merge, the gates of round 0 and round 3,
 #     open-pr, land. GitHub re-runs a failed job AND every job that depends on it, and the dependents of the gates of round 1 or 2
 #     (and of the agent rounds and pick3) are PAID model rounds that would produce another candidate than the one open-pr already
-#     published (a pushed branch is never overwritten): that case stays for a person. open-pr.sh adopts the PR its first attempt
-#     opened (GITHUB_RUN_ATTEMPT > 1), so a re-run of round 0 or round 3 gates ends in `land`.
+#     published (a pushed branch is never overwritten): that case stays for a person. The gates of round 0 have paid dependents too
+#     (the repair of a red round 0), but custom-sync.yml runs that repair only on attempt 1, so on a re-run they skip. open-pr.sh adopts
+#     the PR its first attempt opened (GITHUB_RUN_ATTEMPT > 1), so a re-run of round 0 or round 3 gates ends in `land`.
 # custom-release.yml is NEVER re-run here: a release is an outside effect (a tag, a GitHub release, an asset the installed apps
 # download), its `plan` job reserves the version number N once, and a later re-run of an old run could publish an old commit under
 # a number a newer run also planned. A failed release build is visible in Actions and one command re-dispatches it

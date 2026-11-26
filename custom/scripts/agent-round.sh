@@ -10,9 +10,11 @@
 #   first   resolve the conflicted files of a fresh merge.
 #   repair  start from a candidate an earlier round committed, show the model that candidate's REAL gate output, and let it
 #           edit the conflicted files plus the files our customization commits own. Rounds 2 and 3 use it (round 3 starts from
-#           the best earlier candidate, chosen by pick-repair-base.sh). When that candidate is only PARTLY resolved (its facts
-#           list unresolved files) the round CONTINUES it: the prompt lists just the files that still hold conflict markers,
-#           the resolved ones stay as they are.
+#           the best earlier candidate, chosen by pick-repair-base.sh). The candidate can be round 0, the merge job's own, when
+#           the merge needed no model and its gates failed: nothing is conflicted then, so the scope is the files our
+#           customizations own (PREV_DIR holds round-0/, PREV_GATES the gates-0-* results). When the candidate is only PARTLY
+#           resolved (its facts list unresolved files) the round CONTINUES it: the prompt lists just the files that still hold
+#           conflict markers, the resolved ones stay as they are.
 #   retry   a fresh merge again, with the earlier attempt's gate output as context (none when PREV_DIR is empty). Round 3 when no
 #           earlier round left a candidate to repair or continue, and round 2 when round 1's job crashed (custom-sync.yml).
 # prepare also: PREV_DIR (dir holding the previous round's sync-facts.json and, for repair, merge.bundle),

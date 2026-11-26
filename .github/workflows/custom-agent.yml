@@ -34,7 +34,7 @@ on:
         type: string
         required: true
       prev_round:
-        description: Round whose artifact holds the candidate to repair (repair), or the latest earlier attempt to learn from (retry)
+        description: Round whose artifact holds the candidate to repair (repair; 0 is the merge job's candidate, when the merge needed no model and its gates failed), or the latest earlier attempt to learn from (retry)
         type: string
         default: ''
       prev_gates_round:
