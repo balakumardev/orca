@@ -3,9 +3,9 @@
 # and it never writes anything.
 #
 # Why: a sync whose agent rounds crash and leave no candidate opens no PR and fails (open-pr.sh), so the next scheduled sync starts the
-# tag over by itself. A crash that repeats the same way would then spend paid model rounds every 3 hours (up to about $31 a run: two
-# Flash hours and one Pro hour) with nobody told. So a SCHEDULED run stops when 3 or more runs of custom-sync.yml from the custom branch
-# (`head_branch`) created in the last 24 hours ended `failure` (this run excluded): at most about 3 x $31 a day. Only runs from custom count: the model rounds (the
+# tag over by itself. A crash that repeats the same way would then spend paid model rounds every 3 hours (up to about $24 a run: three
+# Flash hours) with nobody told. So a SCHEDULED run stops when 3 or more runs of custom-sync.yml from the custom branch
+# (`head_branch`) created in the last 24 hours ended `failure` (this run excluded): at most about 3 x $24 a day. Only runs from custom count: the model rounds (the
 # spend) exist only on refs/heads/custom (the `agent` environment), and a rehearsal dispatched from a feature branch that fails must
 # never pause the real schedule. A manual dispatch is never capped (a person decided to spend),
 # and the pause ends by itself once the failures are older than 24 hours. A count that cannot be read (the API call fails, the reply is
@@ -55,7 +55,7 @@ sync_spend_cap() {
   if [ -n "$why" ]; then
     SYNC_CAP_STOP="scheduled syncs are paused: the failed custom-sync runs of the last ${SYNC_CAP_WINDOW_HOURS} h could not be counted ($why)"
     SYNC_CAP_SUMMARY="### custom-sync paused: failed runs could not be counted
-The failed custom-sync runs of the last ${SYNC_CAP_WINDOW_HOURS} h could not be counted ($why), so this scheduled sync did not start: it never syncs on an unknown count, because repeated failures can spend paid model rounds (worst case about 3 x \$31 a day). It resumes by itself when the runs API answers again; $resume."
+The failed custom-sync runs of the last ${SYNC_CAP_WINDOW_HOURS} h could not be counted ($why), so this scheduled sync did not start: it never syncs on an unknown count, because repeated failures can spend paid model rounds (worst case about 3 x \$24 a day). It resumes by itself when the runs API answers again; $resume."
     return 0
   fi
   n="$(jq 'length' <<<"$failed")"
@@ -64,5 +64,5 @@ The failed custom-sync runs of the last ${SYNC_CAP_WINDOW_HOURS} h could not be 
   ids="$(jq -r --arg r "$repo" '(.[0:5] | map("https://github.com/\($r)/actions/runs/\(.)") | join(", ")) + (if length > 5 then ", ..." else "" end)' <<<"$failed")"
   SYNC_CAP_STOP="scheduled syncs are paused: $n custom-sync runs failed in the last ${SYNC_CAP_WINDOW_HOURS} h (cap $SYNC_CAP_FAILURES)"
   SYNC_CAP_SUMMARY="### custom-sync paused: $n failed syncs in ${SYNC_CAP_WINDOW_HOURS} h
-$n custom-sync runs failed in the last ${SYNC_CAP_WINDOW_HOURS} h, so scheduled syncs are paused to cap model spend (worst case about 3 x \$31 a day). Read the failed runs ($ids), fix the cause, then $resume. Scheduled syncs resume by themselves when the failures age out of the ${SYNC_CAP_WINDOW_HOURS} h window."
+$n custom-sync runs failed in the last ${SYNC_CAP_WINDOW_HOURS} h, so scheduled syncs are paused to cap model spend (worst case about 3 x \$24 a day). Read the failed runs ($ids), fix the cause, then $resume. Scheduled syncs resume by themselves when the failures age out of the ${SYNC_CAP_WINDOW_HOURS} h window."
 }

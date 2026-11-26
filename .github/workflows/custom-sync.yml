@@ -17,10 +17,10 @@ name: custom-sync
 #            or, when round 1's job crashed (no candidate), starts again from the merge (retry)
 #            or, when the merge needed no model and a gate of round 0 is red, repairs round 0 (the files our customizations own)
 #   pick3    chooses what round 3 starts from (no model; pick-repair-base.sh)
-#   agent3   Pro REPAIRS the best candidate of rounds 1 and 2 (or of rounds 0 and 2 after a merge that needed no model) with that
+#   agent3   Flash REPAIRS the best candidate of rounds 1 and 2 (or of rounds 0 and 2 after a merge that needed no model) with that
 #            candidate's real gate output (same wider edit scope as round 2), or continues the one that got furthest; only when
 #            no round left a usable candidate does it start again from scratch
-#            A red round 0 thus costs at most one Flash and one Pro hour (about $23) per run, on the run's first attempt only
+#            A red round 0 thus costs at most two Flash hours (about $16) per run, on the run's first attempt only
 #            On custom, a round whose job crashed (lost runner, timeout) does not stop the later rounds unless its scan
 #            counted a leak; when no round left a candidate at all, open-pr opens no PR and fails, so the next scheduled
 #            sync starts the tag over
@@ -278,7 +278,7 @@ jobs:
   pick3:
     name: pick the base of round 3
     needs: [detect, gates0, agent1, gates1, agent2, gates2]
-    # One last attempt with the stronger model when no earlier round came out green. Never after a round whose output
+    # One last attempt (the same Flash model, from the best candidate so far) when no earlier round came out green. Never after a round whose output
     # contained the API key (a prompt that leaked once would leak again), nor after an unknown leak check of a round that left a
     # candidate. A round whose JOB failed or was cancelled (a lost runner, a timeout) left no candidate and published nothing, so it does
     # not stop this round: the same rule as agent2's third case, for round 1 and for round 2 (pick-repair-base.sh then works from the
@@ -331,14 +331,14 @@ jobs:
         run: bash custom/scripts/pick-repair-base.sh "$RUNNER_TEMP/all"
 
   agent3:
-    name: agent (round 3, pro)
+    name: agent (round 3, flash)
     needs: [detect, pick3]
     if: ${{ !cancelled() && needs.pick3.result == 'success' }}
     uses: ./.github/workflows/custom-agent.yml
     with:
       round: '3'
       mode: ${{ needs.pick3.outputs.mode }}
-      tier: pro
+      tier: flash
       prev_round: ${{ needs.pick3.outputs.prev_round }}
       prev_gates_round: ${{ needs.pick3.outputs.prev_gates_round }}
       tag: ${{ needs.detect.outputs.tag }}

@@ -6,7 +6,7 @@
 #   agent-round.sh run       call Claude Code CLI against DeepInfra's Anthropic-compatible endpoint (needs the key)
 #   agent-round.sh finish    record tokens/cost/report in sync-facts.json, enforce scope, commit, bundle
 #
-# Env (all subcommands): SYNC_OUT, TOOLS_DIR, ROUND (1..3), MODE (first | repair | retry), TIER (flash | pro).
+# Env (all subcommands): SYNC_OUT, TOOLS_DIR, ROUND (1..3), MODE (first | repair | retry), TIER (flash; the only tier).
 #   first   resolve the conflicted files of a fresh merge.
 #   repair  start from a candidate an earlier round committed, show the model that candidate's REAL gate output, and let it
 #           edit the conflicted files plus the files our customization commits own. Rounds 2 and 3 use it (round 3 starts from
@@ -34,8 +34,7 @@ case "$TIER" in
   # Dollars per million tokens: DeepInfra's price on 2026-11-22 (Flash with its 51% promotion). Only the fallback: `finish` reads the
   # current prices from DeepInfra's public model list (deepinfra_prices) and uses these when that fails.
   flash) MODEL="deepseek-ai/DeepSeek-V4.1-Flash-1017"; PRICE_IN="0.098"; PRICE_OUT="0.294"; PRICE_CACHED="0.00294" ;;
-  pro) MODEL="deepseek-ai/DeepSeek-V4-Pro-0813"; PRICE_IN="1.30"; PRICE_OUT="2.60"; PRICE_CACHED="0.10" ;;
-  *) die "TIER must be flash or pro" ;;
+  *) die "TIER must be flash (the Pro model is not used: it was judged weaker than Flash-1017 for conflict resolution)" ;;
 esac
 case "$MODE" in first|repair|retry) ;; *) die "MODE must be first, repair or retry" ;; esac
 
@@ -190,8 +189,8 @@ $advisory"
   local wall work skip=false
   # No turn cap: a round ends when the model is done or when the wall clock runs out (1 hour, every round). A turn cap stopped
   # v1.4.261 at 16 of its 22 model files (70 turns, about 4.4 a file) and the fixed merge leaves 31, so the work decides the length,
-  # not a number guessed in advance. The wall clock bounds the money: about $0.01 a Flash turn and $0.07 a Pro turn (measured, full
-  # list rate), 4.3 to 6.7 s and 16.8 s a turn, so an hour is at most about $8 on Flash and $15 on Pro. A round that hits the clock keeps
+  # not a number guessed in advance. The wall clock bounds the money: about $0.01 a Flash turn (measured, full
+  # list rate), 4.3 to 6.7 s a turn, so an hour is at most about $8. A round that hits the clock keeps
   # its edits and the next round continues from them; the CLI is killed then, so that round has no token or cost figures. Half an hour
   # was not enough for v1.4.265 (43 conflicted files): rounds 1 and 2 used 29 and 24 minutes and round 3 was killed with nothing written.
   wall=3600
@@ -340,8 +339,8 @@ cmd_run() {
   local -a model_env=(
     ANTHROPIC_API_KEY=""
     ANTHROPIC_MODEL="$(jq -r .model "$plan")"
-    ANTHROPIC_DEFAULT_SONNET_MODEL="deepseek-ai/DeepSeek-V4.1-Flash-1017"
-    ANTHROPIC_DEFAULT_OPUS_MODEL="deepseek-ai/DeepSeek-V4-Pro-0813"
+    ANTHROPIC_DEFAULT_SONNET_MODEL="$MODEL"
+    ANTHROPIC_DEFAULT_OPUS_MODEL="$MODEL"
     ANTHROPIC_DEFAULT_HAIKU_MODEL="inclusionAI/Ling-3.0-flash"
     CLAUDE_CODE_MAX_CONTEXT_TOKENS=131072
     CLAUDE_CODE_MAX_OUTPUT_TOKENS=16384

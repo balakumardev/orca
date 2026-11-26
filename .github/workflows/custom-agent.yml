@@ -30,7 +30,7 @@ on:
         type: string
         required: true
       tier:
-        description: flash or pro
+        description: flash (the only tier)
         type: string
         required: true
       prev_round:

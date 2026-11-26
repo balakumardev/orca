@@ -150,13 +150,13 @@ check "the key is nowhere in the stop check's files" bash -c "! grep -rqF '$FAKE
 check "the stop check inherited no key: its environment is the agent's (dummy token)" bash -c "grep -q '^ANTHROPIC_AUTH_TOKEN=local-proxy-no-key\$' '$bin/env-last' && ! grep -qF '$FAKE_KEY' '$bin/env-last'"
 
 echo "repair: the scope grows to the files our customizations own, and the check follows it"
-round r2 repair stophook-repair 2 pro r1
+round r2 repair stophook-repair 2 flash r1
 check "the owned file is in the list, as owned" grep -q "^owned$(printf '\t')src/epsilon.ts\$" "$tmp/r2.out/stop-check-files.tsv"
 check "repair: the CLI flags are the same" args_ok
 check "repair: the break in the owned file was refused and the fix allowed" test "$(rec r2 '[.blocks, .calls, .outcome] | map(tostring) | join(" ")')" = "1 2 green"
 
 echo "retry: a fresh merge again, the same wiring"
-round r3 retry stophook 3 pro r2
+round r3 retry stophook 3 flash r2
 check "retry: the CLI flags are the same" args_ok
 check "retry: 1 block in 2 calls, green" test "$(rec r3 '[.blocks, .calls, .outcome] | map(tostring) | join(" ")')" = "1 2 green"
 
