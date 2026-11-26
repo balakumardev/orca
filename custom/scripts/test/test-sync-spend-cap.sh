@@ -65,14 +65,16 @@ reset() { # a fresh world: v1.4.258 upstream (newer than BASE v1.0.0), no PRs, n
   FIX="$tmp/fix"; rm -rf "$FIX"; mkdir -p "$FIX"
   echo '[{"tag_name":"v1.4.258","draft":false,"prerelease":false},{"tag_name":"mobile-android-v0.0.64","draft":false,"prerelease":false}]' > "$FIX/releases.json"
 }
-page() { # PAGE then ID:CONCLUSION:AGE_HOURS entries (CONCLUSION null = still running); "fill:N:CONCLUSION" adds N runs at age 1 h
-  local p="$1" runs="[]" e id c age; shift
+page() { # PAGE then ID:CONCLUSION:AGE_HOURS[:BRANCH] entries (CONCLUSION null = still running; BRANCH defaults to custom, "none" leaves
+  # head_branch out); "fill:N:CONCLUSION" adds N runs from custom at age 1 h
+  local p="$1" runs="[]" e id c age br; shift
   for e in "$@"; do
-    IFS=: read -r id c age <<<"$e"
+    IFS=: read -r id c age br <<<"$e"
     if [ "$id" = fill ]; then
-      runs="$(jq -c --argjson n "$c" --arg c "$age" --argjson now "$NOW" '. + [range($n) | {id: (100000 + .), conclusion: $c, status: "completed", created_at: (($now - 3600) | todate)}]' <<<"$runs")"
+      runs="$(jq -c --argjson n "$c" --arg c "$age" --argjson now "$NOW" '. + [range($n) | {id: (100000 + .), conclusion: $c, status: "completed", head_branch: "custom", created_at: (($now - 3600) | todate)}]' <<<"$runs")"
     else
-      runs="$(jq -c --argjson id "$id" --arg c "$c" --argjson t "$((NOW - age * 3600 + 60))" '. + [{id: $id, conclusion: (if $c == "null" then null else $c end), status: "completed", created_at: ($t | todate)}]' <<<"$runs")"
+      runs="$(jq -c --argjson id "$id" --arg c "$c" --arg b "${br:-custom}" --argjson t "$((NOW - age * 3600 + 60))" \
+        '. + [{id: $id, conclusion: (if $c == "null" then null else $c end), status: "completed", created_at: ($t | todate)} + (if $b == "none" then {} else {head_branch: $b} end)]' <<<"$runs")"
     fi
   done
   jq -n --argjson r "$runs" '{total_count: ($r | length), workflow_runs: $r}' > "$FIX/runs-page-$p.json"
@@ -120,6 +122,14 @@ reset; page 1 1:failure:25 2:failure:30 3:failure:47 4:failure:2 5:failure:3; ru
 expect_sync "failures older than 24 h are not counted (the API's own filter is not trusted): 2 left, syncs"
 reset; page 1 1:cancelled:1 2:cancelled:2 3:timed_out:3 4:startup_failure:4 5:success:5 6:null:0 7:skipped:6 8:action_required:7; run schedule
 expect_sync "other conclusions (cancelled, timed_out, startup_failure, success, still running) are not counted: syncs"
+# Only runs from custom spend on the model (the `agent` environment): a failed rehearsal from a feature branch never pauses the schedule.
+reset; page 1 1:failure:1:feature/x 2:failure:2:fix/sync-agent-crash-recovery 3:failure:3:test/sync-base 4:failure:4 5:failure:5; run schedule
+expect_sync "3 failures on feature branches + 2 on custom: only custom counts, 2 left, syncs"
+reset; page 1 1:failure:1:feature/x 2:failure:4 3:failure:5 4:failure:6; run schedule
+expect_paused "3 failures on custom (plus one on a feature branch): paused" "3 custom-sync runs failed" "3 failed syncs in 24 h"
+if ! grep -qF 'actions/runs/1,' <<<"$d_summary" && ! grep -qF 'actions/runs/1)' <<<"$d_summary"; then ok "the feature-branch failure is not linked as a counted run"; else bad "summary links run 1: $d_summary"; fi
+reset; page 1 1:failure:1:none 2:failure:2 3:failure:3; run schedule
+expect_paused "a run without head_branch counts as custom (conservative on spend): 3, paused" "3 custom-sync runs failed" "3 failed syncs in 24 h"
 
 # ---- a dispatch is never capped --------------------------------------------------------------------------------------------
 reset; page 1 1:failure:1 2:failure:2 3:failure:3 4:failure:4 5:failure:5; run workflow_dispatch

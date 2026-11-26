@@ -4,8 +4,10 @@
 #
 # Why: a sync whose agent rounds crash and leave no candidate opens no PR and fails (open-pr.sh), so the next scheduled sync starts the
 # tag over by itself. A crash that repeats the same way would then spend paid model rounds every 3 hours (up to about $31 a run: two
-# Flash hours and one Pro hour) with nobody told. So a SCHEDULED run stops when 3 or more runs of custom-sync.yml created in the last 24
-# hours ended `failure` (this run excluded): at most about 3 x $31 a day. A manual dispatch is never capped (a person decided to spend),
+# Flash hours and one Pro hour) with nobody told. So a SCHEDULED run stops when 3 or more runs of custom-sync.yml from the custom branch
+# (`head_branch`) created in the last 24 hours ended `failure` (this run excluded): at most about 3 x $31 a day. Only runs from custom count: the model rounds (the
+# spend) exist only on refs/heads/custom (the `agent` environment), and a rehearsal dispatched from a feature branch that fails must
+# never pause the real schedule. A manual dispatch is never capped (a person decided to spend),
 # and the pause ends by itself once the failures are older than 24 hours. A count that cannot be read (the API call fails, the reply is
 # not the runs list, a page bound is hit) pauses too: never sync on an unknown count.
 #
@@ -34,7 +36,7 @@ sync_spend_cap() {
     for ((page = 1; page <= max_pages; page++)); do
       # One small object per page, checked below: a reply without a runs list is never read as "no runs".
       reply="$(gh api "repos/$repo/actions/workflows/custom-sync.yml/runs?per_page=100&page=$page&created=%3E%3D$since" \
-        --jq 'if (.workflow_runs | type) == "array" then {ok: true, runs: [.workflow_runs[] | {id, conclusion, created_at}]} else {ok: false} end' 2>/dev/null)" \
+        --jq 'if (.workflow_runs | type) == "array" then {ok: true, runs: [.workflow_runs[] | {id, conclusion, created_at, head_branch}]} else {ok: false} end' 2>/dev/null)" \
         || { why="the runs API call failed (page $page)"; break; }
       if ! jq -e '.ok == true and (.runs | type) == "array"' <<<"$reply" >/dev/null 2>&1; then why="the runs API reply is not a list of runs (page $page)"; break; fi
       runs="$(jq -c --argjson acc "$runs" '$acc + .runs' <<<"$reply")" || { why="the runs API reply could not be read (page $page)"; break; }
@@ -43,10 +45,11 @@ sync_spend_cap() {
     if [ -z "$why" ] && [ "$full" = true ]; then why="more than $((max_pages * 100)) runs in ${SYNC_CAP_WINDOW_HOURS} h, more than this check reads"; fi
   fi
   if [ -z "$why" ]; then
-    # Counted here, not trusted to the API's filter: created in the window, ended `failure`, not this run. A run whose fields cannot be read
-    # makes the count unknown.
+    # Counted here, not trusted to the API's filter: created in the window, ended `failure`, run from custom, not this run. A run whose
+    # fields cannot be read makes the count unknown. A run with no head_branch counts as custom (conservative on spend).
     failed="$(jq -c --argjson me "$me" --argjson from "$((now - SYNC_CAP_WINDOW_HOURS * 3600))" '
-      [.[] | select((.id | type) == "number" and .id != $me and .conclusion == "failure" and ((.created_at | fromdateiso8601) >= $from)) | .id]' <<<"$runs" 2>/dev/null)" \
+      [.[] | select((.id | type) == "number" and .id != $me and .conclusion == "failure" and (.head_branch // "custom") == "custom"
+        and ((.created_at | fromdateiso8601) >= $from)) | .id]' <<<"$runs" 2>/dev/null)" \
       || why="a run in the runs API reply has no readable id or creation time"
   fi
   if [ -n "$why" ]; then
