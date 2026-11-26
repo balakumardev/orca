@@ -173,7 +173,14 @@ for a in "$@"; do
       if [ -n "${UP_RUN_LOG:-}" ] && [ "$n" -ge "${UP_RUN_FROM:-1}" ]; then cat "$UP_RUN_LOG"; exit "${UP_RUN_RC:-1}"; fi
       printf ' Test Files  1 passed (1)\n      Tests  2 passed (2)\n'; exit 0
     fi
-    echo "[stub] re-run of $a"; [ -z "${RERUN_LOG:-}" ] || cat "$RERUN_LOG"; exit "${RERUN_RC:-0}" ;;
+    echo "[stub] re-run of $a"; [ -z "${RERUN_LOG:-}" ] || cat "$RERUN_LOG"
+    # RERUN_RCS="0,1": the 1st re-run exits 0, the 2nd (and later ones) exit 1. RERUN_RC applies to every re-run.
+    if [ -n "${RERUN_RCS:-}" ]; then
+      n=$(( $(cat "$STUB_CALLS.rerun" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$STUB_CALLS.rerun"
+      IFS=, read -r -a rcs <<<"$RERUN_RCS"; idx=$((n - 1)); [ "$idx" -lt "${#rcs[@]}" ] || idx=$((${#rcs[@]} - 1))
+      exit "${rcs[$idx]}"
+    fi
+    exit "${RERUN_RC:-0}" ;;
   esac
 done
 cat "$FIRST_LOG"
@@ -184,9 +191,9 @@ chmod +x "$repo/bin/pnpm"
 UP_SAME="$(printf '%s\t%s' "$FILE" "$NAME")"
 run_gate() { # NAME FIRST_LOG [MODE] [OUR_FILES] [CHANGED_BASE] -> g_status g_calls g_note g_warn g_log (env GATE, UP_FAILED, UP_NO_JSON, INSTALL_RC pass through)
   local name="$1" out="$tmp/out-$1" mode="${3:-sync}" ours="${4:-$tmp/our-files.txt}" cbase="${5:-v1.0.0}" gate="${GATE:-unit}"
-  rm -rf "$out" "$tmp/upcount.txt"; : > "$tmp/calls.txt"
+  rm -rf "$out" "$tmp/upcount.txt"; : > "$tmp/calls.txt"; rm -f "$tmp/calls.txt.rerun"
   ( cd "$repo" && env PATH="$repo/bin:$PATH" STUB_CALLS="$tmp/calls.txt" FIRST_LOG="$2" FIRST_RC=1 \
-      UP_FAILED="${UP_FAILED:-}" UP_NO_JSON="${UP_NO_JSON:-}" INSTALL_RC="${INSTALL_RC:-0}" RERUN_RC="${RERUN_RC:-0}" \
+      UP_FAILED="${UP_FAILED:-}" UP_NO_JSON="${UP_NO_JSON:-}" INSTALL_RC="${INSTALL_RC:-0}" RERUN_RC="${RERUN_RC:-0}" RERUN_RCS="${RERUN_RCS:-}" \
       RERUN_LOG="${RERUN_LOG:-}" UP_RUN_LOG="${UP_RUN_LOG:-}" UP_RUN_RC="${UP_RUN_RC:-1}" UP_RUN_FROM="${UP_RUN_FROM:-1}" STUB_UPCOUNT="$tmp/upcount.txt" \
       bash "$scripts/run-gates.sh" --out "$out" --mode "$mode" --changed-base "$cbase" --our-files "$ours" --only "$gate" ) > "$tmp/gate-$name.out" 2>&1 || true
   g_status="$(jq -r '.gates[] | select(.id == "'"$gate"'") | .status' "$out/gates.json")"
@@ -196,6 +203,9 @@ run_gate() { # NAME FIRST_LOG [MODE] [OUR_FILES] [CHANGED_BASE] -> g_status g_ca
   g_log="$out/logs/$gate.log"
 }
 worktrees() { git -C "$repo" worktree list | wc -l | tr -d ' '; }
+rerunreal="$here/fixtures/gate-logs/vitest-unhandled-epipe-rerun.txt"
+up_runs() { grep -c -E "^exec vitest run --config config/vitest.config.ts $ORIGIN \[in .*/tree\]$" "$tmp/calls.txt" || true; }
+installs() { grep -c -E '^install --frozen-lockfile \[in .*/tree\]$' "$tmp/calls.txt" || true; }
 
 UP_FAILED="$UP_SAME" run_gate same "$real"
 if [ "$g_status" = pass ] && grep -q "also fail on pristine upstream v1.0.0" <<<"$g_note" && grep -q "$FILE" <<<"$g_warn" && grep -q 'not counted\|Not counted' <<<"$g_warn"; then
@@ -209,6 +219,7 @@ if grep -q 'unit baseline: every one of them fails on upstream v1.0.0 as well' "
 
 UP_FAILED="" run_gate passes-upstream "$real"
 if [ "$g_status" = fail ] && grep -q 'pass on upstream v1.0.0, so this change broke them' "$g_log"; then ok "gate: the test passes on the pristine release = this change broke it = red"; else bad "gate passes-upstream: status=$g_status"; fi
+if grep -q "unit rerun alone: $FILE does not exist in this checkout" "$g_log"; then ok "gate: a failed file that is missing from the checkout is never judged by a run alone = red"; else bad "gate passes-upstream: no missing-file line in the log"; fi
 
 UP_FAILED="$(printf '%s\t%s' "$FILE" 'another test name')" run_gate other-name "$real"
 if [ "$g_status" = fail ]; then ok "gate: upstream fails a different test of that file = red"; else bad "gate other-name: status=$g_status"; fi
@@ -307,8 +318,12 @@ if [ "$(worktrees)" = 1 ]; then ok "gate: no worktree is left behind"; else bad 
 UP_FAILED="$EVUP" RERUN_RC=1 run_gate suites-fail-alone "$suitesreal"
 if [ "$g_status" = fail ] && [ "$g_calls" = 2 ] && grep -q 'the re-run exited with code 1, so the gate stays red' "$g_log"; then ok "gate: a file that also fails alone is broken for real = red, the release is not even run"; else bad "gate suites-fail-alone: status=$g_status calls=$g_calls"; fi
 
-UP_FAILED="" RERUN_RC=0 run_gate suites-test-passes-upstream "$suitesreal"
-if [ "$g_status" = fail ] && grep -q 'pass on upstream v1.0.0, so this change broke them' "$g_log"; then ok "gate: the suites pass alone but the failed test passes on the pristine release = this change broke it = red"; else bad "gate suites-test-passes-upstream: status=$g_status"; fi
+mkdir -p "$repo/$(dirname "$EV")"; : > "$repo/$EV"
+UP_FAILED="" RERUN_RCS="0,1" run_gate suites-test-fails-alone "$suitesreal"
+if [ "$g_status" = fail ] && [ "$g_calls" = 5 ] && grep -q 'pass on upstream v1.0.0, so this change broke them' "$g_log"; then ok "gate: the suites pass alone, the failed test passes on the pristine release and fails alone too = this change broke it = red"; else bad "gate suites-test-fails-alone: status=$g_status calls=$g_calls"; fi
+UP_FAILED="" RERUN_RCS="0,0" run_gate suites-test-passes-alone "$suitesreal"
+if [ "$g_status" = pass ] && [ "$g_calls" = 5 ] && grep -q 'passed when their file ran alone' <<<"$g_note" && grep -q 'failed to load in the shared run and passed alone' <<<"$g_note"; then ok "gate: the suites and the failed test all pass alone = shared-run pollution only = pass"; else bad "gate suites-test-passes-alone: status=$g_status calls=$g_calls note=[$g_note]"; fi
+rm -f "$repo/$EV"
 
 printf 'src/mine/mine.test.ts\n%s\n' "$S2" > "$tmp/our-files-suite.txt"
 UP_FAILED="$EVUP" RERUN_RC=0 run_gate suites-ours "$suitesreal" sync "$tmp/our-files-suite.txt"
@@ -322,6 +337,39 @@ if [ "$g_status" = pass ] && [ "$g_calls" = 2 ] && grep -q 'failed to load in th
 UP_FAILED="" RERUN_RC=1 run_gate suites-only-fail "$tmp/suites-only.txt"
 if [ "$g_status" = fail ] && [ "$g_calls" = 2 ]; then ok "gate: only files that did not load, and one fails alone = red"; else bad "gate suites-only-fail: status=$g_status calls=$g_calls"; fi
 
+# A failed test that passes on the pristine release is this change's doing only when its file fails alone too (pull request 70: a store
+# test read window.api after an earlier file of the same worker had removed it; it passes alone).
+mkdir -p "$repo/$(dirname "$FILE")"; : > "$repo/$FILE"
+UP_FAILED="" RERUN_RC=0 run_gate alone-pass "$real"
+if [ "$g_status" = pass ] && [ "$g_calls" = 4 ] && grep -q 'passed when their file ran alone' <<<"$g_note" && grep -q "$FILE" <<<"$g_warn" && grep -q 'passed when their file ran alone' <<<"$g_warn"; then
+  ok "gate: the failed test passes on the pristine release but its file passes alone = shared-run pollution = pass, named in the note and the warning"
+else bad "gate alone-pass: status=$g_status calls=$g_calls note=[$g_note] warn=[$g_warn]"; fi
+if grep -q -- "$FILE" <<<"$(sed -n '4p' "$tmp/calls.txt")" && ! grep -q -- '--reporter=json' <<<"$(sed -n '4p' "$tmp/calls.txt")"; then ok "gate: the file is run alone in this checkout, after the run on the pristine release"; else bad "gate alone call: $(sed -n '4p' "$tmp/calls.txt")"; fi
+if [ "$(worktrees)" = 1 ]; then ok "gate: no worktree is left behind"; else bad "worktrees left: $(git -C "$repo" worktree list)"; fi
+UP_FAILED="" RERUN_RC=1 run_gate alone-fail "$real"
+if [ "$g_status" = fail ] && [ "$g_calls" = 4 ] && grep -q 'pass on upstream v1.0.0, so this change broke them' "$g_log"; then ok "gate: the file fails alone too = this change broke it = red"; else bad "gate alone-fail: status=$g_status calls=$g_calls"; fi
+UP_FAILED="" RERUN_RC=124 run_gate alone-timeout "$real"
+if [ "$g_status" = fail ] && [ "$g_calls" = 4 ] && grep -q 'pass on upstream v1.0.0, so this change broke them' "$g_log"; then ok "gate: the run alone times out (exit 124) = no evidence it passes = red"; else bad "gate alone-timeout: status=$g_status calls=$g_calls"; fi
+GATE=unit-related UP_FAILED="" RERUN_RC=0 run_gate related-alone-pass "$real" pr
+if [ "$g_status" = pass ] && [ "$g_calls" = 4 ] && grep -q 'passed when their file ran alone' <<<"$g_note" && grep -q "$FILE" <<<"$g_warn"; then ok "gate unit-related: the same verdict, a test that passes on the release and alone is not counted"; else bad "gate related-alone-pass: status=$g_status calls=$g_calls note=[$g_note] warn=[$g_warn]"; fi
+# The rehearsal's shape (a failed test and an EPIPE that comes back), with a test that passes on the release: it passes alone, and the ONE
+# installed release then serves the unhandled-error check too (no second worktree, no second install).
+UP_FAILED="" RERUN_RCS="0,1" RERUN_LOG="$rerunreal" UP_RUN_LOG="$rerunreal" run_gate alone-then-epipe "$combined"
+if [ "$g_status" = pass ] && [ "$(installs)" = 1 ] && [ "$(up_runs)" = 1 ] && [ "$(worktrees)" = 1 ] && grep -q 'passed when their file ran alone' <<<"$g_warn" && grep -q 'Not counted: unhandled error(s) Error: write EPIPE' <<<"$g_warn"; then
+  ok "gate: passes alone, then the EPIPE that comes back is raised by the release too = pass, two warnings, ONE installed release"
+else bad "gate alone-then-epipe: status=$g_status installs=$(installs) runs=$(up_runs) worktrees=$(worktrees) warn=[$g_warn]"; fi
+if grep -q -- "$FILE" <<<"$(sed -n '4p' "$tmp/calls.txt")" && grep -q -- "$ORIGIN" <<<"$(sed -n '5p' "$tmp/calls.txt")"; then ok "gate: the alone run comes before the re-run of the flaky file"; else bad "gate alone-then-epipe calls: $(cat "$tmp/calls.txt")"; fi
+rm -f "$repo/$FILE"
+
+# One failed test fails on the pristine release too, the other passes there and passes alone: both are covered, each by its own evidence.
+mkdir -p "$repo/src/shared/other"; : > "$repo/src/shared/other/thing.test.ts"
+UP_FAILED="$UP_SAME" RERUN_RC=0 run_gate alone-mixed "$tmp/two.txt"
+if [ "$g_status" = pass ] && grep -q 'passed when their file ran alone' <<<"$g_note" && grep -q "also fail on pristine upstream v1.0.0" <<<"$g_note" && grep -q 'every other failed test fails on upstream v1.0.0 as well' "$g_log"; then
+  ok "gate: one test covered by the pristine release and one by passing alone = pass, both named"
+else bad "gate alone-mixed: status=$g_status note=[$g_note]"; fi
+if grep -q 'src/shared/other/thing.test.ts' <<<"$(sed -n '4p' "$tmp/calls.txt")" && ! grep -q -- "$FILE" <<<"$(sed -n '4p' "$tmp/calls.txt")"; then ok "gate: only the file that passes on the pristine release is run alone"; else bad "gate alone-mixed call: $(sed -n '4p' "$tmp/calls.txt")"; fi
+rm -f "$repo/src/shared/other/thing.test.ts"
+
 GATE=unit-related UP_FAILED="$EVUP" RERUN_RC=0 run_gate related-suites "$suitesreal" pr
 if [ "$g_status" = pass ] && grep -q 'failed to load in the shared run and passed alone' <<<"$g_note"; then ok "gate unit-related: the same verdict for a pull request's related tests"; else bad "gate related-suites: status=$g_status note=[$g_note]"; fi
 for f in "$S1" "$S2" "$S3"; do rm -f "$repo/$f"; done
@@ -331,9 +379,6 @@ for f in "$S1" "$S2" "$S3"; do rm -f "$repo/$f"; done
 # alone (fixtures/gate-logs/vitest-unhandled-epipe-rerun.txt, the real re-run output: 2 tests passed, 1 error, exit 1), so the gate stayed red
 # although nothing of ours was involved. It is not counted only when the pristine release raises the same error too.
 flakereal="$here/fixtures/unit-flake-real.txt"
-rerunreal="$here/fixtures/gate-logs/vitest-unhandled-epipe-rerun.txt"
-up_runs() { grep -c -E "^exec vitest run --config config/vitest.config.ts $ORIGIN \[in .*/tree\]$" "$tmp/calls.txt" || true; }
-installs() { grep -c -E '^install --frozen-lockfile \[in .*/tree\]$' "$tmp/calls.txt" || true; }
 
 sig="$(unit_unhandled_signatures "$rerunreal")"
 if [ "$sig" = "$(printf '%s\t%s' "$ORIGIN" 'Error: write EPIPE')" ]; then ok "signatures: the real re-run log gives one error, its file and its first line"; else bad "signatures of the real re-run: [$sig]"; fi

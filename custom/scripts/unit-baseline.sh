@@ -6,7 +6,9 @@
 # one upstream last ran on) it fails on the pristine upstream release as well, and every sync went red for a reason no merge decision
 # can fix: the model was asked to repair it, and a model that "fixes" an upstream test or source file is exactly what a hands-off sync must
 # not land. The rule below keeps every failure that is ours or that this merge caused red, and passes the gate only when each failed test
-# is outside our scope AND fails the same way on the untouched upstream release the sync merges, measured now, in this environment.
+# is outside our scope AND fails the same way on the untouched upstream release the sync merges, measured now, in this environment. One more
+# way out: a test that PASSES on that release is not counted either when its file also passes on its own on this tree (it failed only
+# because of what ran before it in the same worker; unit_baseline_gate).
 # unit_unhandled_baseline_gate (below) does the same for an unhandled error that an upstream test file raises again on its re-run.
 #
 # unit_baseline_decide LOG SCOPE_FILE...
@@ -148,8 +150,11 @@ unit_baseline_close() {
 
 # unit_baseline_gate LOG SCOPE_FILE...: returns 0 when every failed test of LOG is outside our scope and fails the same way on the pristine
 # upstream release this branch is built on (custom/BASE), measured here and now; anything else, or any doubt, returns 1 and the gate stays red.
-# Needs from run-gates.sh: what unit_baseline_open needs, plus note and warn_note. Added 2026-11-22: the v1.4.269 sync merged an upstream test
+# Needs from run-gates.sh: what unit_baseline_open needs, plus note, warn_note and unit_rerun_alone. Added 2026-11-22: the v1.4.269 sync merged an upstream test
 # that fails on the runner's Node 24.22 (bot-mcp-apps), which turned every later pull request red although none touched it.
+# A failed test that PASSES on the release gets one more look (2026-11-26, pull request 70: a store test read window.api after an earlier file in its
+# worker had removed it): its file runs alone once on this tree (unit_rerun_alone). Only a file that fails alone is this change's doing; the rest are
+# not counted, with a warning. A file that holds one such test and one the release fails too stays red (its alone run fails on the second one).
 unit_baseline_gate() {
   local log="$1"; shift
   local decision tag json cand up uncovered n_files rc=0
@@ -165,16 +170,30 @@ unit_baseline_gate() {
   ( cd "$UB_TREE" && with_timeout 900 pnpm exec vitest run --config config/vitest.config.ts --reporter=json --outputFile="$json" "${files[@]}" ) >"$UB_DIR/run.log" 2>&1 || rc=$?
   if up="$(unit_baseline_failures "$json" "$UB_TREE")"; then
     uncovered="$(comm -23 <(sort -u <<<"$cand") <(sort -u <<<"$up"))"
+    local covered_up
+    covered_up="$(comm -12 <(sort -u <<<"$cand") <(sort -u <<<"$up"))"
+    rc=0
     if [ -n "$uncovered" ]; then
-      echo "unit baseline: these tests pass on upstream $tag, so this change broke them, and the gate stays red:"
+      # They pass on the pristine release: only a file that fails alone on this tree too is this change's doing (see the header).
+      local -a ufiles=()
+      while IFS= read -r f; do ufiles+=("$f"); done < <(cut -f1 <<<"$uncovered" | sort -u)
+      echo "unit baseline: these tests pass on upstream $tag; running their file(s) alone once on this change (${ufiles[*]}):"
       sed 's/^/  /' <<<"$uncovered" | tr '\t' ' '
-      rc=1
-    else
-      rc=0
-      echo "unit baseline: every one of them fails on upstream $tag as well; they are not counted:"
-      sed 's/^/  /' <<<"$cand" | tr '\t' ' '
-      note "$(wc -l <<<"$cand" | tr -d ' ') failed unit test(s) outside this change also fail on pristine upstream $tag in this environment and were not counted"
-      warn_note "Not counted: $(wc -l <<<"$cand" | tr -d ' ') unit test(s) that fail on pristine upstream $tag in this environment too (the runner, not this change): $(cut -f1 <<<"$cand" | sort -u | tr '\n' ' ')"
+      if unit_rerun_alone "${ufiles[@]}"; then
+        echo "unit baseline: they pass when run alone, so only the order of the shared run broke them; they are not counted"
+        note "$(wc -l <<<"$uncovered" | tr -d ' ') failed unit test(s) outside this change passed when their file ran alone: ${ufiles[*]}"
+        warn_note "Not counted: $(wc -l <<<"$uncovered" | tr -d ' ') unit test(s) failed only in the shared run and passed when their file ran alone (an earlier file in the same worker left them broken; a test of ours that leaks state would look the same): ${ufiles[*]}"
+      else
+        echo "unit baseline: these tests pass on upstream $tag, so this change broke them, and the gate stays red:"
+        sed 's/^/  /' <<<"$uncovered" | tr '\t' ' '
+        rc=1
+      fi
+    fi
+    if [ "$rc" -eq 0 ] && [ -n "$covered_up" ]; then
+      echo "unit baseline: every $([ -n "$uncovered" ] && echo other failed test || echo one of them) fails on upstream $tag as well; they are not counted:"
+      sed 's/^/  /' <<<"$covered_up" | tr '\t' ' '
+      note "$(wc -l <<<"$covered_up" | tr -d ' ') failed unit test(s) outside this change also fail on pristine upstream $tag in this environment and were not counted"
+      warn_note "Not counted: $(wc -l <<<"$covered_up" | tr -d ' ') unit test(s) that fail on pristine upstream $tag in this environment too (the runner, not this change): $(cut -f1 <<<"$covered_up" | sort -u | tr '\n' ' ')"
     fi
   else
     echo "unit baseline: the upstream run produced no usable result (exit $rc); the gate stays red. Last lines:"
