@@ -1,4 +1,5 @@
 import { defineMethod } from '../../core'
+import { SOURCE_UPDATE_HANDOFF_METHODS } from '../../../../updater/custom/source-update-handoff-rpc'
 import {
   checkRemoteServerUpdater,
   downloadRemoteServerUpdater,
@@ -8,6 +9,8 @@ import {
 import { UpdaterCheckParams } from '../../../../../shared/rpc-contract/updater/updater-params'
 
 export const UPDATER_METHODS = [
+  // Source installs hand off to their external launcher through the same authenticated transport.
+  ...SOURCE_UPDATE_HANDOFF_METHODS,
   defineMethod({
     name: 'updater.getStatus',
     permission: 'workspace',
