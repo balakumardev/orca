@@ -14,7 +14,7 @@ name: custom-sync
 #   agent3   Pro REPAIRS the best candidate of rounds 1 and 2 with that candidate's real gate output (same wider edit
 #            scope as round 2), or continues the one that got furthest; only when no round left a usable candidate
 #            does it start again from scratch
-#   gates*   custom-gates.yml: install, typecheck, lint, format, unit tests, localization, e2e ratchet, e2e specs
+#   gates*   custom-gates.yml: install, typecheck, lint, format, unit tests, localization, e2e ratchet, mobile web bundle, e2e specs
 #   open-pr  push sync/<tag> (the only branch this workflow may push), open the PR from FACTS, retire older sync PRs; close the
 #            stale PR it replaces; on a re-run of the failed jobs adopt the PR attempt 1 opened (custom/scripts/open-pr.sh)
 #   land     real runs only, all gates green, custom unchanged: check-run `gates / result`, merge commit, dispatch the release

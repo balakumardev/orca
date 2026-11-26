@@ -35,6 +35,7 @@ const GATE_ORDER = [
   'unit-related',
   'localization',
   'e2e-ratchet',
+  'mobile-web',
   'e2e'
 ]
 const REPO = process.env.REPO || 'balakumardev/orca'

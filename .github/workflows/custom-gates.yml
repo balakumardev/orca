@@ -10,9 +10,9 @@ name: custom-gates
 # request itself are used, so that very PR is a real test of the gates.
 #
 # Jobs: `static` (install, typecheck, lint, format, unit tests, localization, e2e typecheck ratchet, hygiene, lint
-# caps) on Linux and `e2e` (our Playwright specs) on macOS. Measured on 2026-11-14: Linux ran the same specs 6 of 7
-# green (one pixel-layout assertion in sidebar-stacked-layout.spec.ts failed), macOS 7 of 7, so e2e defaults to macOS
-# (free for public repositories).
+# caps, the mobile web bundle build and its verification) on Linux and `e2e` (our Playwright specs) on macOS.
+# Measured on 2026-11-14: Linux ran the same specs 6 of 7 green (one pixel-layout assertion in
+# sidebar-stacked-layout.spec.ts failed), macOS 7 of 7, so e2e defaults to macOS (free for public repositories).
 # The default is the Intel macOS pool (macos-15-intel), not arm64: on 2026-11-20 the arm64 pool repeatedly never gave a runner
 # ("The job was not acquired by Runner of type hosted", job cancelled after 15 minutes). A cancelled job makes the whole call end
 # `abandoned` with empty outputs, which a sync run reads as "no gate results" (it escalated to a paid round and left the PR red), and a
@@ -127,7 +127,10 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-          cache-dependency-path: repo/pnpm-lock.yaml
+          # The mobile-web gate installs mobile/ (its own pnpm project): key the store on both lockfiles so its packages are cached too.
+          cache-dependency-path: |
+            repo/pnpm-lock.yaml
+            repo/mobile/pnpm-lock.yaml
       - name: Run the gates
         id: gates
         working-directory: repo

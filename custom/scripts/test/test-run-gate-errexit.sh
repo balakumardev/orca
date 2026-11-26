@@ -8,7 +8,9 @@
 #
 # Part 1 pulls the real run_gate / in_gate_shell / skip_gate / gate_lint / gate_format out of the script under test and
 #        runs them with stub gate functions and a stub `pnpm`: (a) a failing middle command is red, (b) the old lint and
-#        format shape (a failing xargs, then `note`) is red, (c) a skip (77) still skips, (d) a passing function passes.
+#        format shape (a failing xargs, then `note`) is red, (c) a skip (77) still skips, (d) a passing function passes,
+#        (e) the real gate_mobile_web is red with the exit code of a failed mobile install (and then builds nothing) or of a failed
+#        build:mobile-web, and green when both pass.
 # Part 2 runs the whole script (`--only lint,format`) in a scratch repository with a stub `pnpm` and reads gates.json.
 #
 # Prove the test bites: run it against the pre-fix script, it must FAIL there.
@@ -42,14 +44,20 @@ extract() {
 mkdir -p "$tmp/bin" "$tmp/h-out/logs"
 cat > "$tmp/bin/pnpm" <<'STUB'
 #!/usr/bin/env bash
-# Stub pnpm: `pnpm exec oxlint ...` exits $LINT_RC, `pnpm exec oxfmt ...` exits $FMT_RC; anything else succeeds.
+# Stub pnpm: `pnpm exec oxlint ...` exits $LINT_RC, `pnpm exec oxfmt ...` exits $FMT_RC, `pnpm -C mobile install ...` exits
+# $MOBILE_INSTALL_RC, `pnpm run build:mobile-web` leaves $STUB_MARK and exits $MOBILE_BUILD_RC; anything else succeeds.
 case "$*" in
   *oxlint*) exit "${LINT_RC:-0}" ;;
   *oxfmt*) exit "${FMT_RC:-0}" ;;
+  *"-C mobile install"*) exit "${MOBILE_INSTALL_RC:-0}" ;;
+  *build:mobile-web*) : > "${STUB_MARK:?}"; exit "${MOBILE_BUILD_RC:-0}" ;;
 esac
 exit 0
 STUB
 chmod +x "$tmp/bin/pnpm"
+# The gate calls "$TOOLS_DIR/retry.sh 3 <command>"; this one runs the command once (the real one sleeps 20 s and 40 s between attempts).
+mkdir -p "$tmp/tools"
+printf '#!/usr/bin/env bash\nshift\nexec "$@"\n' > "$tmp/tools/retry.sh"
 
 {
   cat <<'STUBS'
@@ -64,7 +72,7 @@ die() { printf '::error::%s\n' "$*" >&2; exit 1; }
 record() { printf '%s %s\n' "$3" "$4" > "$RESULT_FILE"; } # id name status exit seconds
 STUBS
   grep -x 'GATE_RC=0' "$RUN_GATES" || true # the pre-fix script has no such variable
-  for n in skip_gate in_gate_shell errexit_canary check_errexit run_gate gate_lint gate_format; do
+  for n in skip_gate with_timeout in_gate_shell errexit_canary check_errexit run_gate gate_lint gate_format gate_mobile_web; do
     extract "$n" "$RUN_GATES"
   done
   cat <<'GATES'
@@ -94,13 +102,16 @@ GATES
 for n in run_gate gate_lint gate_format skip_gate; do
   grep -q "^$n() {" "$tmp/h.sh" || { echo "could not extract $n from $RUN_GATES"; exit 2; }
 done
+grep -q '^gate_mobile_web() {' "$tmp/h.sh" || bad "run-gates.sh has a gate_mobile_web gate"
 
 printf 'src/a.ts\n' > "$tmp/targets.txt"
 : > "$tmp/targets-empty.txt"
 outcome() { # GATE_FUNCTION [TARGETS_FILE] -> "status rc" recorded by run_gate
-  rm -f "$tmp/res"
+  rm -f "$tmp/res" "$tmp/mobile-build-ran"
   env PATH="$tmp/bin:$PATH" OUT="$tmp/h-out" RESULT_FILE="$tmp/res" CODE_TARGETS="${2:-$tmp/targets.txt}" \
-    LINT_RC="${LINT_RC:-0}" FMT_RC="${FMT_RC:-0}" OLD_HARNESS="${OLD_HARNESS:-0}" RUN_IN_OR="${RUN_IN_OR:-0}" bash "$tmp/h.sh" "$1" > /dev/null 2>&1 || true
+    LINT_RC="${LINT_RC:-0}" FMT_RC="${FMT_RC:-0}" OLD_HARNESS="${OLD_HARNESS:-0}" RUN_IN_OR="${RUN_IN_OR:-0}" \
+    TOOLS_DIR="$tmp/tools" STUB_MARK="$tmp/mobile-build-ran" MOBILE_INSTALL_RC="${MOBILE_INSTALL_RC:-0}" MOBILE_BUILD_RC="${MOBILE_BUILD_RC:-0}" \
+    bash "$tmp/h.sh" "$1" > /dev/null 2>&1 || true
   cat "$tmp/res" 2> /dev/null || echo "none"
 }
 expect() { # NAME GATE_FUNCTION WANT_STATUS [TARGETS_FILE]
@@ -135,6 +146,14 @@ expect "a failure guarded by || true does not fail the gate" gate_guarded pass
 expect "a failing test in an if condition or an || list does not fail the gate" gate_tests_only pass
 got="$(outcome gate_skip)"
 if [ "$got" = "skip 0" ]; then ok "a skip is recorded with exit code 0"; else bad "skip exit code: [$got]"; fi
+# The mobile web bundle gate: red only when the bundle build/verification or the mobile install really fails, with that exit code.
+got="$(MOBILE_BUILD_RC=1 outcome gate_mobile_web)"
+if [ "$got" = "fail 1" ]; then ok "gate_mobile_web fails with the build's exit code when build:mobile-web fails"; else bad "mobile-web build red: [$got]"; fi
+got="$(MOBILE_INSTALL_RC=7 outcome gate_mobile_web)"
+if [ "$got" = "fail 7" ] && [ ! -e "$tmp/mobile-build-ran" ]; then ok "gate_mobile_web fails with retry.sh's exit code when the mobile install fails, and builds nothing"
+else bad "mobile-web install red: [$got], build ran: $([ -e "$tmp/mobile-build-ran" ] && echo yes || echo no)"; fi
+got="$(outcome gate_mobile_web)"
+if [ "$got" = "pass 0" ] && [ -e "$tmp/mobile-build-ran" ]; then ok "gate_mobile_web passes when the install and build:mobile-web pass"; else bad "mobile-web green: [$got]"; fi
 
 # ---- part 2: the whole script, with a stub pnpm --------------------------------------------------------------------
 repo="$tmp/repo"
