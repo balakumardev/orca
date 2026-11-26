@@ -5,7 +5,8 @@
 # Why: the repair round used to see only the last 40 lines (3500 bytes) of a failing gate's log. For the Playwright gate that is the list of
 # failing test names; the assertion messages (`Expected ... Received ...`) are above it. In PR #43 the model could not know why a spec failed.
 # The fixtures in fixtures/gate-logs are REAL output of the pinned tools (vitest 5.0.5, TypeScript 7, Playwright 1.64.1, oxlint, oxfmt 0.74,
-# local paths scrubbed), plus one real CI vitest log; e2e-build-failure.txt is written by hand after a vite build error.
+# local paths scrubbed), plus one real CI vitest log and the real mobile bundle failure of release run 45161995705 (mobile-web-zod-locales.txt);
+# e2e-build-failure.txt is written by hand after a vite build error.
 #
 # Part 1 sources gate_details and feeds it each log. Part 2 checks the byte bounds and odd input (NUL, invalid UTF-8, a character split by the
 # cut). Part 3 runs the whole run-gates.sh with a stub pnpm/npx that prints those logs, and reads gates.json and the prompt block.
@@ -96,6 +97,28 @@ printf 'Checking formatting...\n[warn] src/a.ts\n[warn] src/b.tsx\n[warn] Code s
 d="$(gate_details format "$tmp/warn.log")"
 check "oxfmt ([warn] style): both files, not the summary sentence" bash -c '[[ "$1" == *"2 file(s) differ"* && "$1" == *"src/a.ts"* && "$1" == *"src/b.tsx"* ]]' _ "$(body_of "$d")"
 
+# mobile-web-zod-locales.txt is lines 2591-2595 of the failed release run 45161995705 (PR #45's `import { z } from 'zod'`), with the
+# `build<TAB>UNKNOWN STEP<TAB><timestamp> ` columns of `gh run view --log-failed` removed: the gate's own log has no Actions prefix.
+d="$(details mobile-web mobile-web-zod-locales.txt)"
+echo "mobile web bundle (the real release log)"
+check "control: the generic error-line regex does NOT see the zod verdict (it says neither error nor fail)" \
+  lacks "$(gate_details_error_lines < "$fix/mobile-web-zod-locales.txt")" 'zod locale tables'
+check "mobile-web: the build's verdict is in the excerpt body, not only in the tail" has "$(body_of "$d")" '[build-mobile-web-app-bundle] 63 zod locale tables reached the page'
+check "mobile-web: the excerpt names the fix" has "$d" "use \`import * as z from 'zod'\`"
+check "mobile-web: the report is recognised" lacks "$d" 'no recognised failure report'
+{
+  printf 'Packages: +1269\n+ react-native-web 0.21.2\nDone in 5.3s using pnpm v12.18.0\n'
+  printf '$ node config/scripts/build/mobile-web-app/build-mobile-web-app-bundle.mjs && node config/scripts/build/mobile-web-app/verify-mobile-web-app-bundle.mjs\n'
+  printf '[build-mobile-web-app-bundle] OK — 18 route(s), 88 chunk(s)\n[verify-mobile-web-app-bundle] Build failed with 1 error:\n'
+  printf 'src/shared/remote-runtime/protocol/protocol-version.ts:3:22: ERROR: Could not resolve "./gone"\n[ELIFECYCLE] Command failed with exit code 1.\n'
+} > "$tmp/mobile-esbuild.log"
+d="$(gate_details mobile-web "$tmp/mobile-esbuild.log")"
+check "mobile-web: an esbuild error in the verification keeps its file, line and text, and the build's OK line" \
+  bash -c '[[ "$1" == *"Build failed with 1 error:"* && "$1" == *"protocol-version.ts:3:22: ERROR: Could not resolve"* && "$1" == *"[build-mobile-web-app-bundle] OK"* ]]' _ "$(body_of "$d")"
+check "mobile-web: install progress is not in the excerpt body" lacks "$(body_of "$d")" 'react-native-web 0.21.2'
+printf ' ERR_PNPM_OUTDATED_LOCKFILE  Cannot install with "frozen-lockfile" because pnpm-lock.yaml is not up to date with package.json\nretry: attempt 1/3 failed with exit 1: pnpm -C mobile install --frozen-lockfile\n' > "$tmp/mobile-install.log"
+check "mobile-web: a failed mobile install shows the pnpm error and the retry" bash -c '[[ "$1" == *"ERR_PNPM_OUTDATED_LOCKFILE"* && "$1" == *"retry: attempt 1/3"* ]]' _ "$(body_of "$(gate_details mobile-web "$tmp/mobile-install.log")")"
+
 echo "no recognised report: never worse than the old tail"
 d="$(details e2e e2e-build-failure.txt)"
 check "build error: says the report was not recognised" has "$d" 'no recognised failure report'
@@ -128,7 +151,7 @@ odd="$tmp/odd.log"
   perl -e 'print "error TS2345: x", "\xc3\xa9" x 9000, "\n"' # an odd offset: the line cut lands inside a two-byte character
   printf 'tail line\n'
 } > "$odd"
-for id in typecheck e2e lint unit localization; do
+for id in typecheck e2e lint unit localization mobile-web; do
   d="$(gate_details "$id" "$odd")"
   printf '%s\n' "$d" > "$tmp/odd.details"
   # strict decoding with perl: macOS's iconv rejects valid text whose characters straddle its read buffer
@@ -158,6 +181,7 @@ case "$*" in
   tc) cat "${STUB_TC:-$f/tsc-plain.txt}"; exit 1 ;;
   *check:e2e-typecheck-ratchet*) printf 'tests/e2e/x.spec.ts: 1 type error(s), baseline allows 0.\n'; cat "$f/tsc-plain.txt"; exit 1 ;;
   *verify:localization-coverage*) printf 'Error: 3 locale keys are missing in fr.json\n'; exit 1 ;;
+  *build:mobile-web*) cat "$f/mobile-web-zod-locales.txt"; exit 1 ;;
   *ensure:electron-runtime*) exit 0 ;;
 esac
 exit 0
@@ -175,15 +199,15 @@ chmod +x "$tmp/bin/pnpm" "$tmp/bin/npx" "$tmp/bin/xvfb-run"
 run_gates() { # NAME [ENV=VALUE...] -> $tmp/out-NAME/gates.json
   local name="$1"; shift
   ( cd "$repo" && env PATH="$tmp/bin:$PATH" GATE_LOGS="$fix" "$@" bash "$scripts/run-gates.sh" --out "$tmp/out-$name" --mode sync --our-files "$tmp/our-files.txt" \
-      --only typecheck,lint,format,unit,localization,e2e-ratchet,e2e --exit-zero ) > "$tmp/run-$name.log" 2>&1
+      --only typecheck,lint,format,unit,localization,e2e-ratchet,mobile-web,e2e --exit-zero ) > "$tmp/run-$name.log" 2>&1
 }
 gj="$tmp/out-main/gates.json"
 if run_gates main; then ok "run-gates.sh ran to the end"; else bad "run-gates.sh ran to the end"; sed 's/^/    /' "$tmp/run-main.log" | tail -n 12; fi
 check "gates.json is valid JSON" jq -e . "$gj"
-check "all seven gates failed (the stubs exit 1)" test "$(jq '[.gates[] | select(.status == "fail")] | length' "$gj")" -eq 7
+check "all eight gates failed (the stubs exit 1)" test "$(jq '[.gates[] | select(.status == "fail")] | length' "$gj")" -eq 8
 gate() { jq -r --arg id "$1" '.gates[] | select(.id == $id) | .'"$2" "$gj"; }
-check "every failing gate has details" test "$(jq '[.gates[] | select(.status == "fail" and ((.details // "") | length > 0))] | length' "$gj")" -eq 7
-check "every gate keeps output_tail (the old field) and exit_code" test "$(jq '[.gates[] | select((.output_tail | length) > 0 and .exit_code == 1)] | length' "$gj")" -eq 7
+check "every failing gate has details" test "$(jq '[.gates[] | select(.status == "fail" and ((.details // "") | length > 0))] | length' "$gj")" -eq 8
+check "every gate keeps output_tail (the old field) and exit_code" test "$(jq '[.gates[] | select((.output_tail | length) > 0 and .exit_code == 1)] | length' "$gj")" -eq 8
 check "no details are longer than 12000 bytes" test "$(jq '[.gates[] | .details // "" | utf8bytelength] | max' "$gj")" -le 12000
 check "e2e details: the assertion the old tail could not show" bash -c '[[ "$1" == *"toHaveAttribute"* && "$1" == *"Received: \"\""* ]]' _ "$(gate e2e details)"
 check "e2e output_tail is still only the tail (no assertion above the cut)" bash -c '[[ "$1" != *"toHaveAttribute"* ]]' _ "$(gate e2e output_tail)"
@@ -192,6 +216,9 @@ check "unit details: the failing test and its diff" bash -c '[[ "$1" == *"FAIL  
 check "lint details: the rule and location" bash -c '[[ "$1" == *"lint/a.ts:2:1"* && "$1" == *"no-debugger"* ]]' _ "$(gate lint details)"
 check "format details: the file" bash -c '[[ "$1" == *"lint/b.ts"* ]]' _ "$(gate format details)"
 check "localization (no extractor) still has details: the generic excerpt" bash -c '[[ "$1" == *"locale keys are missing"* ]]' _ "$(gate localization details)"
+check "mobile-web details: the build's verdict" bash -c '[[ "$1" == *"zod locale tables reached the page"* && "$1" == *"mobile web bundle: 1 line(s)"* ]]' _ "$(gate mobile-web details)"
+check "mobile-web runs after e2e-ratchet and before e2e (nothing after it in the static job sees mobile/node_modules)" \
+  test "$(jq -r '[.gates[].id] | map(select(. == "e2e-ratchet" or . == "mobile-web" or . == "e2e")) | join(",")' "$gj")" = "e2e-ratchet,mobile-web,e2e"
 check "the details are also kept as a file in the artifact (logs/e2e.details.txt)" test -s "$tmp/out-main/logs/e2e.details.txt"
 check "a passing gate has no details field" bash -c '! jq -e ".gates[] | select(.status == \"pass\") | .details" "$1" >/dev/null 2>&1' _ "$gj"
 
@@ -215,7 +242,8 @@ check "odd bytes through run-gates.sh: typecheck still has details" jq -e '.gate
 # the prompt block
 if declare -F failing_gates_block >/dev/null; then
   blk="$(failing_gates_block 28000 "$gj")"
-  check "prompt block: every failing gate has a header" test "$(grep -c '^### .* (exit 1) - ' <<<"$blk")" -eq 7
+  check "prompt block: every failing gate has a header" test "$(grep -c '^### .* (exit 1) - ' <<<"$blk")" -eq 8
+  check "prompt block: the mobile web bundle's verdict reaches the repair prompt" bash -c '[[ "$1" == *"### Mobile web bundle (build:mobile-web) (exit 1) - failure excerpt"* && "$1" == *"zod locale tables reached the page"* ]]' _ "$blk"
   check "prompt block: shows the e2e failure excerpt, not the bare tail" bash -c '[[ "$1" == *"toHaveAttribute"* && "$1" == *"failure excerpt"* ]]' _ "$blk"
   check "prompt block: within the 28000-byte budget" test "$(printf '%s' "$blk" | wc -c | tr -d ' ')" -le 28000
   # fair share: one huge gate must not starve the others
@@ -227,7 +255,7 @@ if declare -F failing_gates_block >/dev/null; then
   check "fair share: a huge gate is cut and says so; the budget holds" bash -c '[[ "$1" == *"cut to fit"* && "$(printf "%s" "$1" | wc -c)" -le 28000 ]]' _ "$blk"
   check "fair share: both huge gates keep about the same room (neither starves the other)" bash -c 'a="$(awk "/^### Huge A/{f=1;next} /^### /{f=0} f" <<<"$1" | wc -c)"; c="$(awk "/^### Huge C/{f=1;next} /^### /{f=0} f" <<<"$1" | wc -c)"; [ "$a" -gt 9000 ] && [ "$c" -gt 9000 ]' _ "$blk"
   # The budget is in BYTES (the caller's trunc_bytes counts bytes): multibyte text must not push the block over it, because the overrun is cut
-  # off the END of the block, which is the last failing gate in gate order (e2e-ratchet, e2e), the one the repair most needs.
+  # off the END of the block, which is the last failing gate in gate order (e2e-ratchet, mobile-web, e2e), the one the repair most needs.
   mb_json() { perl -Mutf8 -MJSON::PP -e 'my @g; my $n = 0; for my $x (["Typecheck", "details", "é" x 30000], ["Lint", "details", "日" x 30000], ["Unit tests", "output_tail", "😀" x 20000], ["E2E typecheck ratchet", "details", "é日😀" x 10000], ["Playwright e2e specs", "details", ("é" x 30000) . "LAST-GATE-END"]) { push @g, { id => "g" . $n++, name => $x->[0], status => "fail", exit_code => 1, $x->[1] => $x->[2] }; } print encode_json({ schema => 1, gates => \@g })'; }
   mb_json > "$tmp/mb.json"
   failing_gates_block 28000 "$tmp/mb.json" > "$tmp/mb.blk"

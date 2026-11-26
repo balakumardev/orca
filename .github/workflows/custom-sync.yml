@@ -22,7 +22,7 @@ name: custom-sync
 #            On custom, a round whose job crashed (lost runner, timeout) does not stop the later rounds unless its scan
 #            counted a leak; when no round left a candidate at all, open-pr opens no PR and fails, so the next scheduled
 #            sync starts the tag over
-#   gates*   custom-gates.yml: install, typecheck, lint, format, unit tests, localization, e2e ratchet, e2e specs
+#   gates*   custom-gates.yml: install, typecheck, lint, format, unit tests, localization, e2e ratchet, mobile web bundle, e2e specs
 #   open-pr  push sync/<tag> (the only branch this workflow may push), open the PR from FACTS, retire older sync PRs; close the
 #            stale PR it replaces; on a re-run of the failed jobs adopt the PR attempt 1 opened (custom/scripts/open-pr.sh)
 #   land     real runs only, all gates green, custom unchanged: check-run `gates / result`, merge commit, dispatch the release
