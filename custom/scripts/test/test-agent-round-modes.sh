@@ -169,9 +169,9 @@ check "round 1 resolved everything" test "$(facts r1 .unresolved)" = false
 check "a successful round says ok in the job summary" grep -q 'Result: ok\.' "$tmp/r1.summary"
 check "no repair edits are recorded for a first round" test "$(facts r1 '.repair_edits // [] | length')" = 0
 
-echo "round 2 (repair, pro): wider scope, stops early with edits kept"
-round r2 repair repair-max-turns 2 pro r1
-check "repair on Pro: the same 1 hour wall clock" test "$(jq -r .wall_seconds "$tmp/r2.out/agent-plan.json")" = 3600
+echo "round 2 (repair, flash): wider scope, stops early with edits kept"
+round r2 repair repair-max-turns 2 flash r1
+check "repair on Flash: the same 1 hour wall clock" test "$(jq -r .wall_seconds "$tmp/r2.out/agent-plan.json")" = 3600
 check "repair prompt: the conflicted files are not given a hunk count" test -z "$(grep -F 'conflict hunk(s)' "$tmp/r2.out/agent-prompt.txt" || true)"
 check "repair prompt: the conflicted files are listed as conflicted in the merge" grep -q 'src/beta.ts (content, conflicted in the merge' "$tmp/r2.out/agent-prompt.txt"
 check "repair prompt: the owned, non-conflicted file is editable" grep -q '^- src/epsilon.ts (owned by a customization)' "$tmp/r2.out/agent-prompt.txt"
@@ -179,7 +179,7 @@ check "allowed-edit-files: conflicted files plus owned files" test "$(tr '\n' ' 
 check "the round record says why it stopped" test "$(facts r2 '.agent.rounds[-1].stop')" = error_max_turns
 check "the round record keeps the CLI's exit code" test "$(facts r2 '.agent.rounds[-1].exit_code')" = 1
 check "its edits were kept (not reverted)" grep -q 'epsilon repaired' <(git -C "$tmp/r2.repo" show "$(facts r2 .merge_sha):src/epsilon.ts")
-check "the job summary explains the stop" grep -q 'Agent round 2 (repair, pro): 81 turns, exit code 1.*Result: ran out of turns; edits kept; gates decide\.' "$tmp/r2.summary"
+check "the job summary explains the stop" grep -q 'Agent round 2 (repair, flash): 81 turns, exit code 1.*Result: ran out of turns; edits kept; gates decide\.' "$tmp/r2.summary"
 check "facts.repair_edits lists the non-conflicted files the repair changed" test "$(facts r2 '.repair_edits | join(",")')" = "src/epsilon.test.ts,src/epsilon.ts"
 check "the earlier round's record is still in the facts" test "$(facts r2 '.agent.rounds | map(.round) | join(",")')" = "1,2"
 
@@ -187,19 +187,19 @@ echo "round 2 (repair): the hunk-survival findings widen the edit scope to the N
 mkdir -p "$tmp/hs-gates/gates-1-static"
 jq -n '{schema: 1, mode: "sync", gates: [{id: "hunk-survival", name: "Our lines survive the merge (advisory)", status: "pass", exit_code: 0, seconds: 1, note: "", output_tail: "", warnings: ["`src/old-delta.ts` -> `src/delta.ts`: 1 of 1 significant lines we added are missing from the merged file, e.g. `x`"]}]}' > "$tmp/hs-gates/gates-1-static/gates.json"
 jq -n '{checked: 1, affected: 1, files: [{old: "src/old-delta.ts", mapped: "src/delta.ts", missing: 1, total: 1, removed: false, samples: ["x"]}]}' > "$tmp/hs-gates/gates-1-static/hunk-survival.json"
-round r2h repair repair-moved 2 pro r1 "$tmp/hs-gates"
+round r2h repair repair-moved 2 flash r1 "$tmp/hs-gates"
 check "the repair prompt offers the new path of the moved file" grep -q '^- src/delta.ts (a file of ours that lost lines in the merge' "$tmp/r2h.out/agent-prompt.txt"
 check "the repair prompt shows the advisory block" grep -q 'Advisory, not a failing check: lines of ours that vanished' "$tmp/r2h.out/agent-prompt.txt"
 check "the advisory asks for one LOST-LINES line per entry and says the fix may belong in another file" grep -q -F 'LOST-LINES <file>: restored in <path>' "$tmp/r2h.out/agent-prompt.txt"
 check "allowed-edit-files names it, once" test "$(grep -c -x 'src/delta.ts' "$tmp/r2h.out/allowed-edit-files.txt")" = 1
 check "its edit was kept (not reverted as out of scope)" grep -q 'our restored hunk' <(git -C "$tmp/r2h.repo" show "$(facts r2h .merge_sha):src/delta.ts")
 check "nothing is recorded as out of scope" test "$(facts r2h '.out_of_scope // [] | length')" = 0
-round r2n repair repair-moved 2 pro r1
+round r2n repair repair-moved 2 flash r1
 check "without the finding, the same edit to a file upstream owns is reverted as out of scope" test "$(facts r2n '.out_of_scope // [] | join(",")')" = "src/delta.ts"
 check "...and is not in the merge" test -z "$(git -C "$tmp/r2n.repo" show "$(facts r2n .merge_sha):src/delta.ts" | grep -F 'our restored hunk' || true)"
 
 echo "round 2 (repair): finish checks every extra edit path against the new release again (the list comes from an untrusted artifact)"
-FORGE_EXTRA="$(printf 'src/not-in-release.ts\n../outside.ts\nCLAUDE.md\nsrc')" round r2x repair repair-moved 2 pro r1 "$tmp/hs-gates"
+FORGE_EXTRA="$(printf 'src/not-in-release.ts\n../outside.ts\nCLAUDE.md\nsrc')" round r2x repair repair-moved 2 flash r1 "$tmp/hs-gates"
 check "a path that is not a file of the new release is not made editable" test -z "$(grep -E 'not-in-release|outside|CLAUDE|^src$' "$tmp/r2x.out/allowed-edit-files.txt" || true)"
 check "...while the real one still is" test "$(grep -c -x 'src/delta.ts' "$tmp/r2x.out/allowed-edit-files.txt")" = 1
 check "finish says which path it ignored" grep -q -F 'ignoring src/not-in-release.ts in extra-edit-files.txt' "$tmp/r2x.finish.log"
@@ -218,8 +218,8 @@ check "marker on a file upstream has: the reviewer is told it was reverted" test
 echo "every mode and tier gets the same wall clock and no turn count"
 round r2f repair repair-max-turns 2 flash r1
 check "repair on Flash: 1 hour" test "$(jq -r .wall_seconds "$tmp/r2f.out/agent-plan.json")" = 3600
-round r3r retry resolve 3 pro r2
-check "retry on Pro: 1 hour, no turn count" bash -c "test \"\$(jq -r .wall_seconds '$tmp/r3r.out/agent-plan.json')\" = 3600 && jq -e 'has(\"max_turns\") | not' '$tmp/r3r.out/agent-plan.json'"
+round r3r retry resolve 3 flash r2
+check "retry on round 3: 1 hour, no turn count" bash -c "test \"\$(jq -r .wall_seconds '$tmp/r3r.out/agent-plan.json')\" = 3600 && jq -e 'has(\"max_turns\") | not' '$tmp/r3r.out/agent-plan.json'"
 
 echo "round 2 (retry) after round 1's job crashed: a fresh merge, no previous round to show"
 round r2c retry resolve 2 flash
@@ -241,7 +241,7 @@ check "continue: it finished the merge" test "$(facts p2 .unresolved)" = false
 check "continue: round 1's resolution of alpha survived" grep -q 'alpha merged line 7' <(git -C "$tmp/p2.repo" show "$(facts p2 .merge_sha):src/alpha.ts")
 check "continue: the UNRESOLVED-MERGE.txt of the earlier candidate is gone" test -z "$(git -C "$tmp/p2.repo" ls-tree --name-only "$(facts p2 .merge_sha)" -- custom/UNRESOLVED-MERGE.txt)"
 check "continue: both rounds are in the record" test "$(facts p2 '.agent.rounds | map(.round) | join(",")')" = "1,2"
-round p3 repair rest 3 pro p1
+round p3 repair rest 3 flash p1
 
 echo "a release that conflicts in many files gets room for them (a cap of 70 turns stopped v1.4.261 at 16 of its 22 model files)"
 many="$tmp/many"
@@ -367,8 +367,9 @@ check "lost-lines: an ordinary round records an empty list" test "$(facts r1 '.a
 round c4 first lastturn 1 flash
 check "cost: when usage is only the last turn the whole session is read from modelUsage (5825764 prompt tokens, 5733504 cached)" test "$(facts c4 '.agent.rounds[-1] | [.input_tokens, .cached_tokens, .output_tokens] | join(" ")')" = "5825764 5733504 47993"
 check "cost: and priced at 4 cents, not the 0.02 cents of one turn" test "$(facts c4 '.agent.rounds[-1].estimated_cost_usd')" = 0.0400
-round c3 first costly 3 pro
-check "cost: Pro is priced at 1.30 in, 0.10 cached, 2.60 out (no discount)" test "$(facts c3 '[.agent.rounds[-1] | .price_in, .price_cached, .price_out] | join(" ")')" = "1.3 0.1 2.6"
+prepare_only nopro first 3 pro || true
+check "the Pro tier is refused, so no sync can reach that model" grep -q 'TIER must be flash' "$tmp/nopro.prepare.log"
+check "no Pro model name is left in the round script (the opus alias used to map to it)" test -z "$(grep -F 'Pro-0813' "$scripts/agent-round.sh" || true)"
 check "cost: and a round with a refused call costs nothing and looks nothing up" test "$(facts f1 '.agent.rounds[-1].estimated_cost_usd')" = 0.0000
 
 exit "$([ "$fails" -eq 0 ] && echo 0 || echo 1)"

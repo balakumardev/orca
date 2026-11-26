@@ -198,7 +198,7 @@ for name in "detect" "merge" "gates (round 0) / e2e" "gates (round 3) / e2e" "op
   reset; addrun 40 "$SYNC" failure 1 1; addjob 40 "$name" failure "$NOT_ACQUIRED"
   go; expect_rerun "custom-sync: an infrastructure fault in '$name' is re-run" 40
 done
-for name in "agent (round 1, flash) / agent" "agent (round 3, pro) / agent" "gates (round 1) / e2e" "gates (round 2) / static" "pick the base of round 3"; do
+for name in "agent (round 1, flash) / agent" "agent (round 3, flash) / agent" "gates (round 1) / e2e" "gates (round 2) / static" "pick the base of round 3"; do
   reset; addrun 41 "$SYNC" failure 1 1; addjob 41 "$name" failure "$NOT_ACQUIRED"
   go; expect_none "custom-sync: an infrastructure fault in '$name' is left for a person (paid or candidate-changing dependents)" "left for a person"
 done

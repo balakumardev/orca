@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Decide what the last model round (round 3, Pro) starts from, among the downloaded rounds 1 and 2, and round 0 after a merge that
+# Decide what the last model round (round 3) starts from, among the downloaded rounds 1 and 2, and round 0 after a merge that
 # needed no model.
 # Usage: pick-repair-base.sh ALL_DIR   (ALL_DIR holds round-N/ and gates-N-*/ directories from download-artifact)
 #

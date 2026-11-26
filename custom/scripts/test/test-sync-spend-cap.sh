@@ -98,7 +98,7 @@ expect_paused() { # NAME REASON_SUBSTRING SUMMARY_SUBSTRING: the same stop as th
   # shellcheck disable=SC2016 # literal text, not an expansion
   if [ "$d_rc" = 0 ] && [ "$(out_of proceed)" = false ] && grep -qF -- "$2" <<<"$(out_of reason)" && [ -z "$(out_of branch)" ] \
      && grep -qF '::warning title=custom-sync paused::' <<<"$d_out" && grep -qF -- "$3" <<<"$d_summary" \
-     && grep -qF 'gh workflow run custom-sync.yml --repo balakumardev/orca --ref custom' <<<"$d_summary" && grep -qF '3 x $31 a day' <<<"$d_summary"; then ok "$1"
+     && grep -qF 'gh workflow run custom-sync.yml --repo balakumardev/orca --ref custom' <<<"$d_summary" && grep -qF '3 x $24 a day' <<<"$d_summary"; then ok "$1"
   else bad "$1: rc=$d_rc proceed=[$(out_of proceed)] reason=[$(out_of reason)] summary=[$d_summary] out=[$d_out]"; fi
 }
 
