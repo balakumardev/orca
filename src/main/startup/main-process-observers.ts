@@ -27,6 +27,7 @@ import type { NativeHangTelemetry } from '../hang-watchdog/previous-native-hang-
 import { getCanonicalUserDataPath } from '../persistence/loading-store/user-data-path'
 import { mainProcessState as state } from './main-process-state'
 import { runAfterFirstWindowShown } from './main-window/first-window-deferral'
+import { installSourceUpdateHandoff } from '../updater/custom/source-update-handoff-startup'
 
 const TELEMETRY_CLIENT_START_FALLBACK_MS = 15_000
 
@@ -46,6 +47,8 @@ function feedWakeSignalClock(): () => void {
 
 /** Main's power, presence, awake, telemetry and hang observers; core observers start in composition. */
 export function initializeMainProcessObservers(store: Store): void {
+  // Managed source launches reuse graceful quit rather than the destructive dev-parent signal path.
+  installSourceUpdateHandoff()
   state.unsubscribeSystemResumeBroadcast = registerSystemResumeBroadcast()
   if (process.platform === 'darwin') {
     state.unsubscribeWakeSignalClock = feedWakeSignalClock()

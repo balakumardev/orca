@@ -11,7 +11,8 @@
 #   --exit-zero     always exit 0 (failures are only recorded in gates.json); the sync workflow uses it so that a
 #                   failed gate becomes a draft PR instead of a red run.
 #
-# Gate ids: hygiene lint-caps hunk-survival (sync only, advisory) install typecheck lint format unit unit-related localization e2e-ratchet e2e
+# Gate ids: hygiene lint-caps hunk-survival (sync only, advisory) install typecheck lint format unit unit-related localization e2e-ratchet
+#   mobile-web e2e
 # Output: DIR/gates.json (schema 1), DIR/logs/<id>.log (full output). Gates are scripts: no model is involved.
 #   Every gate in gates.json has `output_tail` (the last 40 lines, 3500 bytes). A FAILING gate also has `details` (gate-details.sh: the
 #   failure-relevant excerpt of its log, about 8000 bytes and never more than 12000), which the repair prompt shows instead of the tail.
@@ -191,13 +192,14 @@ unit_rerun_alone() {
 
 # unit_red_verdict FIRST_LOG RC: what a red vitest run (`unit` or `unit-related`) means; prints the reasons, returns 0 only when all of it is covered.
 unit_red_verdict() {
-  local first="$1" rc="$2" decision f rc2=0 suite_decision
+  local first="$1" rc="$2" decision f rc2=0 suite_decision rerun_log
   local -a rerun=() suites=()
-  # Red run. Real failures stay red. Three exceptions, each checked on its own, and the gate passes only when every part of the
+  # Red run. Real failures stay red. Four exceptions, each checked on its own, and the gate passes only when every part of the
   # red is covered: (1) a test file outside this change's scope that failed to LOAD gets one re-run alone, because a file an earlier
   # one in the same worker left half-loaded passes on its own (unit_suite_decide); (2) failed tests that are not ours and fail the same
   # way on the pristine upstream release are the runner's, not this merge's (unit_baseline_gate); (3) an unhandled error that a test
-  # file outside this change's scope raised gets that file one re-run (unit_flake_decide).
+  # file outside this change's scope raised gets that file one re-run (unit_flake_decide); (4) when that re-run raises it again, it is
+  # not counted only if the pristine upstream release raises the same error too (unit_unhandled_baseline_gate).
   local covered=0 n_suites=0
   if [ "$rc" -eq 1 ]; then
     suite_decision="$(unit_suite_decide "$first" "$TEST_SCOPE" "$ALL_TARGETS")"
@@ -233,17 +235,22 @@ unit_red_verdict() {
     echo "unit flake check: the gate stays red (${decision#keep-red: })"
     return "$rc"
   fi
-  rm -f "$first"
   while IFS= read -r f; do [ -z "$f" ] || rerun+=("$f"); done < <(tail -n +2 <<<"$decision")
   for f in "${rerun[@]}"; do
-    [ -f "$f" ] || { echo "unit flake check: the gate stays red ($f does not exist in this checkout)"; return "$rc"; }
+    [ -f "$f" ] || { rm -f "$first"; echo "unit flake check: the gate stays red ($f does not exist in this checkout)"; return "$rc"; }
   done
   echo "unit flake check: vitest exited $rc with $([ "$covered" -eq 1 ] && echo 'no failed test that the upstream baseline does not cover' || echo 'no failed test'); its only other complaint is an unhandled error raised while running ${rerun[*]}, which this change does not touch. Re-running just those files once."
-  with_timeout 600 pnpm exec vitest run --config config/vitest.config.ts "${rerun[@]}" || rc2=$?
+  rerun_log="$(mktemp)"
+  with_timeout 600 pnpm exec vitest run --config config/vitest.config.ts "${rerun[@]}" 2>&1 | tee "$rerun_log" || rc2=$?
   if [ "$rc2" -ne 0 ]; then
-    echo "unit flake check: the re-run exited with code $rc2, so the gate stays red"
+    echo "unit flake check: the re-run exited with code $rc2"
+    # (4) The error came back: it is not counted only when the pristine upstream release raises it too (unit-baseline.sh).
+    if unit_unhandled_baseline_gate "$rc2" "$rerun_log" "$first" "${rerun[@]}"; then rm -f "$first" "$rerun_log"; return 0; fi
+    rm -f "$first" "$rerun_log"
+    echo "unit flake check: the gate stays red"
     return "$rc"
   fi
+  rm -f "$first" "$rerun_log"
   note "first run threw an unhandled error that did not reproduce: ${rerun[*]} passed on a re-run"
   warn_note "The first unit run threw an unhandled error that did not reproduce: ${rerun[*]} (a test file this change does not touch) passed on a re-run. The gate passed on that re-run."
 }
@@ -279,6 +286,16 @@ gate_unit_related() { # pr mode only: tests that import the changed source files
 gate_localization() { pnpm run verify:localization-coverage; }
 gate_e2e_ratchet() { pnpm check:e2e-typecheck-ratchet; }
 
+# The mobile web bundle, as the release builds it (custom-release.yml: the mobile install, then build:mobile-web inside build:desktop).
+# No other gate built it, so an `import { z } from 'zod'` that reached the page (PR #45) passed every gate and failed the release.
+# mobile/ is its own pnpm project; its postinstall writes the generated engines the page imports, so scripts stay on. It runs LAST
+# in the static job: mobile/node_modules turns on the root bundling tests and changes how type-aware lint resolves mobile imports, so
+# a gate after it would no longer behave as before. It writes only ignored paths (mobile/node_modules, the generated engines, out/).
+gate_mobile_web() {
+  with_timeout 900 bash "$TOOLS_DIR/retry.sh" 3 pnpm -C mobile install --frozen-lockfile
+  with_timeout 900 pnpm run build:mobile-web
+}
+
 gate_e2e() {
   [ -s "$E2E_SPECS" ] || skip_gate "no Playwright specs in scope" || return $?
   local specs runner=()
@@ -298,7 +315,7 @@ gate_e2e() {
 
 # ------------------------------------------------------------------------------------------------ harness
 INSTALL_FAILED=0
-needs_install() { case "$1" in typecheck|lint|format|unit|unit-related|localization|e2e-ratchet) return 0 ;; esac; return 1; }
+needs_install() { case "$1" in typecheck|lint|format|unit|unit-related|localization|e2e-ratchet|mobile-web) return 0 ;; esac; return 1; }
 
 record() { # id name status exit seconds
   local id="$1" name="$2" status="$3" rc="$4" secs="$5" tail_text="" notes="" warns="[]" have_details=false
@@ -386,6 +403,7 @@ run_gate unit "Unit tests for the directories in scope" gate_unit
 run_gate unit-related "Unit tests related to changed sources" gate_unit_related
 run_gate localization "Localization coverage" gate_localization
 run_gate e2e-ratchet "E2E typecheck ratchet" gate_e2e_ratchet
+run_gate mobile-web "Mobile web bundle (build:mobile-web)" gate_mobile_web
 run_gate e2e "Playwright e2e specs in scope" gate_e2e
 
 # ------------------------------------------------------------------------------------------------ report

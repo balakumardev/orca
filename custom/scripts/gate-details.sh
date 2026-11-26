@@ -8,7 +8,7 @@
 # gate_details ID LOGFILE: print a compact excerpt of a FAILING gate's log, for gates.json `details`. Text only, bounded:
 #   - about GATE_DETAILS_TARGET bytes (8000), never more than GATE_DETAILS_MAX (12000); GATE_DETAILS_BYTES lowers the target (tests);
 #   - ANSI colour, CR, NUL and other control bytes removed, malformed UTF-8 dropped (it goes through jq into JSON);
-#   - one small extractor per tool (tsc, oxlint, oxfmt, vitest, Playwright), picked by gate id; each keeps what says WHY (the
+#   - one small extractor per tool (tsc, oxlint, oxfmt, vitest, Playwright, the mobile web bundle), picked by gate id; each keeps what says WHY (the
 #     assertion, the diff, the error text, the location) and drops what only shows where (code frames, tails of call logs);
 #   - never worse than the old tail: when no extractor finds anything (a build error, a global-setup error, an install error) the
 #     lines that look like errors are shown, and the last lines of the log always follow.
@@ -174,6 +174,28 @@ PERL
   perl -e "$prog"
 }
 
+# The mobile web bundle (build-mobile-web-app-bundle.mjs, verify-mobile-web-app-bundle.mjs): their own `[tag] message` lines, esbuild's
+# `Build failed with N error(s):` and `file:line:col: ERROR: text` / `error: text` lines (an unresolved import names no tag), and the install's `ERR_PNPM_`
+# and `retry:` lines. The generic error regex misses the build's verdicts: "63 zod locale tables reached the page" says neither error nor fail.
+gate_details_mobile_web() {
+  local prog
+  read -r -d '' prog <<'PERL' || true
+my (@lines, %seen);
+while (my $l = <STDIN>) {
+  chomp $l;
+  next unless $l =~ /^\[(?:build-mobile-web-app-bundle|verify-mobile-web-app-bundle|verify-packaged-mobile-web-bundle|mobile-web-bundle-manifest|mobile-web-app)\] /
+    || $l =~ /Build failed with \d+ errors?:/ || $l =~ /:\d+:\d+: ERROR: / || $l =~ /^error: / || $l =~ /ERR_PNPM_[A-Z_]+/ || $l =~ /^retry: attempt /;
+  next if $seen{$l}++;
+  push @lines, substr($l, 0, 600);
+  last if @lines >= 60;
+}
+exit 0 unless @lines;
+print "mobile web bundle: ", scalar(@lines), " line(s) from the bundle build, its verification or the mobile install\n\n";
+print join("\n", @lines), "\n";
+PERL
+  perl -e "$prog"
+}
+
 # The fallback and the second half of every excerpt: the first lines that look like an error, each cut to 300 bytes.
 gate_details_error_lines() {
   local prog
@@ -203,6 +225,7 @@ gate_details() {
     format) gate_details_oxfmt < "$clean" > "$body" || : > "$body" ;;
     unit|unit-related) gate_details_vitest < "$clean" > "$body" || : > "$body" ;;
     e2e) gate_details_playwright < "$clean" > "$body" || : > "$body" ;;
+    mobile-web) gate_details_mobile_web < "$clean" > "$body" || : > "$body" ;;
     *) : > "$body" ;;
   esac
   if [ ! -s "$body" ]; then

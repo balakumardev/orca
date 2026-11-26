@@ -20,11 +20,14 @@
 #   - An open PR for this very merge commit (an earlier attempt opened it; a re-run of the failed jobs, which rerun-infra-failures.sh
 #     relies on, runs this job again) is adopted, on any attempt: title, body, draft state and labels refreshed from the new gate
 #     results, instead of failing on `gh pr create`.
+#   - No PR at all, and exit 1, when nothing was resolved because the model API refused every round (401-403), or because the agent
+#     jobs crashed and no round left a candidate: a draft would stop every later sync of the tag, so the next scheduled sync retries it.
 #
 # Outputs: pr_url, pr_number, merge_sha, draft, needs_review, review_reasons (custom-sync's land job reads them).
 # Env: GH_TOKEN, REPO (owner/name), FACTS (sync-facts.json of the chosen round), PR_OUT (output of make-pr-body.sh),
 #      SUPERSEDE (JSON array of PR numbers), ORPHAN_BRANCH (true/false), ORPHAN_SHA (the commit the leftover branch held when detect
-#      looked), REPLACE_PR and REPLACE_HEAD (stale PR to replace), RUN_URL
+#      looked), REPLACE_PR and REPLACE_HEAD (stale PR to replace), RUN_URL, AGENT_RESULTS and AGENT_KEY_LEAKS (optional, "1=<x> 2=<y>
+#      3=<z>": the agent job results and leak counts), GITHUB_REF (set by Actions)
 # shellcheck source=lib.sh
 . "$(dirname "$0")/lib.sh"
 # shellcheck source=stale-sync-pr.sh
@@ -95,7 +98,36 @@ if jq -e '.unresolved == true and ((.agent.rounds // []) | length > 0) and all(.
   model_api_refused "$refused" || die "the facts of $branch carry an api_status that is not a refusal: '$refused'"
   printf '::error title=No PR opened: the model API refused every round::HTTP %s on every model round of %s, nothing was resolved. Fix the DeepInfra balance or DEEPINFRA_API_KEY; the next scheduled sync starts this tag over by itself.\n' "$refused" "$branch" >&2
   if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
-    printf '### custom-sync: no PR opened for %s\nThe model API refused every round (HTTP %s) and nothing was resolved. A draft PR would block the retry, so none was opened. Fix the DeepInfra balance or DEEPINFRA_API_KEY; the next scheduled sync starts this tag over.\n' "$branch" "$refused" >>"$GITHUB_STEP_SUMMARY"
+    printf '### custom-sync: no PR opened for %s\nThe model API refused every round (HTTP %s) and nothing was resolved. A draft PR would block the retry, so none was opened. Fix the DeepInfra balance or DEEPINFRA_API_KEY; the next scheduled sync starts this tag over (after 3 failed syncs in 24 h scheduled syncs pause by themselves: then dispatch custom-sync by hand).\n' "$branch" "$refused" >>"$GITHUB_STEP_SUMMARY"
+  fi
+  exit 1
+fi
+
+# ---- the model rounds crashed and none left a candidate: no PR, a red run ----------------------------------------------------
+# Seen 2026-11-25 (v1.4.274): round 1 lost its runner, no round left a candidate, and the merge with its markers became a draft that ended
+# the search of every later sync. Here: the chosen candidate carries no agent round record (it is round 0, the scripts' merge), at least
+# one agent job failed or was cancelled (AGENT_RESULTS, the job results), no leak check reported a COUNT (a confirmed leak keeps its
+# draft and banner: a retry would only face the same prompt) and a draft from this run would block the tag: refs/heads/custom (the only
+# ref where the `agent` environment exists; elsewhere its jobs "fail" on purpose), not a rehearsal, a sync/v* branch. Without
+# AGENT_RESULTS (older callers) nothing changes.
+crash_rounds=""
+if [ -n "${AGENT_RESULTS:-}" ] && [ "${GITHUB_REF:-}" = refs/heads/custom ] && [[ "$branch" == sync/v* ]] \
+   && jq -e '.is_test == false and .outcome == "conflicts" and ((.agent.rounds // []) | length == 0)' "$FACTS" >/dev/null; then
+  leak_count=false
+  for kv in ${AGENT_KEY_LEAKS:-}; do
+    if [[ "${kv#*=}" =~ ^[0-9]+$ ]] && [ "${kv#*=}" -gt 0 ]; then leak_count=true; fi
+  done
+  if [ "$leak_count" = false ]; then
+    for kv in $AGENT_RESULTS; do
+      case "${kv#*=}" in failure | cancelled) crash_rounds="${crash_rounds:+$crash_rounds, }round ${kv%%=*}: ${kv#*=}" ;; esac
+    done
+  fi
+fi
+if [ -n "$crash_rounds" ]; then
+  crash_rounds="$(printf '%s' "$crash_rounds" | tr -cd 'A-Za-z0-9 ,:')"
+  printf '::error title=No PR opened: no model round left a candidate::The agent jobs of %s crashed or were cancelled (%s) and nothing was resolved. A draft PR would block the retry, so none was opened; the next scheduled sync starts this tag over by itself.\n' "$branch" "$crash_rounds" >&2
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+    printf '### custom-sync: no PR opened for %s\nNo model round left a candidate (%s): a lost runner, a job timeout or a crashed step. A draft PR would block the retry, so none was opened; the next scheduled sync starts this tag over. Each such run can spend paid model rounds, so after 3 failed syncs in 24 h scheduled syncs pause by themselves (custom/scripts/sync-spend-cap.sh): read the agent job logs, then dispatch custom-sync by hand to retry.\n' "$branch" "$crash_rounds" >>"$GITHUB_STEP_SUMMARY"
   fi
   exit 1
 fi

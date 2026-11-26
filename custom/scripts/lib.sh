@@ -224,7 +224,7 @@ round_score() {
 # none, its `output_tail` (cut from the END, where the failure is). The budget is shared FAIRLY: gates are served shortest first and each
 # may take at most an equal share of what is left, so a gate with little to say frees room for the others and one huge gate cannot starve
 # the rest (with one shared budget the first gates filled it, and the e2e ratchet output never reached round 3 of v1.4.265). Everything is
-# counted in BYTES, like the caller's trunc_bytes (which cuts the END of the block, i.e. the last gate in gate order: e2e-ratchet, e2e): each
+# counted in BYTES, like the caller's trunc_bytes (which cuts the END of the block, i.e. the last gates in gate order: e2e-ratchet, mobile-web, e2e): each
 # gate first sets aside the real size of its header, its cut marker and its newline, the rest is shared, and a cut falls on a character
 # boundary. So the block is never over TOTAL_BYTES and every gate keeps a section (unless TOTAL_BYTES is below about 150 per gate).
 failing_gates_block() {

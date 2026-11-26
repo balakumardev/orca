@@ -1,4 +1,5 @@
 import type { PtySpawnResult } from '../pty/spawn-result'
+import { assertSourceUpdateSessionStartAllowed } from '../../updater/custom/source-update-session-admission'
 import {
   pendingLocalPtySpawns,
   ptyIncarnations,
@@ -28,6 +29,8 @@ export async function runCancelableLocalPtySpawn<T>(
   id: string,
   operation: (throwIfCanceled: () => void, signal: AbortSignal) => Promise<T>
 ): Promise<T> {
+  // A late local fallback cannot start a disposable process after the update's final census.
+  assertSourceUpdateSessionStartAllowed()
   const cancellation = new AbortController()
   const pendingSpawn: PendingLocalPtySpawn = { cancellation }
   const pending = pendingLocalPtySpawns.get(id) ?? new Set()

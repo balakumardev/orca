@@ -1,5 +1,5 @@
 import type { ExecutionHostId } from './execution-host/execution-host'
-import { z } from 'zod'
+import * as z from 'zod'
 
 /** Paired runtimes discover folders from their own saved locations. */
 export const FOLDER_SEARCH_CAPABILITY = 'folderSearch.v1'

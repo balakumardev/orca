@@ -31,6 +31,7 @@ JSON
 mkdir -p "$tmp/gates-2-static" "$tmp/gates-2-e2e" "$tmp/raw"
 cat > "$tmp/gates-2-static/gates.json" <<'JSON'
 {"schema":1,"mode":"sync","runner":{"os":"Linux"},"gates":[
+ {"id":"mobile-web","name":"Mobile web bundle (build:mobile-web)","status":"pass","exit_code":0,"seconds":95,"note":"","warnings":[],"output_tail":""},
  {"id":"unit","name":"Unit tests for the directories in scope","status":"pass","exit_code":0,"seconds":120,"note":"n","warnings":["The first unit run threw an unhandled error that did not reproduce: src/x.test.ts passed on a re-run."],"output_tail":""},
  {"id":"hunk-survival","name":"Our lines survive the merge (advisory)","status":"pass","exit_code":0,"seconds":9,"note":"1 upstream file(s) we modified checked, 1 with lines of ours lost","warnings":["`src/old/List.tsx` -> `src/new/List.tsx`: 2 of 7 significant lines we added are missing from the merged file, e.g. `useFollowHook({`"],"output_tail":""},
  {"id":"lint-caps","name":"Lint line caps on files we touch","status":"pass","exit_code":0,"seconds":0,"note":"","warnings":["src/big.ts: 296/300 lines (within 10 of the cap)"],"output_tail":""}]}
@@ -148,6 +149,10 @@ hs_line="$({ grep -n -F 'Our lines survive the merge (advisory): ' "$body" || tr
 lc_line="$({ grep -n -F 'Near a lint cap: src/big.ts' "$body" || true; } | cut -d: -f1 | sed -n '1p')"
 un_line="$({ grep -n -F 'Unit tests for the directories in scope: The first unit run' "$body" || true; } | cut -d: -f1 | sed -n '1p')"
 [ -n "$hs_line" ] && [ -n "$lc_line" ] && [ -n "$un_line" ] && [ "$lc_line" -lt "$hs_line" ] && [ "$hs_line" -lt "$un_line" ] && ok "...listed between lint-caps and unit, in the gate order (GATE_ORDER)" || bad "hunk-survival order (lint-caps line '$lc_line', hunk-survival line '$hs_line', unit line '$un_line')"
+un_row="$({ grep -n -F '| Unit tests for the directories in scope |' "$body" || true; } | cut -d: -f1 | sed -n '1p')"
+mw_row="$({ grep -n -F '| Mobile web bundle (build:mobile-web) |' "$body" || true; } | cut -d: -f1 | sed -n '1p')"
+e2_row="$({ grep -n -F '| Playwright e2e specs in scope |' "$body" || true; } | cut -d: -f1 | sed -n '1p')"
+[ -n "$un_row" ] && [ -n "$mw_row" ] && [ -n "$e2_row" ] && [ "$un_row" -lt "$mw_row" ] && [ "$mw_row" -lt "$e2_row" ] && ok "the gate table lists the mobile web bundle after the unit tests and before e2e (GATE_ORDER)" || bad "mobile-web row order (unit '$un_row', mobile-web '$mw_row', e2e '$e2_row')"
 ! has "$body" 'Near a lint cap: The first unit run' && ok "a unit warning is not labelled as a lint-cap warning" || bad "unit warning mislabelled"
 has "$body" 'Near a lint cap: src/big.ts' && ok "a lint-cap warning keeps its label" || bad "lint-cap label"
 has "$body" '| 2 | repair |' && has "$body" '1: ran out of turns; edits kept; gates decide' && ok "the model table says the round ran out of turns, edits kept, gates decide" || bad "exit column wording"
@@ -182,5 +187,44 @@ has "$body" '| `src/gone.ts` | deleted-by-them | 0 | agent (deleted the file) |'
 jq '[.[0], {"round":2,"mode":"repair","model":"m","tier":"flash","max_turns":0,"exit_code":0,"wall_s":0,"key_leaks":0,"turns":0,"stop":"","skipped":true,"is_error":true,"output_parsed":false,"input_tokens":0,"output_tokens":0,"estimated_cost_usd":0,"report":""}]' "$tmp/rounds.json" > "$tmp/rounds3.json"
 ROUNDS_FILE="$tmp/rounds3.json" render skipped "$tmp/dispatch-only.yml"
 has "$body" '0: skipped; no file was left that a model may resolve' && ok "a skipped round says so instead of 'no readable output'" || bad "skipped round wording: $(grep '^| 2 | repair' "$body")"
+
+# the agent-resolved label means the published candidate carries a model round that ran (its facts' own agent.rounds); round 0 also
+# records marker-free conflicts it left as git placed them as `agent` (v1.4.274, PR #75: every agent job crashed and the scripts' merge
+# was still labelled agent-resolved)
+jq --slurpfile r "$tmp/rounds.json" '.agent = {rounds: $r[0]}' "$tmp/facts.json" > "$tmp/facts-rounds.json"
+FACTS_FILE="$tmp/facts-rounds.json" render labelled "$tmp/dispatch-only.yml"
+jq -e '.labels | index("agent-resolved")' "$tmp/out-labelled/pr-meta.json" > /dev/null && ok "a candidate with agent round records is labelled agent-resolved" || bad "label with rounds: $(jq -c .labels "$tmp/out-labelled/pr-meta.json")"
+printf '[]\n' > "$tmp/no-rounds.json"
+ROUNDS_FILE="$tmp/no-rounds.json" render unlabelled "$tmp/dispatch-only.yml"
+jq -e '(.labels | index("agent-resolved")) == null' "$tmp/out-unlabelled/pr-meta.json" > /dev/null && ok "no agent round record (round 0's 'agent' entries alone): not labelled agent-resolved" || bad "label without rounds: $(jq -c .labels "$tmp/out-unlabelled/pr-meta.json")"
+! has "$body" 'none of their edits is in this PR' && ok "no model round anywhere: no 'not in this PR' caveat" || bad "no rounds caveat"
+
+# ---- a merge that needed no model, then a red gate: round 2 repaired round 0 (custom-sync.yml, agent2's fourth case) --------------------
+# The chosen candidate is round 2: round 0's facts (clean, no conflicts) plus round 2's own record and the files it edited.
+jq -n '{schema: 1, tag: "v9.9.9", old_base_tag: "v9.9.8", base_branch: "custom", tag_is_release: true, is_test: false, outcome: "clean",
+  unresolved: false, unresolved_files: [], upstream_sha: "1111111111111111111111111111111111111111", base_sha: "2222222222222222222222222222222222222222",
+  merge_sha: "3333333333333333333333333333333333333333", link_sha: "4444444444444444444444444444444444444444", upstream_commits: 3, our_files_count: 2,
+  conflicts: [], caveats: [], scripted: {upstream_ci_removed: 0, our_wins_restored: []}, drift: []}' > "$tmp/facts-clean.json"
+jq '.repair_edits = ["src/owned.ts"] | .agent = {rounds: [{round: 2, mode: "repair", model: "m-flash", tier: "flash", exit_code: 0, wall_s: 90, key_leaks: 0, turns: 20, stop: "success", is_error: false, output_parsed: true, input_tokens: 50, output_tokens: 5, estimated_cost_usd: 0.05, report: "fixed the import"}]}' \
+  "$tmp/facts-clean.json" > "$tmp/facts-repaired.json"
+jq '.agent.rounds' "$tmp/facts-repaired.json" > "$tmp/rounds-repaired.json"
+FACTS_FILE="$tmp/facts-repaired.json" ROUNDS_FILE="$tmp/rounds-repaired.json" render repaired "$tmp/dispatch-only.yml"
+has "$body" 'without a single conflict. Then gates failed and a cloud model repaired the merge (round 2): treat the files it edited (listed in the caveats) as unreviewed code.' \
+  && ok "a clean merge a model repaired: the summary says the model changed it after the merge" || bad "repaired summary: $(grep -F 'Clean merge' "$body")"
+has "$body" '_Clean merge: git made every merge decision, so there is no resolution diff. The model'"'"'s repair edits are not in it: the caveats list them' \
+  && ! has "$body" 'git made every decision,' && ok "...and the diff section no longer says git made every decision" || bad "repaired diff section: $(grep -F '_Clean merge' "$body")"
+has "$body" 'Repair round(s) edited 1 file(s) that were not conflicted: `src/owned.ts`' && has "$body" '- [ ] Read the files the repair round(s) edited (listed in the caveats) in full.' \
+  && ok "...the edited files are a caveat and a checklist item" || bad "repaired caveat/checklist"
+jq -e '.labels | index("agent-resolved")' "$tmp/out-repaired/pr-meta.json" > /dev/null && ok "...and it is labelled agent-resolved" || bad "repaired label: $(jq -c .labels "$tmp/out-repaired/pr-meta.json")"
+# The repairs lost (more failed gates than round 0): round 0 is published, the union of the records still lists rounds 2 and 3.
+jq '. + [{round: 3, mode: "repair", model: "m-pro", tier: "pro", exit_code: 0, wall_s: 300, key_leaks: 0, turns: 40, stop: "success", is_error: false, output_parsed: true, input_tokens: 90, output_tokens: 9, estimated_cost_usd: 0.9, report: "tried"}]' \
+  "$tmp/rounds-repaired.json" > "$tmp/rounds-lost.json"
+FACTS_FILE="$tmp/facts-clean.json" ROUNDS_FILE="$tmp/rounds-lost.json" render round0 "$tmp/dispatch-only.yml"
+jq -e '(.labels | index("agent-resolved")) == null' "$tmp/out-round0/pr-meta.json" > /dev/null && ok "round 0 published after model rounds lost: not labelled agent-resolved" || bad "round 0 label: $(jq -c .labels "$tmp/out-round0/pr-meta.json")"
+has "$body" 'Model round(s) 2, 3 ran in this sync, but none of their edits is in this PR: the candidate it carries was made without a model' \
+  && ok "...a caveat says none of the model rounds' edits is in it" || bad "round 0 caveat"
+! has "$body" 'cloud model repaired the merge' && has "$body" '_Clean merge: git made every merge decision, so there is no resolution diff._' \
+  && ok "...and the summary and diff section stay those of a clean merge" || bad "round 0 summary: $(grep -F 'Clean merge' "$body")"
+jq -e '.draft == true and (.title | startswith("[gates failed] "))' "$tmp/out-round0/pr-meta.json" > /dev/null && ok "...a red candidate stays a [gates failed] draft, as before" || bad "round 0 draft: $(cat "$tmp/out-round0/pr-meta.json")"
 
 exit "$([ "$fails" -eq 0 ] && echo 0 || echo 1)"

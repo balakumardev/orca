@@ -151,7 +151,10 @@ printf 'src/mine/mine.test.ts\n' > "$tmp/our-files.txt"
 cat > "$repo/bin/pnpm" <<'STUB'
 #!/usr/bin/env bash
 # Stub. `install` is logged with its directory. A vitest call with --reporter=json is the run on the pristine release: it writes a json
-# report whose failed tests come from $UP_FAILED (lines "<file><TAB><name>"). Any other vitest call is the first run: it replays $FIRST_LOG.
+# report whose failed tests come from $UP_FAILED (lines "<file><TAB><name>"). A vitest call that names a test file is a re-run: inside the
+# worktree of the release (the unhandled-error baseline) it replays $UP_RUN_LOG from its $UP_RUN_FROM-th call on (counted in $STUB_UPCOUNT)
+# and exits $UP_RUN_RC, anywhere else (the flake re-run) it replays $RERUN_LOG and exits $RERUN_RC. Any other vitest call is the first run:
+# it replays $FIRST_LOG.
 echo "$* [in $PWD]" >> "$STUB_CALLS"
 [ "$1" != install ] || exit "${INSTALL_RC:-0}"
 if [[ " $* " == *" --reporter=json "* ]]; then
@@ -163,15 +166,23 @@ if [[ " $* " == *" --reporter=json "* ]]; then
   [ -z "${UP_FAILED:-}" ] || exit 1
   exit 0
 fi
-for a in "$@"; do case "$a" in *.test.ts)
-  echo "[stub] re-run of $a"
-  # RERUN_RCS="0,1": the 1st re-run exits 0, the 2nd (and later ones) exit 1. RERUN_RC applies to every re-run.
-  if [ -n "${RERUN_RCS:-}" ]; then
-    n=$(( $(cat "$STUB_CALLS.rerun" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$STUB_CALLS.rerun"
-    IFS=, read -r -a rcs <<<"$RERUN_RCS"; idx=$((n - 1)); [ "$idx" -lt "${#rcs[@]}" ] || idx=$((${#rcs[@]} - 1))
-    exit "${rcs[$idx]}"
-  fi
-  exit "${RERUN_RC:-0}" ;; esac; done
+for a in "$@"; do
+  case "$a" in *.test.ts)
+    if [[ "$PWD" == */tree ]]; then
+      n=$(( $(cat "$STUB_UPCOUNT" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$STUB_UPCOUNT"
+      if [ -n "${UP_RUN_LOG:-}" ] && [ "$n" -ge "${UP_RUN_FROM:-1}" ]; then cat "$UP_RUN_LOG"; exit "${UP_RUN_RC:-1}"; fi
+      printf ' Test Files  1 passed (1)\n      Tests  2 passed (2)\n'; exit 0
+    fi
+    echo "[stub] re-run of $a"; [ -z "${RERUN_LOG:-}" ] || cat "$RERUN_LOG"
+    # RERUN_RCS="0,1": the 1st re-run exits 0, the 2nd (and later ones) exit 1. RERUN_RC applies to every re-run.
+    if [ -n "${RERUN_RCS:-}" ]; then
+      n=$(( $(cat "$STUB_CALLS.rerun" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$STUB_CALLS.rerun"
+      IFS=, read -r -a rcs <<<"$RERUN_RCS"; idx=$((n - 1)); [ "$idx" -lt "${#rcs[@]}" ] || idx=$((${#rcs[@]} - 1))
+      exit "${rcs[$idx]}"
+    fi
+    exit "${RERUN_RC:-0}" ;;
+  esac
+done
 cat "$FIRST_LOG"
 exit "${FIRST_RC:-1}"
 STUB
@@ -180,9 +191,10 @@ chmod +x "$repo/bin/pnpm"
 UP_SAME="$(printf '%s\t%s' "$FILE" "$NAME")"
 run_gate() { # NAME FIRST_LOG [MODE] [OUR_FILES] [CHANGED_BASE] -> g_status g_calls g_note g_warn g_log (env GATE, UP_FAILED, UP_NO_JSON, INSTALL_RC pass through)
   local name="$1" out="$tmp/out-$1" mode="${3:-sync}" ours="${4:-$tmp/our-files.txt}" cbase="${5:-v1.0.0}" gate="${GATE:-unit}"
-  rm -rf "$out"; : > "$tmp/calls.txt"; rm -f "$tmp/calls.txt.rerun"
+  rm -rf "$out" "$tmp/upcount.txt"; : > "$tmp/calls.txt"; rm -f "$tmp/calls.txt.rerun"
   ( cd "$repo" && env PATH="$repo/bin:$PATH" STUB_CALLS="$tmp/calls.txt" FIRST_LOG="$2" FIRST_RC=1 \
       UP_FAILED="${UP_FAILED:-}" UP_NO_JSON="${UP_NO_JSON:-}" INSTALL_RC="${INSTALL_RC:-0}" RERUN_RC="${RERUN_RC:-0}" RERUN_RCS="${RERUN_RCS:-}" \
+      RERUN_LOG="${RERUN_LOG:-}" UP_RUN_LOG="${UP_RUN_LOG:-}" UP_RUN_RC="${UP_RUN_RC:-1}" UP_RUN_FROM="${UP_RUN_FROM:-1}" STUB_UPCOUNT="$tmp/upcount.txt" \
       bash "$scripts/run-gates.sh" --out "$out" --mode "$mode" --changed-base "$cbase" --our-files "$ours" --only "$gate" ) > "$tmp/gate-$name.out" 2>&1 || true
   g_status="$(jq -r '.gates[] | select(.id == "'"$gate"'") | .status' "$out/gates.json")"
   g_calls="$(wc -l < "$tmp/calls.txt" | tr -d ' ')"
@@ -191,6 +203,9 @@ run_gate() { # NAME FIRST_LOG [MODE] [OUR_FILES] [CHANGED_BASE] -> g_status g_ca
   g_log="$out/logs/$gate.log"
 }
 worktrees() { git -C "$repo" worktree list | wc -l | tr -d ' '; }
+rerunreal="$here/fixtures/gate-logs/vitest-unhandled-epipe-rerun.txt"
+up_runs() { grep -c -E "^exec vitest run --config config/vitest.config.ts $ORIGIN \[in .*/tree\]$" "$tmp/calls.txt" || true; }
+installs() { grep -c -E '^install --frozen-lockfile \[in .*/tree\]$' "$tmp/calls.txt" || true; }
 
 UP_FAILED="$UP_SAME" run_gate same "$real"
 if [ "$g_status" = pass ] && grep -q "also fail on pristine upstream v1.0.0" <<<"$g_note" && grep -q "$FILE" <<<"$g_warn" && grep -q 'not counted\|Not counted' <<<"$g_warn"; then
@@ -204,6 +219,7 @@ if grep -q 'unit baseline: every one of them fails on upstream v1.0.0 as well' "
 
 UP_FAILED="" run_gate passes-upstream "$real"
 if [ "$g_status" = fail ] && grep -q 'pass on upstream v1.0.0, so this change broke them' "$g_log"; then ok "gate: the test passes on the pristine release = this change broke it = red"; else bad "gate passes-upstream: status=$g_status"; fi
+if grep -q "unit rerun alone: $FILE does not exist in this checkout" "$g_log"; then ok "gate: a failed file that is missing from the checkout is never judged by a run alone = red"; else bad "gate passes-upstream: no missing-file line in the log"; fi
 
 UP_FAILED="$(printf '%s\t%s' "$FILE" 'another test name')" run_gate other-name "$real"
 if [ "$g_status" = fail ]; then ok "gate: upstream fails a different test of that file = red"; else bad "gate other-name: status=$g_status"; fi
@@ -332,6 +348,17 @@ if grep -q -- "$FILE" <<<"$(sed -n '4p' "$tmp/calls.txt")" && ! grep -q -- '--re
 if [ "$(worktrees)" = 1 ]; then ok "gate: no worktree is left behind"; else bad "worktrees left: $(git -C "$repo" worktree list)"; fi
 UP_FAILED="" RERUN_RC=1 run_gate alone-fail "$real"
 if [ "$g_status" = fail ] && [ "$g_calls" = 4 ] && grep -q 'pass on upstream v1.0.0, so this change broke them' "$g_log"; then ok "gate: the file fails alone too = this change broke it = red"; else bad "gate alone-fail: status=$g_status calls=$g_calls"; fi
+UP_FAILED="" RERUN_RC=124 run_gate alone-timeout "$real"
+if [ "$g_status" = fail ] && [ "$g_calls" = 4 ] && grep -q 'pass on upstream v1.0.0, so this change broke them' "$g_log"; then ok "gate: the run alone times out (exit 124) = no evidence it passes = red"; else bad "gate alone-timeout: status=$g_status calls=$g_calls"; fi
+GATE=unit-related UP_FAILED="" RERUN_RC=0 run_gate related-alone-pass "$real" pr
+if [ "$g_status" = pass ] && [ "$g_calls" = 4 ] && grep -q 'passed when their file ran alone' <<<"$g_note" && grep -q "$FILE" <<<"$g_warn"; then ok "gate unit-related: the same verdict, a test that passes on the release and alone is not counted"; else bad "gate related-alone-pass: status=$g_status calls=$g_calls note=[$g_note] warn=[$g_warn]"; fi
+# The rehearsal's shape (a failed test and an EPIPE that comes back), with a test that passes on the release: it passes alone, and the ONE
+# installed release then serves the unhandled-error check too (no second worktree, no second install).
+UP_FAILED="" RERUN_RCS="0,1" RERUN_LOG="$rerunreal" UP_RUN_LOG="$rerunreal" run_gate alone-then-epipe "$combined"
+if [ "$g_status" = pass ] && [ "$(installs)" = 1 ] && [ "$(up_runs)" = 1 ] && [ "$(worktrees)" = 1 ] && grep -q 'passed when their file ran alone' <<<"$g_warn" && grep -q 'Not counted: unhandled error(s) Error: write EPIPE' <<<"$g_warn"; then
+  ok "gate: passes alone, then the EPIPE that comes back is raised by the release too = pass, two warnings, ONE installed release"
+else bad "gate alone-then-epipe: status=$g_status installs=$(installs) runs=$(up_runs) worktrees=$(worktrees) warn=[$g_warn]"; fi
+if grep -q -- "$FILE" <<<"$(sed -n '4p' "$tmp/calls.txt")" && grep -q -- "$ORIGIN" <<<"$(sed -n '5p' "$tmp/calls.txt")"; then ok "gate: the alone run comes before the re-run of the flaky file"; else bad "gate alone-then-epipe calls: $(cat "$tmp/calls.txt")"; fi
 rm -f "$repo/$FILE"
 
 # One failed test fails on the pristine release too, the other passes there and passes alone: both are covered, each by its own evidence.
@@ -346,5 +373,76 @@ rm -f "$repo/src/shared/other/thing.test.ts"
 GATE=unit-related UP_FAILED="$EVUP" RERUN_RC=0 run_gate related-suites "$suitesreal" pr
 if [ "$g_status" = pass ] && grep -q 'failed to load in the shared run and passed alone' <<<"$g_note"; then ok "gate unit-related: the same verdict for a pull request's related tests"; else bad "gate related-suites: status=$g_status note=[$g_note]"; fi
 for f in "$S1" "$S2" "$S3"; do rm -f "$repo/$f"; done
+
+# ---- part 3: an unhandled error that comes back on its re-run ----------------------------------------------------------------
+# Rehearsal 45773947221 (ubuntu-26.04, Node 24.22.3): the upstream test file threw `write EPIPE` in the shared run AND on its one re-run
+# alone (fixtures/gate-logs/vitest-unhandled-epipe-rerun.txt, the real re-run output: 2 tests passed, 1 error, exit 1), so the gate stayed red
+# although nothing of ours was involved. It is not counted only when the pristine release raises the same error too.
+flakereal="$here/fixtures/unit-flake-real.txt"
+
+sig="$(unit_unhandled_signatures "$rerunreal")"
+if [ "$sig" = "$(printf '%s\t%s' "$ORIGIN" 'Error: write EPIPE')" ]; then ok "signatures: the real re-run log gives one error, its file and its first line"; else bad "signatures of the real re-run: [$sig]"; fi
+sig="$(unit_unhandled_signatures "$flakereal")"
+if [ "$sig" = "$(printf '%s\t%s' "$ORIGIN" 'Error: write EPIPE')" ]; then ok "signatures: two identical errors of the real first run are one signature"; else bad "signatures of the real first run: [$sig]"; fi
+if [ -z "$(unit_unhandled_signatures "$real")" ]; then ok "signatures: a log without an Unhandled Errors section gives none"; else bad "signatures of a log without unhandled errors"; fi
+
+busy_loops() { { pgrep -x yes || true; } | wc -l | tr -d ' '; }
+loops_before="$(busy_loops)"
+RERUN_RC=1 RERUN_LOG="$rerunreal" UP_RUN_LOG="$rerunreal" run_gate unh-up-same "$flakereal"
+if [ "$g_status" = pass ] && grep -q 'Not counted: unhandled error(s) Error: write EPIPE' <<<"$g_warn" && grep -q "$ORIGIN" <<<"$g_warn" && grep -q 'pristine upstream v1.0.0' <<<"$g_warn" && grep -q 'not counted' <<<"$g_note"; then
+  ok "gate: the error comes back on the re-run and the pristine release raises it too = pass, Not counted, file and error named"
+else bad "gate unh-up-same: status=$g_status note=[$g_note] warn=[$g_warn]"; fi
+if [ "$(up_runs)" = 1 ] && [ "$(installs)" = 1 ] && [ "$(worktrees)" = 1 ]; then ok "gate: one run of that file on the installed release, and the worktree is gone afterwards"; else bad "gate unh-up-same calls: $(cat "$tmp/calls.txt") worktrees=$(worktrees)"; fi
+if grep -q 'with every CPU busy' "$g_log" && [ "$(busy_loops)" = "$loops_before" ]; then ok "gate: the release runs with every CPU busy, and no busy loop is left afterwards"; else bad "gate unh-up-same: busy loops before=$loops_before after=$(busy_loops)"; fi
+
+RERUN_RC=1 RERUN_LOG="$rerunreal" UP_RUN_LOG="$rerunreal" UP_RUN_FROM=3 run_gate unh-up-third "$flakereal"
+if [ "$g_status" = pass ] && [ "$(up_runs)" = 3 ] && grep -q 'run 3 of at most 6' <<<"$g_note"; then ok "gate: a race that shows on the release only on its third run = pass after three runs"; else bad "gate unh-up-third: status=$g_status runs=$(up_runs) note=[$g_note]"; fi
+
+RERUN_RC=1 RERUN_LOG="$rerunreal" UP_RUN_LOG="" run_gate unh-up-never "$flakereal"
+if [ "$g_status" = fail ] && [ "$(up_runs)" = 6 ] && grep -q 'upstream v1.0.0 did not raise these in 6 run(s)' "$g_log" && [ "$(worktrees)" = 1 ]; then
+  ok "gate: the release never raises it in 6 runs = red (it may come from this change)"
+else bad "gate unh-up-never: status=$g_status runs=$(up_runs) worktrees=$(worktrees)"; fi
+
+strip_ansi < "$rerunreal" | sed 's/Error: write EPIPE/Error: read ECONNRESET/' > "$tmp/up-other-error.txt"
+RERUN_RC=1 RERUN_LOG="$rerunreal" UP_RUN_LOG="$tmp/up-other-error.txt" run_gate unh-up-other "$flakereal"
+if [ "$g_status" = fail ] && [ "$(up_runs)" = 6 ] && grep -q 'did not raise these' "$g_log"; then ok "gate: the release raises a DIFFERENT error from that file = red"; else bad "gate unh-up-other: status=$g_status runs=$(up_runs)"; fi
+
+RERUN_RC=1 RERUN_LOG="$rerunreal" UP_RUN_LOG=/dev/null UP_RUN_RC=124 run_gate unh-up-crash "$flakereal"
+if [ "$g_status" = fail ] && [ "$(up_runs)" = 1 ] && grep -q 'upstream run 1 exited with code 124 without a test summary' "$g_log" && [ "$(worktrees)" = 1 ]; then
+  ok "gate: the run on the release itself fails (no output, exit 124) = red after that one run, no more tries"
+else bad "gate unh-up-crash: status=$g_status runs=$(up_runs) worktrees=$(worktrees)"; fi
+
+INSTALL_RC=1 RERUN_RC=1 RERUN_LOG="$rerunreal" UP_RUN_LOG="$rerunreal" run_gate unh-install-fails "$flakereal"
+if [ "$g_status" = fail ] && [ "$(up_runs)" = 0 ] && grep -q 'pnpm install failed on upstream v1.0.0' "$g_log" && [ "$(worktrees)" = 1 ]; then
+  ok "gate: the release cannot be installed = red, nothing is run there, the worktree is still removed"
+else bad "gate unh-install-fails: status=$g_status runs=$(up_runs) worktrees=$(worktrees)"; fi
+
+printf 'not-a-tag\n' > "$repo/custom/BASE"
+RERUN_RC=1 RERUN_LOG="$rerunreal" UP_RUN_LOG="$rerunreal" run_gate unh-bad-base "$flakereal"
+printf 'v1.0.0\n' > "$repo/custom/BASE"
+if [ "$g_status" = fail ] && [ "$(up_runs)" = 0 ] && grep -q 'custom/BASE is not a release tag' "$g_log"; then ok "gate: no pristine release to compare with = red"; else bad "gate unh-bad-base: status=$g_status runs=$(up_runs)"; fi
+
+RERUN_RC=1 RERUN_LOG="$rerunreal" UP_RUN_LOG="$rerunreal" run_gate unh-ours "$flakereal" sync "$tmp/our-files-origin.txt"
+if [ "$g_status" = fail ] && [ "$g_calls" = 1 ]; then ok "gate: the error comes from a file of ours = red, no re-run, nothing run on the release"; else bad "gate unh-ours: status=$g_status calls=$g_calls"; fi
+
+strip_ansi < "$rerunreal" | sed -E 's/^( Test Files +)1 passed \(1\)/\11 failed (1)/; s/^( +Tests +)2 passed \(2\)/\11 failed | 1 passed (2)/' > "$tmp/rerun-failed-test.txt"
+RERUN_RC=1 RERUN_LOG="$tmp/rerun-failed-test.txt" UP_RUN_LOG="$rerunreal" run_gate unh-rerun-fails-a-test "$flakereal"
+if [ "$g_status" = fail ] && [ "$(up_runs)" = 0 ] && grep -q 'the re-run is not only unhandled errors' "$g_log"; then ok "gate: the re-run also FAILS a test = red, nothing is excused, nothing run on the release"; else bad "gate unh-rerun-fails-a-test: status=$g_status runs=$(up_runs)"; fi
+
+RERUN_RC=124 RERUN_LOG="$rerunreal" UP_RUN_LOG="$rerunreal" run_gate unh-rerun-timeout "$flakereal"
+if [ "$g_status" = fail ] && [ "$(up_runs)" = 0 ]; then ok "gate: the re-run times out (exit 124) = red"; else bad "gate unh-rerun-timeout: status=$g_status runs=$(up_runs)"; fi
+
+# The rehearsal's own shape: a failed upstream test AND the EPIPE that comes back. Both are checked on ONE installed release.
+UP_FAILED="$UP_SAME" RERUN_RC=1 RERUN_LOG="$rerunreal" UP_RUN_LOG="$rerunreal" run_gate unh-combo "$combined"
+if [ "$g_status" = pass ] && [ "$(installs)" = 1 ] && [ "$(up_runs)" = 1 ] && grep -q "Not counted: 1 unit test(s)" <<<"$g_warn" && grep -q 'Not counted: unhandled error(s) Error: write EPIPE' <<<"$g_warn"; then
+  ok "gate: a failed upstream test + an EPIPE that comes back, both raised by the release too = pass, two Not counted warnings, one install"
+else bad "gate unh-combo: status=$g_status installs=$(installs) runs=$(up_runs) warn=[$g_warn]"; fi
+if [ "$(worktrees)" = 1 ]; then ok "gate: and no worktree is left"; else bad "worktrees left after unh-combo"; fi
+
+UP_FAILED="" RERUN_RC=1 RERUN_LOG="$rerunreal" UP_RUN_LOG="$rerunreal" run_gate unh-combo-test-ours "$combined"
+if [ "$g_status" = fail ] && [ "$(up_runs)" = 0 ] && ! grep -q 'Re-running just those files' "$g_log"; then ok "gate: the failed test passes on the release (this change broke it) = red, the EPIPE is never even looked at"; else bad "gate unh-combo-test-ours: status=$g_status runs=$(up_runs)"; fi
+
+GATE=unit-related RERUN_RC=1 RERUN_LOG="$rerunreal" UP_RUN_LOG="$rerunreal" run_gate unh-related "$flakereal" pr
+if [ "$g_status" = pass ] && grep -q 'Not counted: unhandled error(s) Error: write EPIPE' <<<"$g_warn"; then ok "gate unit-related: the same verdict for a pull request's related tests"; else bad "gate unh-related: status=$g_status warn=[$g_warn]"; fi
 
 exit "$([ "$fails" -eq 0 ] && echo 0 || echo 1)"

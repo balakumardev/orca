@@ -8,8 +8,8 @@ name: custom-pr-gates
 # set in the repository's Actions settings nothing runs until the owner approves.
 #
 # What runs: static gates (hygiene, lint line caps, install, typecheck, oxlint and oxfmt on the files the PR changed,
-# unit tests for the touched areas and for our customization's tests, localization coverage, e2e typecheck ratchet) on
-# Linux, and our Playwright e2e specs on macOS (7 of 7 green there; the same specs gave 6 of 7 on Linux because one
+# unit tests for the touched areas and for our customization's tests, localization coverage, e2e typecheck ratchet, the
+# mobile web bundle build) on Linux, and our Playwright e2e specs on macOS (7 of 7 green there; the same specs gave 6 of 7 on Linux because one
 # pixel-layout assertion differs). Required check to set on `custom`: "gates / result".
 on:
   pull_request:

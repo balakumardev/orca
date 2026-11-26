@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Decide what the last model round (round 3, Pro) starts from, among the downloaded rounds 1 and 2.
+# Decide what the last model round (round 3, Pro) starts from, among the downloaded rounds 1 and 2, and round 0 after a merge that
+# needed no model.
 # Usage: pick-repair-base.sh ALL_DIR   (ALL_DIR holds round-N/ and gates-N-*/ directories from download-artifact)
 #
 # Why: a fresh retry from the merge start is only allowed to edit the files the merge left conflicted, so it cannot fix what the
@@ -15,6 +16,9 @@
 # on a tie the later round (it saw more information).
 # When no such candidate exists (every round crashed, leaked, or left a resolved merge whose gates never reported) the answer is
 # a fresh `retry`.
+# Round 0 (the merge job's candidate, no model) counts only as a RESOLVED merge whose gates reported: a clean or scripted merge with a
+# red gate, which round 2 repaired first (custom-sync.yml). In a conflict sync round 0 is the scripts' merge with its markers and has
+# no gates, so it is never a base and never the `latest` attempt a retry is shown: that path is unchanged.
 # Outputs: mode (repair | retry), prev_round (the base for repair; for retry the latest round that left a candidate, whose
 #          unresolved files go into the prompt, or empty), prev_gates_round (prev_round when that round's gate results
 #          exist, else empty: the agent workflow downloads gate results only for a non-empty value; a partly resolved candidate has
@@ -24,10 +28,14 @@
 
 all="${1:?usage: pick-repair-base.sh ALL_DIR}"
 base="" base_score=999999 latest=""
-for n in 1 2; do
+for n in 0 1 2; do
   score="$(round_score "$all" "$n")" || { log "round $n: no candidate (no facts or no bundle)"; continue; }
-  latest="$n"
   log "round $n: unresolved=$(jq -r '.unresolved' "$all/round-$n/sync-facts.json") key_leak=$(jq -r '.key_leak // false' "$all/round-$n/sync-facts.json") score=$score"
+  if [ "$n" -eq 0 ]; then
+    if [ "$score" -lt 1000 ]; then base=0; base_score="$score"; fi # resolved, gates reported (see the header)
+    continue
+  fi
+  latest="$n"
   # 1000 exactly = resolved but its gates never reported: nothing to repair from. 100000 = key leak.
   if [ "$score" -ne 1000 ] && [ "$score" -lt 100000 ] && [ "$score" -le "$base_score" ]; then base="$n"; base_score="$score"; fi
 done
@@ -42,6 +50,11 @@ if [ -n "$base" ]; then
   if has_gates "$base"; then gh_out prev_gates_round "$base"; else gh_out prev_gates_round ""; fi
   gh_out score "$base_score"
 else
+  # A retry re-creates the merge, and a merge that needed no model leaves nothing to resolve (sync-merge.sh start commits it, so the
+  # round's finish would stop on "not in the middle of the merge"): fail here, with the reason, instead of starting that round.
+  case "$(jq -r '.outcome // ""' "$all/round-0/sync-facts.json" 2>/dev/null || true)" in
+    clean | scripted) die "the merge needed no model and no round left a candidate with gate results to repair: nothing for round 3 to do" ;;
+  esac
   log "no candidate worth continuing: round 3 starts again from the merge${latest:+ (shown what round $latest left)}"
   gh_out mode retry
   gh_out prev_round "$latest"

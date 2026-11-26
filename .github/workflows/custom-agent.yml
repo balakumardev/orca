@@ -14,7 +14,8 @@ name: custom-agent
 #     exposed to the agent. Without a working sandbox the agent keeps read-only git, grep and ls. The CLI starts with a
 #     scrubbed environment and a wall time cap. When the CLI has exited, that
 #     same step scans the whole work tree (and everything uploaded) for the key in its plain, base64, hex, reversed and
-#     partial forms; a hit discards the round's edits and stops the later agent rounds (see `key_leaks` below).
+#     partial forms; a hit discards the round's edits and stops the later agent rounds (see `key_leaks` below). A run step that
+#     dies before the scan finishes uploads nothing (see the upload step).
 #   - The model's output is untrusted text. The state it hands back is a set of edited files; scripts (never the model)
 #     enforce which files may change, check for conflict markers, commit, and later run every gate.
 on:
@@ -25,7 +26,7 @@ on:
         type: string
         required: true
       mode:
-        description: first (resolve from scratch), repair (fix the previous candidate using real gate output; may also edit the files our customizations own; when that candidate still has unresolved files, continue it and finish only those), retry (resolve from scratch again, with the previous attempt's output as context; only when there is no candidate to continue)
+        description: first (resolve from scratch), repair (fix the previous candidate using real gate output; may also edit the files our customizations own; when that candidate still has unresolved files, continue it and finish only those), retry (resolve from scratch again, with the previous attempt's output as context when prev_round is set; only when there is no candidate to continue, e.g. round 2 or 3 after an earlier round's job crashed)
         type: string
         required: true
       tier:
@@ -33,7 +34,7 @@ on:
         type: string
         required: true
       prev_round:
-        description: Round whose artifact holds the candidate to repair (repair), or the latest earlier attempt to learn from (retry)
+        description: Round whose artifact holds the candidate to repair (repair; 0 is the merge job's candidate, when the merge needed no model and its gates failed), or the latest earlier attempt to learn from (retry)
         type: string
         default: ''
       prev_gates_round:
@@ -69,7 +70,7 @@ on:
         description: true when conflict markers remain in the candidate this round produced
         value: ${{ jobs.agent.outputs.unresolved }}
       key_leaks:
-        description: Number of places where the API key (or a derived form of it) was found after the model ran. 0 = none. 'unknown' = the leak check itself failed. Anything but 0 stops the later agent rounds.
+        description: Number of places where the API key (or a derived form of it) was found after the model ran. 0 = none. 'unknown' = the run step failed or was cancelled before its leak check finished (the round then uploads nothing). A count stops the later agent rounds; 'unknown' or no value stops them only when this job succeeded (custom-sync.yml).
         value: ${{ jobs.agent.outputs.key_leaks }}
     secrets:
       DEEPINFRA_API_KEY:
@@ -212,7 +213,11 @@ jobs:
           OXFMT_BIN: ${{ steps.oxfmt.outputs.bin }}
         run: bash "$TOOLS_DIR/agent-round.sh" finish
       - name: Upload the candidate
-        if: always()
+        # Not after a run step that failed or was cancelled (a job timeout, a crash in the scan): its key-leak scan did not finish, and an
+        # artifact of this public repository is published. Without the sandbox the agent holds the key and could have written into
+        # SYNC_OUT. So a round whose leak check is 'unknown' uploads nothing. When the run step was skipped (an earlier step failed, no
+        # model ran) the prepare output still goes up for diagnosis.
+        if: always() && steps.run.conclusion != 'failure' && steps.run.conclusion != 'cancelled'
         uses: actions/upload-artifact@v7
         with:
           name: round-${{ inputs.round }}
