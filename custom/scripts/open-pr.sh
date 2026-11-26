@@ -7,9 +7,16 @@
 #   - REPLACE_PR (a stale PR of the SAME branch, found by detect-release.sh): the PR is re-checked against the facts detect saw
 #     (still open, same repo, against the base branch, opened by the automation, READY not a draft, head still the commit detect
 #     judged), and only then closed with the superseded marker comment, its branch deleted, and the new candidate pushed to the same
-#     branch name and opened as a new PR. If the PR changed in the meantime (a person pushed to it or turned it into a draft while the
-#     sync ran) NOTHING is closed, deleted or pushed: the job ends green without a PR, with a warning and a summary line, and `land`
-#     (which needs pr_number) does not run.
+#     branch name and opened as a new PR. The old PR is closed BEFORE the new one exists (the new one takes its branch name); if the
+#     run dies in between, the next detect finds a PR closed by the automation under the cap and syncs again by itself. If the PR
+#     changed in the meantime (a person pushed to it or turned it into a draft while the sync ran) NOTHING is closed, deleted or
+#     pushed: the job ends green without a PR, with a warning and a summary line, and `land` (which needs pr_number) does not run.
+#   - REPLACE_DRAFT=true (with REPLACE_RETRY, the number of this automatic retry): detect judged an OLD FAILED DRAFT (stale-sync-pr.sh:
+#     a title the automation gives a failed sync, at least 6 hours old, nobody but the automation commented, labeled, renamed, reviewed
+#     or pushed, no key-leak banner). The same flow, with the draft rules instead of "must be ready": the PR must STILL be a draft and
+#     failed_draft_is_unattended must STILL say yes, read again now, because the sync took hours and a person may have commented since.
+#     It is closed with the comment that says it was an unattended failed draft and how many retries are left (the same marker, so the
+#     retry cap counts it). Without REPLACE_DRAFT a draft is never replaced, as before.
 #   - ORPHAN_BRANCH: a leftover branch with no PR is deleted first so the push stays a plain push.
 #   - A branch is DELETED only on proof, read from GitHub right before the delete (the tip is read again each time, never trusted from
 #     earlier): the tip is exactly the commit detect saw (REPLACE_HEAD for the replaced PR, ORPHAN_SHA for a leftover branch) AND no
@@ -26,7 +33,8 @@
 # Outputs: pr_url, pr_number, merge_sha, draft, needs_review, review_reasons (custom-sync's land job reads them).
 # Env: GH_TOKEN, REPO (owner/name), FACTS (sync-facts.json of the chosen round), PR_OUT (output of make-pr-body.sh),
 #      SUPERSEDE (JSON array of PR numbers), ORPHAN_BRANCH (true/false), ORPHAN_SHA (the commit the leftover branch held when detect
-#      looked), REPLACE_PR and REPLACE_HEAD (stale PR to replace), RUN_URL, AGENT_RESULTS and AGENT_KEY_LEAKS (optional, "1=<x> 2=<y>
+#      looked), REPLACE_PR and REPLACE_HEAD (stale PR to replace), REPLACE_DRAFT and REPLACE_RETRY (it is an old failed draft; which
+#      automatic retry this is), RUN_URL, AGENT_RESULTS and AGENT_KEY_LEAKS (optional, "1=<x> 2=<y>
 #      3=<z>": the agent job results and leak counts), GITHUB_REF (set by Actions)
 # shellcheck source=lib.sh
 . "$(dirname "$0")/lib.sh"
@@ -37,6 +45,8 @@
 SUPERSEDE="${SUPERSEDE:-[]}"
 REPLACE_PR="${REPLACE_PR:-}"
 REPLACE_HEAD="${REPLACE_HEAD:-}"
+REPLACE_DRAFT="${REPLACE_DRAFT:-false}"
+REPLACE_RETRY="${REPLACE_RETRY:-}"
 ORPHAN_SHA="${ORPHAN_SHA:-}"
 branch="$(jq -r .branch "$FACTS")"; base_branch="$(jq -r .base_branch "$FACTS")"; merge_sha="$(jq -r .merge_sha "$FACTS")"
 [[ "$branch" == sync/* || "$branch" == sync-test/* ]] || die "refusing to push '$branch': only sync/* and sync-test/* branches are allowed"
@@ -91,8 +101,9 @@ check_branch_may_go() {
 }
 
 # ---- the model API turned every round away and nothing is resolved: no PR, a red run ----------------------------------------
-# A draft PR for this tag would end the search of every later sync (an open PR is the answer, a draft is never replaced), so after the
-# balance or the key is fixed nothing would retry it. With no PR the next scheduled sync starts the tag over by itself.
+# A draft PR for this tag would end the search of every later sync for at least 6 hours (an open PR is the answer; an unattended failed
+# draft is replaced only when it is that old, at most 3 times, and never when a person touched it), and every such retry spends a
+# paid round again. With no PR the next scheduled sync starts the tag over at once. A draft is not the answer to a refusal.
 if jq -e '.unresolved == true and ((.agent.rounds // []) | length > 0) and all(.agent.rounds[]; ((.api_status // 0) >= 401 and (.api_status // 0) <= 403))' "$FACTS" >/dev/null; then
   refused="$(jq -r '[.agent.rounds[].api_status] | max' "$FACTS")"
   model_api_refused "$refused" || die "the facts of $branch carry an api_status that is not a refusal: '$refused'"
@@ -107,7 +118,7 @@ fi
 # Seen 2026-11-25 (v1.4.274): round 1 lost its runner, no round left a candidate, and the merge with its markers became a draft that ended
 # the search of every later sync. Here: the chosen candidate carries no agent round record (it is round 0, the scripts' merge), at least
 # one agent job failed or was cancelled (AGENT_RESULTS, the job results), no leak check reported a COUNT (a confirmed leak keeps its
-# draft and banner: a retry would only face the same prompt) and a draft from this run would block the tag: refs/heads/custom (the only
+# draft and banner: a retry would only face the same prompt) and a draft from this run would hold the tag back (6 hours at least, see above): refs/heads/custom (the only
 # ref where the `agent` environment exists; elsewhere its jobs "fail" on purpose), not a rehearsal, a sync/v* branch. Without
 # AGENT_RESULTS (older callers) nothing changes.
 crash_rounds=""
@@ -154,7 +165,10 @@ else
   if [ -n "$REPLACE_PR" ]; then
     [[ "$branch" == sync/* ]] || die "refusing to replace a PR on '$branch': only sync/* branches are replaced"
     [[ "$REPLACE_PR" =~ ^[0-9]+$ ]] && [ -n "$REPLACE_HEAD" ] || die "REPLACE_PR='$REPLACE_PR' REPLACE_HEAD='$REPLACE_HEAD' are not a PR number and a head sha"
-    info="$(gh pr view "$REPLACE_PR" --repo "$REPO" --json state,headRefName,headRefOid,baseRefName,isCrossRepository,isDraft,author)" \
+    if [ "$REPLACE_DRAFT" = true ]; then
+      [[ "$REPLACE_RETRY" =~ ^[1-9][0-9]*$ ]] && [ "$REPLACE_RETRY" -le "$SYNC_PR_RETRY_CAP" ] || die "REPLACE_DRAFT=true needs REPLACE_RETRY to be a retry number from 1 to $SYNC_PR_RETRY_CAP (got '$REPLACE_RETRY')"
+    fi
+    info="$(gh pr view "$REPLACE_PR" --repo "$REPO" --json state,headRefName,headRefOid,baseRefName,isCrossRepository,isDraft,author,title,createdAt)" \
       || die "could not read PR #$REPLACE_PR to re-check it before replacing it"
     ORPHAN_BRANCH=true # the old PR's branch has to go before the new one can take its name
     left_alone=""
@@ -164,17 +178,26 @@ else
         elif [ "$(jq -r '.headRefName' <<<"$info")" != "$branch" ]; then left_alone="its head branch is not $branch"
         elif [ "$(jq -r '.baseRefName' <<<"$info")" != "$base_branch" ] || [ "$base_branch" != custom ]; then left_alone="its base is not custom"
         elif ! jq -e --arg re "$AUTOMATION_LOGIN_RE" '(.author.login // "") | test($re)' <<<"$info" >/dev/null; then left_alone="it was not opened by the automation"
-        elif [ "$(jq -r '.isDraft' <<<"$info")" != false ]; then left_alone="it is a draft now (its gates failed or a person is working on it); only a ready PR is replaced"
+        elif [ "$REPLACE_DRAFT" != true ] && [ "$(jq -r '.isDraft' <<<"$info")" != false ]; then left_alone="it is a draft now (its gates failed or a person is working on it); only a ready PR is replaced"
+        elif [ "$REPLACE_DRAFT" = true ] && [ "$(jq -r '.isDraft' <<<"$info")" != true ]; then left_alone="it is not a draft any more (a person marked it ready for review), and detect judged it as a failed draft"
         elif [ "$(jq -r '.headRefOid' <<<"$info")" != "$REPLACE_HEAD" ]; then
           left_alone="its head moved from ${REPLACE_HEAD:0:10} to $(jq -r '.headRefOid' <<<"$info" | cut -c1-10) while the sync ran (a person pushed to it?)"
+        fi
+        if [ -z "$left_alone" ] && [ "$REPLACE_DRAFT" = true ]; then # detect judged an old failed draft: judged again NOW, a person may have commented since
+          failed_draft_is_unattended "$REPO" "$REPLACE_PR" "$branch" "$(jq -r '.title // ""' <<<"$info")" "$(jq -r '.createdAt // ""' <<<"$info")" || left_alone="$SYNC_PR_WHY"
         fi
         if [ -z "$left_alone" ]; then # before closing anything: would its branch be free to delete?
           check_branch_may_go
           left_alone="$BRANCH_BLOCKER"
         fi
         if [ -z "$left_alone" ]; then
-          gh pr close "$REPLACE_PR" --repo "$REPO" --comment "$(superseded_comment)" >/dev/null
-          log "closed stale PR #$REPLACE_PR (head ${REPLACE_HEAD:0:10}); replacing it with a sync from the current $base_branch"
+          if [ "$REPLACE_DRAFT" = true ]; then
+            gh pr close "$REPLACE_PR" --repo "$REPO" --comment "$(superseded_draft_comment "$REPLACE_RETRY")" >/dev/null
+            log "closed unattended failed draft PR #$REPLACE_PR (head ${REPLACE_HEAD:0:10}); automatic retry $REPLACE_RETRY of $SYNC_PR_RETRY_CAP, a sync from the current $base_branch"
+          else
+            gh pr close "$REPLACE_PR" --repo "$REPO" --comment "$(superseded_comment)" >/dev/null
+            log "closed stale PR #$REPLACE_PR (head ${REPLACE_HEAD:0:10}); replacing it with a sync from the current $base_branch"
+          fi
         fi
         ;;
       CLOSED) # an earlier attempt of this very job got this far: carry on only when the automation closed it
@@ -185,7 +208,7 @@ else
     if [ -n "$left_alone" ]; then
       warn "PR #$REPLACE_PR was meant to be replaced but is left alone: $left_alone. Nothing was closed, deleted or pushed."
       say "### custom-sync: no PR opened for $branch"
-      say "Stale PR #$REPLACE_PR was left alone because $left_alone. Look at that PR; the sync this run made was thrown away."
+      say "PR #$REPLACE_PR was meant to be replaced and was left alone because $left_alone. Look at that PR; the sync this run made was thrown away."
       exit 0
     fi
   fi
