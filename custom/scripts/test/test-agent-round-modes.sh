@@ -221,6 +221,14 @@ check "repair on Flash: 1 hour" test "$(jq -r .wall_seconds "$tmp/r2f.out/agent-
 round r3r retry resolve 3 pro r2
 check "retry on Pro: 1 hour, no turn count" bash -c "test \"\$(jq -r .wall_seconds '$tmp/r3r.out/agent-plan.json')\" = 3600 && jq -e 'has(\"max_turns\") | not' '$tmp/r3r.out/agent-plan.json'"
 
+echo "round 2 (retry) after round 1's job crashed: a fresh merge, no previous round to show"
+round r2c retry resolve 2 flash
+check "crash retry: the prompt says no earlier round left a candidate" grep -qF '(no check output: no earlier round left a candidate, so this round starts again from the merge)' "$tmp/r2c.out/agent-prompt.txt"
+check "crash retry: no empty 'left these files unresolved' list" test -z "$(grep -F 'left these files unresolved' "$tmp/r2c.out/agent-prompt.txt" || true)"
+check "crash retry: the conflicted files are offered with their hunk counts" grep -q 'src/beta.ts (content, 3 conflict hunk(s))' "$tmp/r2c.out/agent-prompt.txt"
+check "crash retry: it resolved the merge" test "$(facts r2c .unresolved)" = false
+check "crash retry: only its own round is in the record" test "$(facts r2c '.agent.rounds | map("\(.round):\(.mode)") | join(",")')" = "2:retry"
+
 echo "round 1 stops early with two of three files left: round 2 CONTINUES that candidate, it does not start the merge again"
 round p1 first partial 1 flash
 check "the partly resolved round names the two files left" test "$(facts p1 '.unresolved_files | join(",")')" = "src/beta.ts,src/gamma.ts"

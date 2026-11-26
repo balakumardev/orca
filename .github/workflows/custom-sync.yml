@@ -10,10 +10,14 @@ name: custom-sync
 #   agent1   (only when conflicts remain) Flash resolves the conflicted files    } custom-agent.yml, environment `agent`
 #   agent2   Flash repairs the candidate using the REAL gate output of round 1,   } (agent2 and agent3 also CONTINUE a
 #            or continues a round 1 that stopped with files unresolved             }  candidate that has files unresolved)
+#            or, when round 1's job crashed (no candidate), starts again from the merge (retry)
 #   pick3    chooses what round 3 starts from (no model; pick-repair-base.sh)
 #   agent3   Pro REPAIRS the best candidate of rounds 1 and 2 with that candidate's real gate output (same wider edit
 #            scope as round 2), or continues the one that got furthest; only when no round left a usable candidate
 #            does it start again from scratch
+#            On custom, a round whose job crashed (lost runner, timeout) does not stop the later rounds unless its scan
+#            counted a leak; when no round left a candidate at all, open-pr opens no PR and fails, so the next scheduled
+#            sync starts the tag over
 #   gates*   custom-gates.yml: install, typecheck, lint, format, unit tests, localization, e2e ratchet, e2e specs
 #   open-pr  push sync/<tag> (the only branch this workflow may push), open the PR from FACTS, retire older sync PRs; close the
 #            stale PR it replaces; on a re-run of the failed jobs adopt the PR attempt 1 opened (custom/scripts/open-pr.sh)
@@ -203,18 +207,28 @@ jobs:
   agent2:
     name: agent (round 2, flash repair)
     needs: [detect, agent1, gates1]
-    # Two cases. Round 1 resolved everything and its gates failed: repair it with that gate output. Round 1 stopped (the wall clock)
+    # Three cases. Round 1 resolved everything and its gates failed: repair it with that gate output. Round 1 stopped (the wall clock)
     # with files still unresolved (gates1 is skipped, so `!cancelled()` is what lets this job run at all): continue it. A key leak in
     # round 1 means unresolved too; it is checked here on purpose and never continued.
+    # Third: round 1's JOB failed or was cancelled (a lost runner, a job timeout, a crashed step; seen 2026-11-25, v1.4.274). It left no
+    # candidate (its finish step never ran), so this round starts again from the merge: mode retry with NO previous round, so nothing of
+    # round 1 is downloaded or reused (a download by the name of an artifact that does not exist would also fail this job). The key-leak
+    # rule there: a failed job's leak count is '' (no output at all), '0' (it died before the model, or after a clean scan) or 'unknown'
+    # (its run step died before the scan finished, and then custom-agent.yml uploads nothing), and none of those can have published a
+    # key, so they do not block a retry that reuses nothing. A COUNT (the scan ran and found the key, then a later step died) blocks as
+    # before: the values allowed are listed, never negated (a missing output compares equal to '0'). Only on refs/heads/custom, where
+    # the `agent` environment exists: on any other ref round 1 "fails" because the environment refuses the branch, and a retry would too.
     if: >-
-      ${{ !cancelled() && needs.agent1.result == 'success' && needs.agent1.outputs.key_leaks == '0'
-      && ((needs.gates1.result == 'success' && needs.gates1.outputs.failed != '0') || needs.agent1.outputs.unresolved == 'true') }}
+      ${{ !cancelled() && ((needs.agent1.result == 'success' && needs.agent1.outputs.key_leaks == '0'
+      && ((needs.gates1.result == 'success' && needs.gates1.outputs.failed != '0') || needs.agent1.outputs.unresolved == 'true'))
+      || (github.ref == 'refs/heads/custom' && (needs.agent1.result == 'failure' || needs.agent1.result == 'cancelled')
+      && (needs.agent1.outputs.key_leaks == '' || needs.agent1.outputs.key_leaks == '0' || needs.agent1.outputs.key_leaks == 'unknown'))) }}
     uses: ./.github/workflows/custom-agent.yml
     with:
       round: '2'
-      mode: repair
+      mode: ${{ needs.agent1.result == 'success' && 'repair' || 'retry' }}
       tier: flash
-      prev_round: '1'
+      prev_round: ${{ needs.agent1.result == 'success' && '1' || '' }}
       prev_gates_round: ${{ needs.gates1.result == 'success' && '1' || '' }}
       tag: ${{ needs.detect.outputs.tag }}
       tag_is_release: ${{ needs.detect.outputs.tag_is_release }}
@@ -244,11 +258,18 @@ jobs:
     name: pick the base of round 3
     needs: [detect, agent1, gates1, agent2, gates2]
     # One last attempt with the stronger model when no earlier round came out green. Never after a round whose output
-    # contained the API key (a prompt that leaked once would leak again), nor after an unknown leak check.
+    # contained the API key (a prompt that leaked once would leak again), nor after an unknown leak check of a round that left a
+    # candidate. A round whose JOB failed or was cancelled (a lost runner, a timeout) left no candidate and published nothing, so it does
+    # not stop this round: the same rule as agent2's third case, for round 1 and for round 2 (pick-repair-base.sh then works from the
+    # artifacts that exist: it repairs round 1 when round 2 left none, and retries from the merge when neither did).
     if: >-
-      ${{ !cancelled() && needs.agent1.result == 'success'
-      && needs.agent1.outputs.key_leaks == '0'
-      && (needs.agent2.result == 'skipped' || needs.agent2.outputs.key_leaks == '0')
+      ${{ !cancelled()
+      && ((needs.agent1.result == 'success' && needs.agent1.outputs.key_leaks == '0')
+      || (github.ref == 'refs/heads/custom' && (needs.agent1.result == 'failure' || needs.agent1.result == 'cancelled')
+      && (needs.agent1.outputs.key_leaks == '' || needs.agent1.outputs.key_leaks == '0' || needs.agent1.outputs.key_leaks == 'unknown')))
+      && (needs.agent2.result == 'skipped' || needs.agent2.outputs.key_leaks == '0'
+      || (github.ref == 'refs/heads/custom' && (needs.agent2.result == 'failure' || needs.agent2.result == 'cancelled')
+      && (needs.agent2.outputs.key_leaks == '' || needs.agent2.outputs.key_leaks == 'unknown')))
       && !(needs.gates1.result == 'success' && needs.gates1.outputs.failed == '0')
       && !(needs.gates2.result == 'success' && needs.gates2.outputs.failed == '0') }}
     runs-on: ubuntu-latest
@@ -389,6 +410,8 @@ jobs:
           AGENT_RESULTS: ${{ format('1={0} 2={1} 3={2}', needs.agent1.result, needs.agent2.result, needs.pick3.result == 'failure' && 'failure' || needs.agent3.result) }}
           # From the run step of each agent job, so the PR warns about a leak even when that job died before it wrote a record.
           AGENT_KEY_LEAKS: ${{ format('1={0} 2={1} 3={2}', needs.agent1.outputs.key_leaks, needs.agent2.outputs.key_leaks, needs.agent3.outputs.key_leaks) }}
+          # Which round-N artifacts exist: a round whose leak check did not finish and that uploaded nothing is told apart from one that did.
+          ROUNDS_DIR: ${{ runner.temp }}/all
           PR_TITLE: ${{ needs.detect.outputs.title }}
           RELEASE_URL: ${{ needs.detect.outputs.release_url }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -418,6 +441,10 @@ jobs:
           # A stale, untouched PR for this same branch: open-pr.sh re-checks it against this head sha, closes it and takes its name.
           REPLACE_PR: ${{ needs.detect.outputs.replace_pr }}
           REPLACE_HEAD: ${{ needs.detect.outputs.replace_head }}
+          # The same two strings as the step above. When no model round left a candidate because their jobs crashed, open-pr.sh opens no
+          # PR and fails (a draft would stop every later sync of this tag), so the next scheduled sync starts the tag over.
+          AGENT_RESULTS: ${{ format('1={0} 2={1} 3={2}', needs.agent1.result, needs.agent2.result, needs.pick3.result == 'failure' && 'failure' || needs.agent3.result) }}
+          AGENT_KEY_LEAKS: ${{ format('1={0} 2={1} 3={2}', needs.agent1.outputs.key_leaks, needs.agent2.outputs.key_leaks, needs.agent3.outputs.key_leaks) }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: bash "$GITHUB_WORKSPACE/tools/custom/scripts/open-pr.sh"
 

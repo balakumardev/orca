@@ -80,6 +80,16 @@ a="$tmp/o"; mk "$a" 1 true none true yes 2
 base_case "a partly resolved round whose output leaked the key is never continued: retry" "$a" retry 1 ""
 a="$tmp/q"; mk "$a" 1 true none true yes 2; mk "$a" 2 true none false yes 20
 base_case "a clean candidate with many files unresolved beats a leaked one" "$a" repair 2 ""
+# Agent jobs that crashed (v1.4.274: round 1 lost its runner) upload nothing; with an earlier failure the upload could hold prepare's
+# facts without a bundle. Either way the round is no base.
+a="$tmp/r1"; mkdir -p "$a"; mk "$a" 2 false 3
+base_case "round 1 crashed (no artifact), round 2 retried and failed 3 gates: repair round 2" "$a" repair 2
+a="$tmp/r2"; mk "$a" 1 true none false no; mk "$a" 2 true none false yes 4
+base_case "round 1 crashed with facts but no bundle, round 2 retried and left 4 files: continue round 2" "$a" repair 2 ""
+a="$tmp/r3"; mk "$a" 1 true none false no
+base_case "round 1 left only facts and round 2 crashed with nothing: retry from the merge with no previous round" "$a" retry ""
+a="$tmp/r4"; mk "$a" 1 false 2
+base_case "round 1 resolved with 2 failed gates, round 2 crashed (no artifact): repair round 1" "$a" repair 1
 
 # ---- what the PR publishes: unchanged by the refactor ------------------------------------------------------------------
 a="$tmp/p1"; mk "$a" 0 true none; mk "$a" 1 false 2; mk "$a" 2 false 1; mk "$a" 3 false 1
