@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Decide whether this run should raise a sync PR, and for which upstream commit.
 #
-# Needs: gh, jq. Env: GH_TOKEN, GITHUB_REPOSITORY, INPUT_REF (optional), INPUT_BASE_BRANCH (optional).
-# Writes step outputs (see the gh_out calls); exits 0 even when there is nothing to do.
+# Needs: gh, jq. Env: GH_TOKEN, GITHUB_REPOSITORY, INPUT_REF (optional), INPUT_BASE_BRANCH (optional), GITHUB_EVENT_NAME and
+# GITHUB_RUN_ID (set by Actions; the spend cap of scheduled runs, sync-spend-cap.sh).
+# Writes step outputs (see the gh_out calls); exits 0 even when there is nothing to do or the spend cap pauses the sync.
 #
 # Release selection: the HIGHEST semver among stable desktop releases (tag regex in lib.sh, not draft,
 # not prerelease), not the newest published. Upstream tags are not ancestors of each other (every
@@ -17,6 +18,8 @@
 . "$(dirname "$0")/lib.sh"
 # shellcheck source=stale-sync-pr.sh
 . "$(dirname "$0")/stale-sync-pr.sh"
+# shellcheck source=sync-spend-cap.sh
+. "$(dirname "$0")/sync-spend-cap.sh"
 
 REPO="${GITHUB_REPOSITORY:?}"
 BASE_BRANCH="${INPUT_BASE_BRANCH:-custom}"
@@ -108,6 +111,15 @@ if [ "$TAG_IS_RELEASE" = true ]; then
   RELEASE_URL="https://github.com/$UPSTREAM_REPO/releases/tag/$TAG"
 else
   RELEASE_URL="https://github.com/$UPSTREAM_REPO/commit/$UPSTREAM_SHA"
+fi
+
+# The spend cap (sync-spend-cap.sh): a SCHEDULED run that would sync does not start after 3 failed custom-sync runs in 24 h, or when that
+# count cannot be read. Checked last, so the quiet stops above stay quiet; the stop is loud. A dispatch is never capped.
+sync_spend_cap "$REPO"
+if [ -n "$SYNC_CAP_STOP" ]; then
+  printf '::warning title=custom-sync paused::%s. Read the failed runs, then dispatch custom-sync by hand to retry; scheduled syncs resume by themselves when the failures are older than 24 h.\n' "$SYNC_CAP_STOP" >&2
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then printf '%s\n' "$SYNC_CAP_SUMMARY" >>"$GITHUB_STEP_SUMMARY"; fi
+  stop "$SYNC_CAP_STOP"
 fi
 
 log "Sync target: $TAG ($UPSTREAM_SHA) onto $BASE_BRANCH ($BASE_SHA, BASE $BASE_TAG), test=$IS_TEST, branch=$BRANCH"
