@@ -330,4 +330,16 @@ run SUPERSEDE='[]' ORPHAN_BRANCH=false GITHUB_REF=refs/heads/custom 'AGENT_RESUL
 if [ "$o_rc" = 1 ] && ! called '^pr create ' && grep -qF 'No PR opened: the model API refused every round::HTTP 402' <<<"$o_out" && ! grep -qF 'no model round left a candidate' <<<"$o_out"; then ok "round 1 crashed and the retries were refused (402): the refusal path, unchanged"
 else bad "crash then 402: rc=$o_rc out=[$o_out]"; fi
 
+# ---- a merge that needed no model, a red gate, and the repair rounds (custom-sync.yml, agent2's fourth case) crashed or were refused -------
+# Round 0 is then a real candidate (resolved, its own red gates), not a merge with markers: the [gates failed] draft opens exactly as it did
+# before the repair rounds existed. Neither the crash path (outcome conflicts only) nor the refusal path (unresolved only) applies.
+world none; jq '. + {unresolved: false, is_test: false, outcome: "clean"} | del(.agent)' "$tmp/facts.json" > "$tmp/f.tmp" && mv "$tmp/f.tmp" "$tmp/facts.json"; meta true
+run SUPERSEDE='[]' ORPHAN_BRANCH=false GITHUB_REF=refs/heads/custom 'AGENT_RESULTS=1=skipped 2=failure 3=failure' 'AGENT_KEY_LEAKS=1= 2=unknown 3=unknown'
+if [ "$o_rc" = 0 ] && called '^pr create .*--draft' && [ "$(origin_sha)" = "$MERGE_SHA" ]; then ok "clean merge, the repair rounds crashed: round 0's draft PR is opened as before (no crash exit)"
+else bad "clean merge, crashed repairs: rc=$o_rc out=[$o_out]"; fi
+world none; jq '. + {is_test: false, outcome: "clean"}' "$tmp/facts.json" > "$tmp/f.tmp" && mv "$tmp/f.tmp" "$tmp/facts.json"; agent_facts false 402 402; meta true
+run SUPERSEDE='[]' ORPHAN_BRANCH=false GITHUB_REF=refs/heads/custom 'AGENT_RESULTS=1=skipped 2=success 3=success' 'AGENT_KEY_LEAKS=1= 2=0 3=0'
+if [ "$o_rc" = 0 ] && called '^pr create .*--draft'; then ok "clean merge, the repair rounds were refused (402): the resolved candidate's draft PR is opened as before"
+else bad "clean merge, refused repairs: rc=$o_rc out=[$o_out]"; fi
+
 exit "$([ "$fails" -eq 0 ] && echo 0 || echo 1)"
