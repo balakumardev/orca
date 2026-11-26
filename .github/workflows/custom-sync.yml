@@ -8,14 +8,17 @@ name: custom-sync
 #            touched (custom moved on while it ran) is not "nothing new": it is replaced (custom/scripts/stale-sync-pr.sh).
 #            A scheduled run also stops, loudly, after 3 failed runs of this workflow in 24 h (custom/scripts/sync-spend-cap.sh).
 #   merge    merge the release into sync/<tag> by script (clean, or scripted conflict rules), no model
+#   gates0   (only when no conflict remains) the gates of that merge, round 0
 #   agent1   (only when conflicts remain) Flash resolves the conflicted files    } custom-agent.yml, environment `agent`
 #   agent2   Flash repairs the candidate using the REAL gate output of round 1,   } (agent2 and agent3 also CONTINUE a
 #            or continues a round 1 that stopped with files unresolved             }  candidate that has files unresolved)
 #            or, when round 1's job crashed (no candidate), starts again from the merge (retry)
+#            or, when the merge needed no model and a gate of round 0 is red, repairs round 0 (the files our customizations own)
 #   pick3    chooses what round 3 starts from (no model; pick-repair-base.sh)
-#   agent3   Pro REPAIRS the best candidate of rounds 1 and 2 with that candidate's real gate output (same wider edit
-#            scope as round 2), or continues the one that got furthest; only when no round left a usable candidate
-#            does it start again from scratch
+#   agent3   Pro REPAIRS the best candidate of rounds 1 and 2 (or of rounds 0 and 2 after a merge that needed no model) with that
+#            candidate's real gate output (same wider edit scope as round 2), or continues the one that got furthest; only when
+#            no round left a usable candidate does it start again from scratch
+#            A red round 0 thus costs at most one Flash and one Pro hour (about $23) per run, on the run's first attempt only
 #            On custom, a round whose job crashed (lost runner, timeout) does not stop the later rounds unless its scan
 #            counted a leak; when no round left a candidate at all, open-pr opens no PR and fails, so the next scheduled
 #            sync starts the tag over
@@ -169,6 +172,7 @@ jobs:
   gates0:
     name: gates (round 0)
     needs: [detect, merge]
+    # A red result here starts round 2 as a repair of round 0 (agent2's fourth case), so these gates have paid dependents now.
     if: needs.merge.result == 'success' && needs.merge.outputs.outcome != 'conflicts'
     uses: ./.github/workflows/custom-gates.yml
     with:
@@ -208,8 +212,8 @@ jobs:
 
   agent2:
     name: agent (round 2, flash repair)
-    needs: [detect, agent1, gates1]
-    # Three cases. Round 1 resolved everything and its gates failed: repair it with that gate output. Round 1 stopped (the wall clock)
+    needs: [detect, gates0, agent1, gates1]
+    # Four cases. Round 1 resolved everything and its gates failed: repair it with that gate output. Round 1 stopped (the wall clock)
     # with files still unresolved (gates1 is skipped, so `!cancelled()` is what lets this job run at all): continue it. A key leak in
     # round 1 means unresolved too; it is checked here on purpose and never continued.
     # Third: round 1's JOB failed or was cancelled (a lost runner, a job timeout, a crashed step; seen 2026-11-25, v1.4.274). It left no
@@ -220,18 +224,28 @@ jobs:
     # key, so they do not block a retry that reuses nothing. A COUNT (the scan ran and found the key, then a later step died) blocks as
     # before: the values allowed are listed, never negated (a missing output compares equal to '0'). Only on refs/heads/custom, where
     # the `agent` environment exists: on any other ref round 1 "fails" because the environment refuses the branch, and a retry would too.
+    # Fourth: the merge needed no model (clean, or every conflict settled by script: gates0 ran, so round 1 never did) and a gate of
+    # round 0 is red (upstream changed an API our code uses, a new import breaks a bundle: no textual conflict). Round 2 REPAIRS round 0
+    # with that gate output (mode repair, prev_round 0; the edit scope is the files our customization commits own, there being no
+    # conflicted file). Only when gates0 itself reported a count: `result` success and `failed` neither '0' (green, or only an excused
+    # gate) nor empty (an abandoned call has empty outputs: infrastructure, not a repairable failure; a missing output compares equal to
+    # '0', an empty one does not). On custom only, never with skip_agent, and only on the run's FIRST attempt: re-running the failed jobs
+    # of gates0 (rerun-infra-failures.sh) re-runs its dependents too, and a repair there would spend paid rounds on a candidate open-pr can
+    # no longer publish (attempt 1 already pushed round 0 and opened its PR, which open-pr adopts). gates0 and agent1 never both run.
     if: >-
       ${{ !cancelled() && ((needs.agent1.result == 'success' && needs.agent1.outputs.key_leaks == '0'
       && ((needs.gates1.result == 'success' && needs.gates1.outputs.failed != '0') || needs.agent1.outputs.unresolved == 'true'))
       || (github.ref == 'refs/heads/custom' && (needs.agent1.result == 'failure' || needs.agent1.result == 'cancelled')
-      && (needs.agent1.outputs.key_leaks == '' || needs.agent1.outputs.key_leaks == '0' || needs.agent1.outputs.key_leaks == 'unknown'))) }}
+      && (needs.agent1.outputs.key_leaks == '' || needs.agent1.outputs.key_leaks == '0' || needs.agent1.outputs.key_leaks == 'unknown'))
+      || (github.ref == 'refs/heads/custom' && github.run_attempt == '1' && github.event.inputs.skip_agent != 'true'
+      && needs.gates0.result == 'success' && needs.gates0.outputs.failed != '0' && needs.gates0.outputs.failed != '')) }}
     uses: ./.github/workflows/custom-agent.yml
     with:
       round: '2'
-      mode: ${{ needs.agent1.result == 'success' && 'repair' || 'retry' }}
+      mode: ${{ (needs.agent1.result == 'success' || needs.gates0.result == 'success') && 'repair' || 'retry' }}
       tier: flash
-      prev_round: ${{ needs.agent1.result == 'success' && '1' || '' }}
-      prev_gates_round: ${{ needs.gates1.result == 'success' && '1' || '' }}
+      prev_round: ${{ (needs.agent1.result == 'success' && '1') || (needs.gates0.result == 'success' && '0') || '' }}
+      prev_gates_round: ${{ (needs.gates1.result == 'success' && '1') || (needs.gates0.result == 'success' && '0') || '' }}
       tag: ${{ needs.detect.outputs.tag }}
       tag_is_release: ${{ needs.detect.outputs.tag_is_release }}
       is_test: ${{ needs.detect.outputs.is_test }}
@@ -258,17 +272,21 @@ jobs:
 
   pick3:
     name: pick the base of round 3
-    needs: [detect, agent1, gates1, agent2, gates2]
+    needs: [detect, gates0, agent1, gates1, agent2, gates2]
     # One last attempt with the stronger model when no earlier round came out green. Never after a round whose output
     # contained the API key (a prompt that leaked once would leak again), nor after an unknown leak check of a round that left a
     # candidate. A round whose JOB failed or was cancelled (a lost runner, a timeout) left no candidate and published nothing, so it does
     # not stop this round: the same rule as agent2's third case, for round 1 and for round 2 (pick-repair-base.sh then works from the
     # artifacts that exist: it repairs round 1 when round 2 left none, and retries from the merge when neither did).
+    # After a merge that needed no model (agent2's fourth case, the same condition word for word) round 1 never ran: round 3 then
+    # repairs the better of round 0 and round 2 (pick-repair-base.sh admits round 0 only as a resolved merge whose gates reported).
     if: >-
       ${{ !cancelled()
       && ((needs.agent1.result == 'success' && needs.agent1.outputs.key_leaks == '0')
       || (github.ref == 'refs/heads/custom' && (needs.agent1.result == 'failure' || needs.agent1.result == 'cancelled')
-      && (needs.agent1.outputs.key_leaks == '' || needs.agent1.outputs.key_leaks == '0' || needs.agent1.outputs.key_leaks == 'unknown')))
+      && (needs.agent1.outputs.key_leaks == '' || needs.agent1.outputs.key_leaks == '0' || needs.agent1.outputs.key_leaks == 'unknown'))
+      || (github.ref == 'refs/heads/custom' && github.run_attempt == '1' && github.event.inputs.skip_agent != 'true'
+      && needs.gates0.result == 'success' && needs.gates0.outputs.failed != '0' && needs.gates0.outputs.failed != ''))
       && (needs.agent2.result == 'skipped' || needs.agent2.outputs.key_leaks == '0'
       || (github.ref == 'refs/heads/custom' && (needs.agent2.result == 'failure' || needs.agent2.result == 'cancelled')
       && (needs.agent2.outputs.key_leaks == '' || needs.agent2.outputs.key_leaks == 'unknown')))
@@ -300,8 +318,9 @@ jobs:
           path: ${{ runner.temp }}/all
           pattern: gates-*
           merge-multiple: true
-      # repair: the best resolved candidate of rounds 1 and 2 (fewest failed gates, a tie goes to round 2), shown its own gate
-      # output. retry: no round left a resolved merge to repair, so start again from the merge.
+      # repair: the best resolved candidate of rounds 1 and 2, or of rounds 0 and 2 after a merge that needed no model (fewest failed
+      # gates, a tie goes to the later round), shown its own gate output. retry: no round left a resolved merge to repair, so start
+      # again from the merge.
       - name: Choose the base
         id: pick
         run: bash custom/scripts/pick-repair-base.sh "$RUNNER_TEMP/all"

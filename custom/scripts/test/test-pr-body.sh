@@ -183,12 +183,43 @@ jq '[.[0], {"round":2,"mode":"repair","model":"m","tier":"flash","max_turns":0,"
 ROUNDS_FILE="$tmp/rounds3.json" render skipped "$tmp/dispatch-only.yml"
 has "$body" '0: skipped; no file was left that a model may resolve' && ok "a skipped round says so instead of 'no readable output'" || bad "skipped round wording: $(grep '^| 2 | repair' "$body")"
 
-# the agent-resolved label means a model round ran; round 0 also records marker-free conflicts it left as git placed them as `agent`
-# (v1.4.274, PR #75: every agent job crashed and the scripts' merge was still labelled agent-resolved)
-render labelled "$tmp/dispatch-only.yml"
+# the agent-resolved label means the published candidate carries a model round that ran (its facts' own agent.rounds); round 0 also
+# records marker-free conflicts it left as git placed them as `agent` (v1.4.274, PR #75: every agent job crashed and the scripts' merge
+# was still labelled agent-resolved)
+jq --slurpfile r "$tmp/rounds.json" '.agent = {rounds: $r[0]}' "$tmp/facts.json" > "$tmp/facts-rounds.json"
+FACTS_FILE="$tmp/facts-rounds.json" render labelled "$tmp/dispatch-only.yml"
 jq -e '.labels | index("agent-resolved")' "$tmp/out-labelled/pr-meta.json" > /dev/null && ok "a candidate with agent round records is labelled agent-resolved" || bad "label with rounds: $(jq -c .labels "$tmp/out-labelled/pr-meta.json")"
 printf '[]\n' > "$tmp/no-rounds.json"
 ROUNDS_FILE="$tmp/no-rounds.json" render unlabelled "$tmp/dispatch-only.yml"
 jq -e '(.labels | index("agent-resolved")) == null' "$tmp/out-unlabelled/pr-meta.json" > /dev/null && ok "no agent round record (round 0's 'agent' entries alone): not labelled agent-resolved" || bad "label without rounds: $(jq -c .labels "$tmp/out-unlabelled/pr-meta.json")"
+! has "$body" 'none of their edits is in this PR' && ok "no model round anywhere: no 'not in this PR' caveat" || bad "no rounds caveat"
+
+# ---- a merge that needed no model, then a red gate: round 2 repaired round 0 (custom-sync.yml, agent2's fourth case) --------------------
+# The chosen candidate is round 2: round 0's facts (clean, no conflicts) plus round 2's own record and the files it edited.
+jq -n '{schema: 1, tag: "v9.9.9", old_base_tag: "v9.9.8", base_branch: "custom", tag_is_release: true, is_test: false, outcome: "clean",
+  unresolved: false, unresolved_files: [], upstream_sha: "1111111111111111111111111111111111111111", base_sha: "2222222222222222222222222222222222222222",
+  merge_sha: "3333333333333333333333333333333333333333", link_sha: "4444444444444444444444444444444444444444", upstream_commits: 3, our_files_count: 2,
+  conflicts: [], caveats: [], scripted: {upstream_ci_removed: 0, our_wins_restored: []}, drift: []}' > "$tmp/facts-clean.json"
+jq '.repair_edits = ["src/owned.ts"] | .agent = {rounds: [{round: 2, mode: "repair", model: "m-flash", tier: "flash", exit_code: 0, wall_s: 90, key_leaks: 0, turns: 20, stop: "success", is_error: false, output_parsed: true, input_tokens: 50, output_tokens: 5, estimated_cost_usd: 0.05, report: "fixed the import"}]}' \
+  "$tmp/facts-clean.json" > "$tmp/facts-repaired.json"
+jq '.agent.rounds' "$tmp/facts-repaired.json" > "$tmp/rounds-repaired.json"
+FACTS_FILE="$tmp/facts-repaired.json" ROUNDS_FILE="$tmp/rounds-repaired.json" render repaired "$tmp/dispatch-only.yml"
+has "$body" 'without a single conflict. Then gates failed and a cloud model repaired the merge (round 2): treat the files it edited (listed in the caveats) as unreviewed code.' \
+  && ok "a clean merge a model repaired: the summary says the model changed it after the merge" || bad "repaired summary: $(grep -F 'Clean merge' "$body")"
+has "$body" '_Clean merge: git made every merge decision, so there is no resolution diff. The model'"'"'s repair edits are not in it: the caveats list them' \
+  && ! has "$body" 'git made every decision,' && ok "...and the diff section no longer says git made every decision" || bad "repaired diff section: $(grep -F '_Clean merge' "$body")"
+has "$body" 'Repair round(s) edited 1 file(s) that were not conflicted: `src/owned.ts`' && has "$body" '- [ ] Read the files the repair round(s) edited (listed in the caveats) in full.' \
+  && ok "...the edited files are a caveat and a checklist item" || bad "repaired caveat/checklist"
+jq -e '.labels | index("agent-resolved")' "$tmp/out-repaired/pr-meta.json" > /dev/null && ok "...and it is labelled agent-resolved" || bad "repaired label: $(jq -c .labels "$tmp/out-repaired/pr-meta.json")"
+# The repairs lost (more failed gates than round 0): round 0 is published, the union of the records still lists rounds 2 and 3.
+jq '. + [{round: 3, mode: "repair", model: "m-pro", tier: "pro", exit_code: 0, wall_s: 300, key_leaks: 0, turns: 40, stop: "success", is_error: false, output_parsed: true, input_tokens: 90, output_tokens: 9, estimated_cost_usd: 0.9, report: "tried"}]' \
+  "$tmp/rounds-repaired.json" > "$tmp/rounds-lost.json"
+FACTS_FILE="$tmp/facts-clean.json" ROUNDS_FILE="$tmp/rounds-lost.json" render round0 "$tmp/dispatch-only.yml"
+jq -e '(.labels | index("agent-resolved")) == null' "$tmp/out-round0/pr-meta.json" > /dev/null && ok "round 0 published after model rounds lost: not labelled agent-resolved" || bad "round 0 label: $(jq -c .labels "$tmp/out-round0/pr-meta.json")"
+has "$body" 'Model round(s) 2, 3 ran in this sync, but none of their edits is in this PR: the candidate it carries was made without a model' \
+  && ok "...a caveat says none of the model rounds' edits is in it" || bad "round 0 caveat"
+! has "$body" 'cloud model repaired the merge' && has "$body" '_Clean merge: git made every merge decision, so there is no resolution diff._' \
+  && ok "...and the summary and diff section stay those of a clean merge" || bad "round 0 summary: $(grep -F 'Clean merge' "$body")"
+jq -e '.draft == true and (.title | startswith("[gates failed] "))' "$tmp/out-round0/pr-meta.json" > /dev/null && ok "...a red candidate stays a [gates failed] draft, as before" || bad "round 0 draft: $(cat "$tmp/out-round0/pr-meta.json")"
 
 exit "$([ "$fails" -eq 0 ] && echo 0 || echo 1)"

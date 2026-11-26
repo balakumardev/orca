@@ -90,6 +90,34 @@ a="$tmp/r3"; mk "$a" 1 true none false no
 base_case "round 1 left only facts and round 2 crashed with nothing: retry from the merge with no previous round" "$a" retry ""
 a="$tmp/r4"; mk "$a" 1 false 2
 base_case "round 1 resolved with 2 failed gates, round 2 crashed (no artifact): repair round 1" "$a" repair 1
+# A merge that needed no model (round 0 resolved, gates0 red): round 2 repaired round 0 (custom-sync.yml, agent2's fourth case) and round 1
+# never ran. Round 0 is a base only as a resolved merge whose gates reported; in a conflict sync it is the scripts' merge with its markers
+# and no gates, and must change nothing there.
+a="$tmp/z1"; mk "$a" 0 false 2
+base_case "clean merge, round 2 crashed (no artifact): repair round 0 with its own gates" "$a" repair 0
+a="$tmp/z2"; mk "$a" 0 false 2; mk "$a" 2 false 1
+base_case "clean merge, round 2 has fewer failed gates: repair round 2" "$a" repair 2
+a="$tmp/z3"; mk "$a" 0 false 1; mk "$a" 2 false 3
+base_case "clean merge, round 2 made it worse: repair round 0" "$a" repair 0
+a="$tmp/z4"; mk "$a" 0 false 2; mk "$a" 2 false 2
+base_case "clean merge, a tie between round 0 and round 2 goes to round 2" "$a" repair 2
+a="$tmp/z5"; mk "$a" 0 false 2; mk "$a" 2 false none
+base_case "clean merge, round 2's gates never reported: repair round 0" "$a" repair 0
+outcome_of() { jq --arg o "$3" '.outcome = $o' "$1/round-$2/sync-facts.json" > "$1/o.tmp" && mv "$1/o.tmp" "$1/round-$2/sync-facts.json"; } # ALL N OUTCOME
+a="$tmp/z6"; mk "$a" 0 false none; outcome_of "$a" 0 conflicts
+base_case "conflict sync, round 0 'resolved' (marker-free conflicts kept) without gates is no base and not the 'latest' attempt: retry with no previous round" "$a" retry ""
+a="$tmp/z6b"; mk "$a" 0 false none; outcome_of "$a" 0 clean
+if text="$(bash "$scripts/pick-repair-base.sh" "$a" 2>&1)"; then bad "clean merge with nothing to repair: pick-repair-base.sh should fail, got [$text]"
+elif grep -q -F 'nothing for round 3 to do' <<<"$text" && ! grep -q '^OUTPUT mode=' <<<"$text"; then ok "clean merge and no round left gate results: fail with the reason instead of a retry that has nothing to resolve"
+else bad "clean merge with nothing to repair: [$text]"; fi
+a="$tmp/z6c"; mk "$a" 0 false 2; outcome_of "$a" 0 scripted
+base_case "scripted merge (every conflict settled by script) with red gates: repair round 0" "$a" repair 0
+a="$tmp/z7"; mk "$a" 0 true none false yes 5
+base_case "conflict sync, rounds 1 and 2 crashed: round 0 (markers) is not continued, retry with no previous round (unchanged)" "$a" retry ""
+a="$tmp/z8"; mk "$a" 0 true none false yes 5; mk "$a" 1 false 2
+base_case "conflict sync: round 0 (markers) is ignored, repair round 1 (unchanged)" "$a" repair 1
+a="$tmp/z9"; mk "$a" 0 true none false yes 5; mk "$a" 1 true none false yes 9
+base_case "conflict sync: round 1 left more files than round 0 had, still continue round 1 (unchanged)" "$a" repair 1 ""
 
 # ---- what the PR publishes: unchanged by the refactor ------------------------------------------------------------------
 a="$tmp/p1"; mk "$a" 0 true none; mk "$a" 1 false 2; mk "$a" 2 false 1; mk "$a" 3 false 1
@@ -107,6 +135,12 @@ a="$tmp/p9"; mk "$a" 0 true none false yes 3; mk "$a" 1 true none true yes 1
 pick_case "an unresolved candidate with a key leak loses to any other unresolved one" "$a" 0
 a="$tmp/p4"; mk "$a" 0 false 0
 pick_case "a clean merge with green gates" "$a" 0
+a="$tmp/pz1"; mk "$a" 0 false 2; mk "$a" 2 false 0
+pick_case "a red clean merge that round 2 repaired: round 2" "$a" 2
+a="$tmp/pz2"; mk "$a" 0 false 1; mk "$a" 2 false 2; mk "$a" 3 false 3
+pick_case "a red clean merge whose repairs made it worse: round 0 (the [gates failed] draft, as before)" "$a" 0
+a="$tmp/pz3"; mk "$a" 0 false 2; mk "$a" 2 false 2; mk "$a" 3 false 1
+pick_case "a red clean merge: round 3 repaired it furthest" "$a" 3
 a="$tmp/p5"; mk "$a" 0 true none; mk "$a" 1 false 2; mk "$a" 2 false 1 false no
 pick_case "a round without a bundle is skipped" "$a" 1
 a="$tmp/p6"; mk "$a" 1 false 2; mk "$a" 2 false 1; mk "$a" 3 false 1

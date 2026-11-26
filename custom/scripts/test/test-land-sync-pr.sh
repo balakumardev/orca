@@ -144,6 +144,8 @@ if [ "$l_rc" = 0 ] && no_writes && [ "$(calls 'pr comment')" = 0 ]; then ok "a d
 run "green round 0 clean merge" ROUND=0 GATES_RESULT="0=success 1=skipped 2=skipped 3=skipped" GATES_FAILED="0=0 1= 2= 3="
 if [ "$l_rc" = 0 ] && [ "$(calls 'pr merge')" = 1 ]; then ok "a clean round-0 merge with green gates lands too"; else bad "round 0: rc=$l_rc out=[$l_out]"; fi
 if [ "$(calls 'pr comment')" -ge 1 ]; then ok "the landing leaves a PR comment"; else bad "no PR comment on a landing"; fi
+run "round 2 repaired a red round 0" ROUND=2 GATES_RESULT="0=success 1=skipped 2=success 3=skipped" GATES_FAILED="0=2 1= 2=0 3="
+if [ "$l_rc" = 0 ] && [ "$(calls 'pr merge')" = 1 ]; then ok "a clean merge whose red round 0 round 2 repaired to green lands"; else bad "round 2 after round 0: rc=$l_rc out=[$l_out]"; fi
 run "red gates comment" GATES_FAILED="0= 1=3 2=1 3="
 if grep -q 'pr comment 7' "$l_log" && grep -q 'did not all pass' "$l_dir/summary.md"; then ok "a declined run says why in the PR and in the job summary"; else bad "no reason posted: $(cat "$l_dir/summary.md")"; fi
 

@@ -87,6 +87,7 @@ mode="$(cat "$(dirname "$0")/mode")"
 cat > /dev/null
 case "$mode" in
   resolve) seq 1 60 | sed "s/^/alpha merged line /" > src/alpha.ts ;;
+  repair-owned) echo 'epsilon REPAIRED' >> src/epsilon.ts; echo 'gamma TOUCHED' >> src/gamma.ts ;; # ours, and a file no customization owns
   noop) : ;;
 esac
 printf '{"type":"result","subtype":"success","is_error":false,"num_turns":3,"result":"done","usage":{"input_tokens":10,"output_tokens":5}}\n'
@@ -233,6 +234,53 @@ if forged_out="$(cd "$fx/repo" && SYNC_OUT="$fx/out" PREV_GATES="$fx/gates" bash
   check "a file the check marked as removed is not a candidate" test -z "$(grep -x 'src/dir/x.ts' <<<"$forged_out" || true)"
 else
   bad "hunk_survival_edit_files ran under set -euo pipefail with a forged json"; sed 's/^/    /' "$fx/log.txt" | tail -n 8
+fi
+
+# ---- (e) a repair of round 0: the merge needed no model (no conflicted file at all) and a gate failed ---------------------------------
+# custom-sync.yml, agent2's fourth case. Round 0 is what the merge job uploads for a clean merge: `sync-merge.sh start` commits it and
+# writes merge.bundle and sync-facts.json. v1.0.2 changes only src/gamma.ts, which no customization touches, so the merge is clean.
+echo "round 2 (repair of round 0): a clean merge whose typecheck failed"
+(
+  cd "$src"
+  git checkout -q --detach v1.0.0
+  awk 'NR == 3 { print "gamma UPSTREAM"; next } { print }' src/gamma.ts > src/gamma.new && mv src/gamma.new src/gamma.ts
+  git add -A && git commit -q -m "upstream 1.0.2" && git tag v1.0.2
+  git checkout -q custom
+)
+UP2_SHA="$(git -C "$src" rev-parse 'v1.0.2^{commit}')"
+git clone -q --no-hardlinks "$src" "$tmp/r0.repo"; git -C "$tmp/r0.repo" checkout -q custom
+if (cd "$tmp/r0.repo" && SYNC_OUT="$tmp/r0.out" UPSTREAM_SHA="$UP2_SHA" BASE_SHA="$BASE_SHA" BASE_BRANCH=custom BRANCH=sync/test-r0 LABEL=test TAG=v1.0.2 \
+     IS_TEST=true TAG_IS_RELEASE=false bash "$new_scripts/sync-merge.sh" start > "$tmp/r0.start.log" 2>&1); then
+  check "fixture: round 0 is a clean merge with no conflict, committed and bundled" \
+    bash -c '[ "$(jq -r ".outcome + \" \" + (.conflicts | length | tostring) + \" \" + (.unresolved | tostring)" "$1/sync-facts.json")" = "clean 0 false" ] && [ -s "$1/merge.bundle" ]' _ "$tmp/r0.out"
+  mkdir -p "$tmp/gates0/gates-0-static" "$tmp/gates0/gates-0-e2e"
+  jq -n '{schema: 1, mode: "sync", gates: [
+    {id: "install", name: "Install", status: "pass", exit_code: 0, seconds: 1, note: "", warnings: [], output_tail: ""},
+    {id: "typecheck", name: "Typecheck", status: "fail", exit_code: 2, seconds: 1, note: "", warnings: [], output_tail: "tail",
+     details: "src/epsilon.ts(5,10): error TS2305: Module has no exported member ROUND0-TYPECHECK-MARK"}]}' > "$tmp/gates0/gates-0-static/gates.json"
+  jq -n '{schema: 1, mode: "sync", gates: [{id: "e2e", name: "e2e", status: "pass", exit_code: 0, seconds: 1, note: "", warnings: [], output_tail: ""}]}' > "$tmp/gates0/gates-0-e2e/gates.json"
+  if UPSTREAM_SHA="$UP2_SHA" round r0rep repair repair-owned 2 flash r0 "$tmp/gates0"; then
+    p0="$tmp/r0rep.out/agent-prompt.txt"
+    files0="$(sed -n '/^FILES YOU MAY EDIT/,/^CHECK OUTPUT/p' "$p0" | grep -E '^- ' || true)"
+    check "zero conflicted files: FILES lists only the product files our customizations own" test "$files0" = "$(printf '%s\n' '- src/alpha.ts (owned by a customization)' '- src/epsilon.ts (owned by a customization)' '- src/zeta.ts (owned by a customization)')"
+    check "zero conflicted files: no file is described as conflicted" test -z "$(grep -F 'conflicted in the merge' "$p0" || true)"
+    check "zero conflicted files: the repair prompt says the merge may have had no conflict at all" grep -q -F 'or none: then git merged every file by itself' "$p0"
+    check "zero conflicted files: the round is not skipped (agent-plan.json)" test "$(jq -r '"\(.skip) \(.mode) \(.files)"' "$tmp/r0rep.out/agent-plan.json")" = "false repair 3"
+    check "the failing gate of round 0 is in CHECK OUTPUT (read from gates-0-static/gates.json)" grep -q -F 'ROUND0-TYPECHECK-MARK' "$p0"
+    check "allowed-edit-files: exactly the product files we own" test "$(tr '\n' ' ' < "$tmp/r0rep.out/allowed-edit-files.txt")" = "src/alpha.ts src/epsilon.ts src/zeta.ts "
+    f0="$tmp/r0rep.out/sync-facts.json"
+    check "the edit to our file is kept and recorded as a repair edit" test "$(jq -c '.repair_edits' "$f0")" = '["src/epsilon.ts"]'
+    check "the edit to a file no customization owns is reverted and reported" test "$(jq -c '.out_of_scope' "$f0")" = '["src/gamma.ts"]'
+    check "the candidate is resolved and carries round 2's own record (and none of round 0, which has none)" test "$(jq -r '"\(.unresolved) \([.agent.rounds[].round] | join(","))"' "$f0")" = "false 2"
+    m0="$(jq -r .merge_sha "$f0")"
+    check "the repaired merge keeps round 0's two parents (the base and the link commit)" \
+      test "$(git -C "$tmp/r0rep.repo" rev-parse "$m0^1") $(git -C "$tmp/r0rep.repo" rev-parse "$m0^2")" = "$BASE_SHA $(jq -r .link_sha "$tmp/r0.out/sync-facts.json")"
+    check "the repaired tree has upstream's change and our repair, not the out-of-scope edit" \
+      bash -c 'git -C "$1" show "$2:src/gamma.ts" | grep -q -x "gamma UPSTREAM" && git -C "$1" show "$2:src/epsilon.ts" | grep -q -x "epsilon REPAIRED" && ! git -C "$1" show "$2:src/gamma.ts" | grep -q "gamma TOUCHED"' _ "$tmp/r0rep.repo" "$m0"
+    check "the repaired candidate is bundled for the gates" test -s "$tmp/r0rep.out/merge.bundle"
+  fi
+else
+  bad "fixture: sync-merge.sh start made round 0"; sed 's/^/    /' "$tmp/r0.start.log" | tail -n 8
 fi
 
 exit "$([ "$fails" -eq 0 ] && echo 0 || echo 1)"
