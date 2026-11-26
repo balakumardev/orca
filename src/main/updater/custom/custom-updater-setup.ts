@@ -79,7 +79,9 @@ export class CustomUpdaterSetup extends UpdaterSetup {
       getKnownReleaseUrl: () => this.getKnownReleaseUrl(),
       performQuitAndInstall: () => this.performQuitAndInstall(),
       commitStagedMacInstall: () => this.commitStagedMacInstall(),
+      finishMacStaging: () => this.finishMacStaging(),
       failMacStaging: (error) => this.failMacStaging(error),
+      isAwaitingMacStaging: () => this.isAwaitingMacStaging(),
       shouldDeferMacQuitForInstall: () => this.updateInstallMode === 'interactive',
       sendStatus: (status) => this.sendStatus(status),
       isInstalling: () =>

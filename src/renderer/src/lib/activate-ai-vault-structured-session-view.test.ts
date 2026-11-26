@@ -6,12 +6,14 @@ const mocks = vi.hoisted(() => ({
     activeView: 'terminal',
     activeWorkspaceExecutionHostId: 'local'
   },
-  activateAndRevealWorkspace: vi.fn()
+  activateAndRevealWorkspace: vi.fn(),
+  activateAndRevealWorktree: vi.fn()
 }))
 
 vi.mock('@/store', () => ({ useAppStore: { getState: () => mocks.state } }))
 vi.mock('./workspace/activation/worktree-activation', () => ({
-  activateAndRevealWorkspace: mocks.activateAndRevealWorkspace
+  activateAndRevealWorkspace: mocks.activateAndRevealWorkspace,
+  activateAndRevealWorktree: mocks.activateAndRevealWorktree
 }))
 vi.mock('./workspace/activation/wsl-moved-chat-activation', () => ({
   activateWslMovedWorkspace: () => false
@@ -36,6 +38,7 @@ const deps = () => ({
 describe('activateAiVaultStructuredSession view', () => {
   beforeEach(() => {
     mocks.activateAndRevealWorkspace.mockClear()
+    mocks.activateAndRevealWorktree.mockClear()
   })
 
   it('leaves Settings to show a chat in the workspace it covers (an Open in Orca link)', async () => {

@@ -111,7 +111,9 @@ export function SidebarStackedBody({
         }
       >
         {activityHeader}
-        {activity}
+        <React.Suspense fallback={activityOpen ? <div className="min-h-0 flex-1" /> : null}>
+          {activity}
+        </React.Suspense>
       </div>
     </div>
   )
