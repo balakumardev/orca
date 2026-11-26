@@ -3,22 +3,22 @@ import { Bell, ChevronDown } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useTranslate } from '@/i18n/use-translate'
 import { cn } from '@/lib/class-names'
+import { useAppStore } from '@/store/index'
 
 type SidebarActivityHeaderProps = {
-  open: boolean
-  onToggle: () => void
   badgeTarget?: React.Ref<HTMLSpanElement>
   optionsTarget?: React.Ref<HTMLDivElement>
 }
 
 /** Always-visible title row of the Activity pane; it hosts the attention badge and the options menu portals. */
 export function SidebarActivityHeader({
-  open,
-  onToggle,
   badgeTarget,
   optionsTarget
 }: SidebarActivityHeaderProps): React.JSX.Element {
   const t = useTranslate()
+  // The pane state comes from the store so the sidebar shell need not thread it through props.
+  const open = useAppStore((s) => s.activityPaneOpen)
+  const onToggle = useAppStore((s) => s.toggleActivityPane)
   // Subscribe to locale changes: this row sits behind a memo boundary in the sidebar.
   useTranslation()
   const badgeId = useId()

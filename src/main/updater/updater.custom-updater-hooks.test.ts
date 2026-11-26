@@ -3,12 +3,21 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import type * as UpdaterModule from './updater-service'
 import type { CustomUpdaterHost, CustomUpdaterPort } from './custom/custom-updater-types'
 import type { UpdateStatus } from '../../shared/updater/update-status-types'
-import { updaterMainWindow } from './testing/updater-test-main-window'
+import type { BrowserWindow } from 'electron'
+
+function updaterMainWindow(send: (channel: string, ...args: unknown[]) => void): BrowserWindow {
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the updater reaches its window only through isDestroyed and webContents.isDestroyed/send.
+  return {
+    isDestroyed: () => false,
+    webContents: { isDestroyed: () => false, send }
+  } as unknown as BrowserWindow
+}
 
 const {
   appMock,
   autoUpdaterMock,
   armExitWatchdogMock,
+  nativeUpdaterMock,
   recordUpdaterLifecycleMock,
   moduleFactories,
   resetUpdaterMocks
@@ -279,9 +288,9 @@ describe('updater hooks for the self-updater patch', () => {
       fake.invokeNativeInstall.mockReturnValue(true)
       const { send } = await setup('1.4.258+custom.4', fake)
       const host = startedHost(fake)
-      // What the module's native update-downloaded listener does once Squirrel has staged the zip.
-      const mac = await import('./mac-install/updater-mac-install')
-      mac.handleMacInstallerReady(false, vi.fn(), vi.fn())
+      // The module's order: downloading 100 %, Squirrel stages the zip, then it reports downloaded.
+      host.sendStatus({ state: 'downloading', percent: 100, version: '1.4.258+custom.5' })
+      await stageNativeMacUpdate(host)
       host.sendStatus({ state: 'downloaded', version: '1.4.258+custom.5' })
 
       void host.performQuitAndInstall()
@@ -336,6 +345,20 @@ describe('updater hooks for the self-updater patch', () => {
 
 function setPlatform(platform: NodeJS.Platform): void {
   Object.defineProperty(process, 'platform', { configurable: true, value: platform })
+}
+
+/**
+ * Plays the native Squirrel staging event MacUpdater delivers once it holds the zip. Registers upstream's events
+ * with the host the updater really builds, as CustomUpdater.startChecked does, so the test sees what production sees.
+ */
+async function stageNativeMacUpdate(host: CustomUpdaterHost): Promise<void> {
+  const { registerMacUpdaterEvents } = await import('./mac-install/updater-mac-install')
+  registerMacUpdaterEvents(host)
+  const listeners = nativeUpdaterMock.on.mock.calls.filter(
+    ([event]) => event === 'update-downloaded'
+  )
+  const listener = listeners.at(-1)?.[1] as (() => void) | undefined
+  listener?.()
 }
 
 // vi.hoisted runs before static imports are initialized, so load EventEmitter on demand.
@@ -499,6 +522,7 @@ async function createUpdaterMocks() {
     appMock,
     autoUpdaterMock,
     armExitWatchdogMock,
+    nativeUpdaterMock,
     recordUpdaterLifecycleMock,
     moduleFactories,
     resetUpdaterMocks

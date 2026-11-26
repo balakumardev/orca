@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The part of test-agent-sandbox-linux.sh that runs INSIDE the throwaway ubuntu:24.04 container, as root. Not for a host.
 #   provision   packages, node 24 under a hostedtoolcache-like dir, user `runner` with passwordless sudo, the stub model CLI
-#   checks      reset the fixture, then checks A-E (every key and secret in here is a fake string)
+#   checks      reset the fixture, then checks A-G (every key and secret in here is a fake string)
 # Actors: `runner` = the workflow step (holds the key in its environment); `agentrun` = the sandbox user. Both are reached with
 # setpriv/sudo exactly the way the scripts do it. Output lines: ok / FAIL / GAP (a robustness hole that is not a leak) / info.
 set -uo pipefail
@@ -48,6 +48,11 @@ provision() {
   echo 'runner ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/runner; chmod 440 /etc/sudoers.d/runner
   NODE_VER="$ver"; NODE_DIR=/opt/hostedtoolcache/node/$ver/$arch/bin; RPATH=$HR/setup-pnpm/bin:$NODE_DIR:/usr/local/bin:/usr/bin:/bin
   as_runner npm install --global --prefix "$HR/setup-pnpm" --no-audit --no-fund "pnpm@$PNPM_VER" >/dev/null 2>&1 || { echo "runner pnpm install failed"; exit 1; }
+  # The REAL pinned Claude Code (section G: the stop check under the production flags, against a fake model; no key). Root-owned, world-readable.
+  if [ -n "${CLAUDE_PIN:-}" ]; then
+    env PATH="$NODE_DIR:/usr/local/bin:/usr/bin:/bin" npm install --prefix /opt/claude-real --no-audit --no-fund "@anthropic-ai/claude-code@$CLAUDE_PIN" >/dev/null 2>&1 || { echo "claude-code install failed"; exit 1; }
+    chmod -R go+rX /opt/claude-real
+  fi
   # The stub model CLI (behaviour from /opt/stub-mode, paths from /opt/stub-paths): it runs as agentrun inside the sandbox copy.
   cat > "$NODE_DIR/claude" <<'STUB'
 #!/usr/bin/env bash
@@ -91,15 +96,16 @@ STUB
 
 reset_fixture() { # a clean world every run: no agentrun, no sandbox, a fresh fixture work tree owned by runner, fresh copy of the scripts
   pkill -KILL -u agentrun 2>/dev/null; pkill -KILL -u runner 2>/dev/null; sleep 0.3
-  userdel -r agentrun 2>/dev/null; rm -rf /opt/agent-tools /opt/agent-sandbox "$HR/work" "$HR/.npm" /root/.npm "$LOG" "$ATT" /tmp/stub-* /tmp/agent-outside.txt /tmp/ctl-canary
+  userdel -r agentrun 2>/dev/null; rm -rf /opt/agent-tools /opt/agent-sandbox /etc/claude-code "$HR/work" "$HR/.npm" /root/.npm "$LOG" "$ATT" /tmp/stub-* /tmp/agent-outside.txt /tmp/ctl-canary
   chmod 750 "$HR"; mkdir -p "$LOG" "$ATT" "$FC" "$OUT" "$WS/tools" "$REAL/src"
   cp -r /stage/custom "$WS/tools/custom"
   printf 'REAL_TREE=%s\nSYNC_OUT_DIR=%s\nNODE_BIN=%s\n' "$REAL" "$OUT" "$NODE_DIR" > /opt/stub-paths
-  jq -n --arg pm "$PNPM_PIN" '{name: "fixture", version: "1.0.0", private: true, packageManager: $pm, devDependencies: {"is-odd": "3.0.1"}}' > "$REAL/package.json"
+  jq -n --arg pm "$PNPM_PIN" '{name: "fixture", version: "1.0.0", private: true, packageManager: $pm, scripts: {tc: "node -e 0"}, devDependencies: {"is-odd": "3.0.1"}}' > "$REAL/package.json"
   printf 'node_modules\nignored.log\nbuild/\n' > "$REAL/.gitignore"; printf 'export const a = 1\n' > "$REAL/src/a.ts"; printf 'export const d = 1\n' > "$REAL/src/del.ts"; printf 'f\n' > "$REAL/src/f.ts"; mkdir -p "$REAL/src/d"; printf 'i\n' > "$REAL/src/d/inner.ts"
   printf 'the prompt\n' > "$OUT/agent-prompt.txt"
   jq -n -c '{model: "m", tier: "flash", mode: "first", round: 1, wall_seconds: 60, files: 1, skip: false}' > "$OUT/agent-plan.json"
   printf 'GITHUB_OUTPUT-like file\n' > "$GOUT"
+  printf 'content\tsrc/a.ts\n' > "$OUT/stop-check-files.tsv" # what agent-round.sh prepare writes: the files the round may edit
   chown -R runner:runner "$HR/work"
   as_runner bash -c "cd '$REAL' && pnpm install --lockfile-only >/dev/null 2>&1 && git init -q -b main . && git add -A && git -c user.name=t -c user.email=t@example.invalid commit -q -m base" || { echo "fixture failed"; exit 1; }
   printf '%s\n' "$KEY" "$(printf '%s' "$KEY" | base64 | tr -d '\n')" "$(printf '%s' "$KEY" | rev)" "${KEY:8}" > "$NEEDLES"
@@ -126,6 +132,81 @@ checks_a() {
   if [ "$pv" = "$PNPM_VER" ]; then ok "A7 agentrun: pnpm --version = $pv (pinned $PNPM_VER), node --version = $nv, claude = $(as_agentrun sh -c 'command -v claude')"; else bad "A7 pnpm as agentrun printed: $pv"; fi
   if as_agentrun sh -c 'cd /opt/agent-sandbox/repo && pnpm exec node -e "require(\"is-odd\")"' >/dev/null 2>&1; then ok "A8 a dependency resolves for agentrun in the sandbox (pnpm exec node -e require is-odd)"; else bad "A8 installed dependency does not resolve"; fi
   info "A9 /home/runner as agentrun sees it: $(stat -c '%A %U:%G' $HR) -> $(as_agentrun ls $HR 2>&1 | cut -c1-80); setup log noise: $(grep -ci 'getcwd\|permission denied\|cannot access' "$LOG/setup.log") line(s)"
+}
+
+checks_f() {
+  section "F. the stop check as the real setup installs it: root-owned, run by the agent, not changeable by it"
+  local mf=/etc/claude-code/managed-settings.json hd=/opt/agent-tools/stop-hook sd=/opt/agent-sandbox/stop-hook-state sbr=/opt/agent-sandbox/repo before after
+  if jq -e '.stop_hook.installed == true' "$OUT/sandbox.json" >/dev/null 2>&1; then ok "F1 sandbox.json: $(jq -c .stop_hook "$OUT/sandbox.json")"; else bad "F1 the stop check is not installed: $(jq -c .stop_hook "$OUT/sandbox.json" 2>&1)"; return 1; fi
+  if [ "$(stat -c '%U:%a' "$mf")" = root:644 ] && [ "$(stat -c %U /etc/claude-code "$hd" "$hd"/* | sort -u)" = root ] && jq -e --arg c "$hd/agent-stop-check.sh" '.hooks.Stop[0].hooks[0].command == $c' "$mf" >/dev/null; then ok "F2 the managed settings ($(stat -c %a "$mf")) and everything under $hd are root-owned; the registration names the script"; else bad "F2 owners/modes: $(stat -c '%U:%a %n' /etc/claude-code "$mf" "$hd" "$hd"/* | tr '\n' ' ')"; fi
+  if [ "$(stat -c %U "$sd")" = agentrun ]; then ok "F3 the state directory is the agent's (the only thing of the stop check it can write)"; else bad "F3 state dir owner: $(stat -c %U "$sd" 2>&1)"; fi
+  before="$(find "$hd" "$mf" -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-16)"
+  denied stop-tamper "w() { ( eval \"\$2\" ) 2>&1 && echo \"WROTE \$1\"; }
+    w script 'echo x >> $hd/agent-stop-check.sh'; w rm_script 'rm -f $hd/agent-stop-check.sh'; w mv_script 'mv $hd/agent-stop-check.sh $hd/x.sh'; w new_file 'touch $hd/pwned'
+    w lib 'echo x >> $hd/lib.sh'; w files 'echo x >> $hd/files.tsv'; w conf 'echo x >> $hd/hook.conf'; w lint_caps 'echo x >> $hd/lint-caps.mjs'; w chmod_script 'chmod 000 $hd/agent-stop-check.sh'
+    w managed 'echo x >> $mf'; w rm_managed 'rm -f $mf'; w mv_managed 'mv $mf $mf.x'; w new_managed 'touch /etc/claude-code/other.json'; w mv_dir 'mv /etc/claude-code /etc/claude-code.x'; w rm_hook_dir 'rm -rf $hd'"
+  after="$(find "$hd" "$mf" -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-16)"
+  if [ "$before" = "$after" ] && [ ! -e "$hd/pwned" ] && [ -x "$hd/agent-stop-check.sh" ]; then ok "F4 the script, its helpers, its inputs and the registration are byte-identical after 15 write, delete, move and chmod attempts as agentrun"; else bad "F4 the stop check's files changed ($before -> $after)"; fi
+  # The hook as the agent's CLI runs it: JSON on stdin, cwd = the sandbox copy, as agentrun through the real sudo chain.
+  local red='export const a = 1\n<<<<<<< HEAD\nx\n=======\ny\n>>>>>>> t\n'
+  agent_sh "cd $sbr && printf '$red' > src/a.ts && cd / && printf '{\"cwd\":\"/\",\"hook_event_name\":\"Stop\"}' | $hd/agent-stop-check.sh; echo rc=\$?" > "$ATT/hook-red.out" 2>&1 < /dev/null
+  if grep -q '"decision":"block"' "$ATT/hook-red.out" && grep -q 'src/a.ts' "$ATT/hook-red.out" && grep -q '^rc=0$' "$ATT/hook-red.out"; then ok "F5 as agentrun with conflict markers in src/a.ts: a block decision naming the file, exit 0 ($(jq -r '[.outcome, .blocks, .calls] | join(" ")' "$sd/state.json"))"; else bad "F5 hook output: $(first_line "$ATT/hook-red.out")"; fi
+  if [ "$(stat -c %U "$sd/state.json")" = agentrun ]; then ok "F6 the state file the hook wrote belongs to agentrun"; else bad "F6 state file owner: $(stat -c %U "$sd/state.json" 2>&1)"; fi
+  if grep -qx 'RUN_AS=agentrun' "$hd/hook.conf" && grep -qx "REPO=$sbr" "$hd/hook.conf"; then ok "F6b hook.conf in a real setup: RUN_AS=agentrun, REPO=$sbr"; else bad "F6b hook.conf: $(tr '\n' ' ' < "$hd/hook.conf")"; fi
+  # The managed settings apply to every claude on the machine: the round's CLI as the RUNNER user (the fallback when the sandbox step dies after
+  # the install) must get a silent allow with nothing run, even in a tree full of conflict markers.
+  local sh0 sh1 sa0 sa1; sh0="$(sha256sum "$sd/state.json" | cut -c1-16)"; sa0="$(sha256sum "$REAL/src/a.ts" | cut -c1-16)"
+  as_runner bash -c "cd '$REAL' && printf '$red' > src/a.ts && printf '{\"cwd\":\"$REAL\"}' | $hd/agent-stop-check.sh; echo rc=\$?" > "$ATT/hook-runner.out" 2>&1 < /dev/null
+  as_runner bash -c "cd '$REAL' && printf 'export const a = 1\n' > src/a.ts" < /dev/null
+  sh1="$(sha256sum "$sd/state.json" | cut -c1-16)"; sa1="$(sha256sum "$REAL/src/a.ts" | cut -c1-16)"
+  if [ "$(cat "$ATT/hook-runner.out")" = "rc=0" ] && [ "$sh0" = "$sh1" ] && [ "$sa0" = "$sa1" ]; then ok "F6c run by the runner user in the real tree with conflict markers in src/a.ts: silent, exit 0, the sandbox state untouched (the hook only acts for agentrun)"; else bad "F6c runner-user hook: $(first_line "$ATT/hook-runner.out") state $sh0/$sh1 tree $sa0/$sa1"; fi
+  agent_sh "cd $sbr && printf 'export const a = 1\n' > src/a.ts && cd / && printf '{\"cwd\":\"/\"}' | $hd/agent-stop-check.sh; echo rc=\$?" > "$ATT/hook-green.out" 2>&1 < /dev/null
+  if [ "$(cat "$ATT/hook-green.out")" = "rc=0" ]; then ok "F7 after the fix the same hook is silent and exits 0 (outcome $(jq -r .outcome "$sd/state.json"))"; else bad "F7 hook output: $(first_line "$ATT/hook-green.out")"; fi
+  # The documented limit: the state is the agent's, so it can end the blocking early. It cannot widen anything else.
+  agent_sh "cd $sbr && printf '$red' > src/a.ts && printf '{\"calls\":1,\"blocks\":99,\"spent_s\":0,\"groups\":[],\"waived\":[],\"sigs\":{}}\n' > $sd/state.json && cd / && printf '{\"cwd\":\"/\"}' | $hd/agent-stop-check.sh; echo rc=\$?" > "$ATT/hook-tamper.out" 2>&1 < /dev/null
+  info "F8 known limit: the agent rewrote its own state (blocks=99); the hook then let go: $(tr '\n' ' ' < "$ATT/hook-tamper.out" | cut -c1-90) (outcome $(jq -r .outcome "$sd/state.json")); the gates, not this check, are the real defence"
+  agent_sh "cd $sbr && printf 'export const a = 1\n' > src/a.ts && rm -f $sd/state.json $sd/stop-hook.log" < /dev/null > /dev/null 2>&1
+}
+
+checks_g() {
+  section "G. the REAL pinned Claude Code as agentrun: managed settings + the production flags (--safe-mode included) + a fake model"
+  local cc=/opt/claude-real/node_modules/.bin/claude sbr=/opt/agent-sandbox/repo sd=/opt/agent-sandbox/stop-hook-state fm=$TMPD/fake-model mf=/etc/claude-code/managed-settings.json decl qargs port
+  local -a prod_args
+  if [ ! -x "$cc" ]; then bad "G0 the real CLI is not provisioned ($cc)"; return 1; fi
+  info "G0 CLI: $(as_agentrun "$cc" --version 2>&1 | head -n 1)"
+  decl="$(awk '/local -a claude_args=\(/ { f = 1 } f { print } f && /\)$/ { exit }' "$TOOLS/agent-round.sh")"
+  decl="${decl#*local -a claude_args=(}"; decl="${decl%)}"
+  eval "prod_args=( $decl )"
+  prod_args+=(--tools "Read,Edit,Write,Grep,Glob,Bash" --allowedTools "Read,Edit,Write,Grep,Glob,Bash")
+  case " ${prod_args[*]} " in *" --safe-mode "*) ;; *) bad "G0 agent-round.sh no longer passes --safe-mode"; return 1 ;; esac
+  qargs="$(printf '%q ' "${prod_args[@]}")"
+  info "G0 production flags: ${prod_args[*]}"
+  run_cc() { # MAX_BLOCKS LABEL: one run of the real CLI as agentrun against a fresh fake model; sets CC_RC, CC_REQS
+    local i
+    as_runner rm -rf "$fm"; as_runner mkdir -p "$fm"
+    as_runner bash -c "LOG_DIR='$fm' setsid node /stage/custom/scripts/test/agent-stop-hook-fake-model.mjs > /dev/null 2>&1 < /dev/null &"
+    for i in $(seq 1 100); do [ -s "$fm/port" ] && break; sleep 0.1; done; port="$(cat "$fm/port")"
+    CC_RC=0
+    agent_sh "cd $sbr && export ANTHROPIC_BASE_URL=http://127.0.0.1:$port ANTHROPIC_AUTH_TOKEN=local-proxy-no-key ANTHROPIC_API_KEY= ANTHROPIC_MODEL=fake-model ANTHROPIC_DEFAULT_SONNET_MODEL=fake-model ANTHROPIC_DEFAULT_OPUS_MODEL=fake-model ANTHROPIC_DEFAULT_HAIKU_MODEL=fake-model CLAUDE_CODE_MAX_CONTEXT_TOKENS=131072 CLAUDE_CODE_MAX_OUTPUT_TOKENS=16384 CLAUDE_CODE_SUBAGENT_MODEL=inherit CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 DISABLE_AUTOUPDATER=1 DISABLE_TELEMETRY=1 CLAUDE_CONFIG_DIR=/home/agentrun/.claude-test AGENT_STOP_MAX_BLOCKS=$1 && printf 'finish the task\n' | timeout 120 $cc $qargs" > "$ATT/cc-$2.out" 2>&1 || CC_RC=$?
+    CC_REQS="$(find "$fm" -name 'req-*.json' | wc -l | tr -d ' ')"
+    pkill -u runner -f agent-stop-hook-fake-model 2>/dev/null; sleep 0.2
+    info "G $2: CLI exit $CC_RC, the model was called $CC_REQS time(s), stop check state: $(jq -c '[.outcome, .blocks, .calls]' "$sd/state.json" 2>/dev/null || echo none)"
+  }
+  local red='export const a = 1\n<<<<<<< HEAD\nx\n=======\ny\n>>>>>>> t\n'
+  agent_sh "cd $sbr && printf '$red' > src/a.ts && rm -f $sd/state.json $sd/stop-hook.log" < /dev/null > /dev/null 2>&1
+  run_cc 2 red
+  # The fake model never edits anything, so the second attempt fails in exactly the same way: the stop check lets go as no-progress (by design;
+  # the block cap itself is shown by test-agent-stop-hook-real-cli.sh with a failure that changes every call).
+  if [ "$CC_RC" = 0 ] && [ "$CC_REQS" = 2 ] && [ "$(jq -r '[.outcome, .blocks, .calls] | join(" ")' "$sd/state.json")" = "no-progress 1 2" ]; then ok "G1 conflict markers left in src/a.ts: the real CLI called the hook, was refused once (a second request), and the identical failure on the second attempt was let go as no-progress (2 requests, state no-progress 1 2)"; else bad "G1 rc=$CC_RC requests=$CC_REQS state=$(cat "$sd/state.json" 2>&1) out: $(first_line "$ATT/cc-red.out")"; fi
+  if grep -q 'STOP CHECK (block 1 of 2)' "$fm/req-2.json" 2>/dev/null && grep -q 'src/a.ts' "$fm/req-2.json" && ! grep -q 'STOP CHECK' "$fm/req-1.json"; then ok "G2 the second request carries the block reason (it names src/a.ts); the first does not"; else bad "G2 the block reason did not reach the model"; fi
+  if [ "$(stat -c %U "$sd/state.json")" = agentrun ] && grep -q '"result":"done"' "$ATT/cc-red.out" && grep -q '"is_error":false' "$ATT/cc-red.out"; then ok "G3 the state file is agentrun's and the run ended normally with the model's reply"; else bad "G3 state owner / result: $(first_line "$ATT/cc-red.out")"; fi
+  agent_sh "cd $sbr && printf 'export const a = 1\n' > src/a.ts && rm -f $sd/state.json $sd/stop-hook.log" < /dev/null > /dev/null 2>&1
+  run_cc 2 green
+  if [ "$CC_RC" = 0 ] && [ "$CC_REQS" = 1 ] && [ "$(jq -r '[.outcome, .blocks, .calls] | join(" ")' "$sd/state.json")" = "green 0 1" ]; then ok "G4 a clean tree: one hook call, no block, one request, state green 0 1"; else bad "G4 rc=$CC_RC requests=$CC_REQS state=$(cat "$sd/state.json" 2>&1)"; fi
+  agent_sh "cd $sbr && printf '$red' > src/a.ts && rm -f $sd/state.json $sd/stop-hook.log" < /dev/null > /dev/null 2>&1
+  mv "$mf" "$mf.off"; run_cc 2 control; mv "$mf.off" "$mf"
+  if [ "$CC_RC" = 0 ] && [ "$CC_REQS" = 1 ] && [ ! -e "$sd/state.json" ]; then ok "G5 control: the same red tree without the managed settings file: one request and no hook state (the registration is what runs the check)"; else bad "G5 control rc=$CC_RC requests=$CC_REQS"; fi
+  agent_sh "cd $sbr && printf 'export const a = 1\n' > src/a.ts && rm -rf $sd/state.json $sd/stop-hook.log /home/agentrun/.claude-test" < /dev/null > /dev/null 2>&1
 }
 
 start_b_actors() {
@@ -326,7 +407,7 @@ case "${1:-}" in
   checks)
     : "${PNPM_PIN:?}"
     reset_fixture
-    checks_a && { checks_b; checks_c; checks_c2; checks_d; checks_e; }
+    checks_a && { checks_f; checks_g; checks_b; checks_c; checks_c2; checks_d; checks_e; }
     section "SUMMARY"; printf '%s ok, %s FAIL, %s GAP\n' "$OKS" "$FAILS" "$GAPS"
     [ "$FAILS" = 0 ] ;;
   *) echo "usage: provision|checks"; exit 2 ;;

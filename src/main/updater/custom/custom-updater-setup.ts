@@ -67,6 +67,12 @@ export class CustomUpdaterSetup extends UpdaterSetup {
     }
   }
 
+  // Upstream's own staging watch never runs on a custom build; the module's staging shows as `downloading`, and
+  // Squirrel's update-downloaded then has to mark the installer ready so the install commits and arms the exit watchdog.
+  private customStagingVersion(): string | null {
+    return this.currentStatus.state === 'downloading' ? this.currentStatus.version : null
+  }
+
   private startCustomUpdater(): void {
     if (this.updateInstallMode !== 'interactive' || !isAutoUpdateDisabledForBuild()) {
       return
@@ -79,7 +85,9 @@ export class CustomUpdaterSetup extends UpdaterSetup {
       getKnownReleaseUrl: () => this.getKnownReleaseUrl(),
       performQuitAndInstall: () => this.performQuitAndInstall(),
       commitStagedMacInstall: () => this.commitStagedMacInstall(),
+      finishMacStaging: () => this.finishMacStaging() ?? this.customStagingVersion(),
       failMacStaging: (error) => this.failMacStaging(error),
+      isAwaitingMacStaging: () => this.isAwaitingMacStaging(),
       shouldDeferMacQuitForInstall: () => this.updateInstallMode === 'interactive',
       sendStatus: (status) => this.sendStatus(status),
       isInstalling: () =>

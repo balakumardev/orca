@@ -15,7 +15,7 @@ import {
   projectClaudeTestWorktree as worktree,
   removeProjectClaudeFixtures
 } from './project-claude-binding.test-fixture'
-import { withPlatform } from '../../text-generation/execution/commit-message-text-generation-test-harness'
+import { withPlatform } from '../../persistence/persistence-test-harness'
 import {
   projectClaudeGenerationTarget,
   projectClaudeTerminalPreparation
@@ -149,7 +149,7 @@ describe('first-work branch names in a pinned project', () => {
     )
     expect(f.prepareForClaudeLaunch).toHaveBeenCalledTimes(4)
     expect(
-      withPlatform('win32', () =>
+      await withPlatform('win32', async () =>
         projectClaudeGenerationTarget('claude', worktree('local'), 'C:\\wt')
       )
     ).toEqual({
