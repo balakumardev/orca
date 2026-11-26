@@ -44,7 +44,8 @@ describe('getActivityThreadTaskTitle', () => {
         })
       ).toBe('Investigate the flaky login test')
     }
-    for (const title of ['✳ Claude Code', 'Gemini CLI ready']) {
+    // Upstream removed the Gemini CLI agent, so only Claude's identity label remains a status-only title.
+    for (const title of ['✳ Claude Code']) {
       expect(
         getActivityThreadTaskTitle({
           entry: { prompt: 'Investigate the flaky login test', stateHistory: [] },
