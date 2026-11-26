@@ -46,7 +46,8 @@
 #   - A draft needs no "stale": a failed draft is retried although custom has not moved. The first parent must still be custom's tip
 #     or a proper ancestor of it (compare says ahead). The retry cap is the same and counts these closures too (the marker is shared), so
 #     one tag gets at most SYNC_PR_RETRY_CAP automatic retries, whatever mix of stale and failed-draft replacements they are.
-#   - A person keeps a failed draft by commenting on it, editing it or pushing to it at any time before it is replaced.
+#   - A person keeps a failed draft by commenting on it, changing its title or labels, reviewing it or pushing to it at any time before
+#     it is replaced. Editing only its DESCRIPTION is NOT noticed: it creates no issue event and none of the four lists shows it.
 #
 # classify_sync_prs REPO BRANCH BASE_BRANCH BASE_SHA UPSTREAM_SHA sets, for the caller:
 #   SYNC_PR_STOP           reason to stop (empty: go on)
@@ -74,7 +75,7 @@ superseded_draft_comment() {
   left=$((SYNC_PR_RETRY_CAP - retry))
   if [ "$left" -gt 0 ]; then rest="Automatic retries left after this one: $left."
   else rest="No automatic retry is left after this one: if it fails too, this tag waits for a person."; fi
-  printf 'superseded: this was an unattended failed draft older than %s hours (nobody but the automation had commented on it, edited it or pushed to it), so the sync is retried automatically from the current custom. This is automatic retry %s of %s. %s To keep a failed draft, comment on it or push to it before the next sync.\n\n%s\n' \
+  printf 'superseded: this was an unattended failed draft older than %s hours (nobody but the automation had commented on it, reviewed it, changed its title or labels, or pushed to it), so the sync is retried automatically from the current custom. This is automatic retry %s of %s. %s To keep a failed draft, comment on it or push to it before the next sync.\n\n%s\n' \
     "$SYNC_DRAFT_MIN_AGE_HOURS" "$retry" "$SYNC_PR_RETRY_CAP" "$rest" "$SUPERSEDED_MARKER"
 }
 
