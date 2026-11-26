@@ -4,12 +4,16 @@
 # OS user with no sudo, and the key stays with the runner user (agent-round.sh run, agent-key-proxy.mjs). Neither the real work tree nor
 # its .git is touched while the agent runs; only the CONTENTS of files are copied back, by this script, with no key present.
 #
-#   agent-sandbox.sh setup     in the work tree: create the user, install pnpm for it, copy the tree, install dependencies as that user
+#   agent-sandbox.sh setup     in the work tree: create the user, install pnpm for it, copy the tree, install dependencies as that user,
+#                              and install the stop check (agent-stop-check.sh) that Claude Code runs when the agent tries to end its turn
 #   agent-sandbox.sh collect   in the work tree: copy back the files the agent changed, created or deleted
+#   agent-sandbox.sh install-stop-hook [0|1]   only the stop check part of setup (1 = dependencies are installed, the default); prints the
+#                              `stop_hook` object that setup puts in sandbox.json. The tests use it.
 #
 # Env: SYNC_OUT (receives sandbox.json and sandbox-collect.json), AGENT_SANDBOX_DIR (default /opt/agent-sandbox), AGENT_TOOLS_DIR
 # (default /opt/agent-tools, root-owned: the agent cannot change what it holds), AGENT_USER (default agentrun), AGENT_SANDBOX_SUDO
-# (default sudo; `none` skips every privilege change, for tests that only exercise the copy logic).
+# (default sudo; `none` skips every privilege change, for tests that only exercise the copy logic), AGENT_CLAUDE_MANAGED_DIR (default
+# /etc/claude-code, root-owned: Claude Code's managed settings directory, where the stop check is registered).
 # shellcheck source=lib.sh
 . "$(dirname "$0")/lib.sh"
 
@@ -17,6 +21,8 @@
 AGENT_SANDBOX_DIR="${AGENT_SANDBOX_DIR:-/opt/agent-sandbox}"
 AGENT_TOOLS_DIR="${AGENT_TOOLS_DIR:-/opt/agent-tools}"
 AGENT_USER="${AGENT_USER:-agentrun}"
+AGENT_CLAUDE_MANAGED_DIR="${AGENT_CLAUDE_MANAGED_DIR:-/etc/claude-code}"
+SCRIPTS_HERE="$(cd "$(dirname "$0")" && pwd)"
 SUDO=()
 [ "${AGENT_SANDBOX_SUDO:-sudo}" = none ] || SUDO=(sudo -n)
 sync_out
@@ -32,6 +38,51 @@ as_agent() { # CMD...: run as the unprivileged user with an empty environment bu
     "${SUDO[@]}" -u "$AGENT_USER" -H env -i PATH="$(agent_path)" HOME="/home/$AGENT_USER" LANG=C.UTF-8 TMPDIR=/tmp CI=true "$@"
   else
     env -i PATH="$(agent_path)" HOME="${HOME:-/tmp}" LANG=C.UTF-8 TMPDIR=/tmp CI=true "$@"
+  fi
+}
+
+# The stop check (agent-stop-check.sh): a command hook that Claude Code runs when the agent tries to end its turn and that refuses the stop
+# while a cheap deterministic check is red (its own bounds are in that script). Files and registration are ROOT-OWNED, so the agent (another
+# OS user, no sudo) can neither edit the script, its inputs nor the registration; only its state directory is the agent's.
+#   - the hook directory $AGENT_TOOLS_DIR/stop-hook: the script, lib.sh, gate-details.sh, lint-caps.mjs, files.tsv (the files the round may
+#     edit, written by agent-round.sh prepare) and hook.conf (state dir, whether dependencies exist, the upstream commit);
+#   - the registration: $AGENT_CLAUDE_MANAGED_DIR/managed-settings.json. NOT `--settings`: the run uses --safe-mode, which switches off every
+#     hook that comes from `--settings` (measured with the pinned CLI, 2.1.325), while the managed settings, which --safe-mode documents as
+#     still applying, do run hooks.
+# It never fails the setup: a problem leaves the agent without the stop check and the reason in sandbox.json.
+install_stop_hook_core() { # DEPS(0|1): prints the stop_hook object, or the reason on a failure
+  local deps="$1" hook_dir="$AGENT_TOOLS_DIR/stop-hook" state_dir="$AGENT_SANDBOX_DIR/stop-hook-state" settings="$AGENT_CLAUDE_MANAGED_DIR/managed-settings.json"
+  local stage up="" f
+  case "$hook_dir$state_dir$settings" in *[!A-Za-z0-9_./-]*) echo "an unsafe character in a path"; return 1 ;; esac
+  if as_root test -e "$settings"; then echo "a managed settings file already exists at $settings"; return 1; fi
+  stage="$(mktemp -d)"
+  for f in agent-stop-check.sh lib.sh gate-details.sh lint-caps.mjs; do cp "$SCRIPTS_HERE/$f" "$stage/$f" || { echo "cannot read $f"; return 1; }; done
+  if [ -s "$SYNC_OUT/stop-check-files.tsv" ]; then cp "$SYNC_OUT/stop-check-files.tsv" "$stage/files.tsv"; else : > "$stage/files.tsv"; fi
+  up="$(jq -r '.upstream_sha // ""' "$SYNC_OUT/sync-facts.json" 2>/dev/null || true)"
+  [[ "$up" =~ ^[0-9a-f]{40}$ ]] || up=""
+  # RUN_AS: the managed settings apply to every claude on the machine, so the hook does nothing unless it runs as the sandbox user (empty when
+  # the privilege changes are switched off, in tests). REPO: the sandbox copy it checks, whatever directory the session is in.
+  printf 'STATE_DIR=%s\nDEPS=%s\nUPSTREAM=%s\nREPO=%s\nRUN_AS=%s\n' "$state_dir" "$deps" "$up" "$AGENT_SANDBOX_DIR/repo" "$([ "${#SUDO[@]}" -eq 0 ] || printf '%s' "$AGENT_USER")" > "$stage/hook.conf"
+  chmod 755 "$stage/agent-stop-check.sh"
+  as_root rm -rf "$hook_dir" && as_root mkdir -p "$hook_dir" && as_root cp -R "$stage/." "$hook_dir/" || { echo "cannot install $hook_dir"; return 1; }
+  [ "${#SUDO[@]}" -eq 0 ] || as_root chown -R root:root "$hook_dir"
+  as_root chmod -R u=rwX,go=rX "$hook_dir"
+  as_root mkdir -p "$state_dir" || { echo "cannot create $state_dir"; return 1; }
+  [ "${#SUDO[@]}" -eq 0 ] || as_root chown "$AGENT_USER:$AGENT_USER" "$state_dir"
+  jq -n -c --arg cmd "$hook_dir/agent-stop-check.sh" '{hooks: {Stop: [{hooks: [{type: "command", command: $cmd, timeout: 1500}]}]}}' > "$stage/managed-settings.json"
+  as_root mkdir -p "$AGENT_CLAUDE_MANAGED_DIR" && as_root cp "$stage/managed-settings.json" "$settings" || { echo "cannot write $settings"; return 1; }
+  [ "${#SUDO[@]}" -eq 0 ] || as_root chown root:root "$settings"
+  as_root chmod 644 "$settings"
+  rm -rf "$stage"
+  as_agent sh -c 'test -x "$1" && test -r "$2" && test -w "$3"' _ "$hook_dir/agent-stop-check.sh" "$settings" "$state_dir" || { echo "the agent user cannot run the hook or write its state"; return 1; }
+  jq -n -c --arg hook "$hook_dir/agent-stop-check.sh" --arg settings "$settings" --arg state "$state_dir" '{installed: true, hook: $hook, settings: $settings, state_dir: $state}'
+}
+install_stop_hook() { # DEPS(0|1): the stop_hook object of sandbox.json, always
+  local out
+  if out="$(install_stop_hook_core "${1:-1}")" && jq -e '.installed == true' <<<"$out" >/dev/null 2>&1; then printf '%s\n' "$out"
+  else
+    log "the stop check was not installed: ${out:-unknown reason}"
+    jq -n -c --arg why "$(printf '%s' "${out:-unknown reason}" | tr -d '\000-\037' | trunc_bytes 300)" '{installed: false, why: $why}'
   fi
 }
 
@@ -61,8 +112,10 @@ cmd_setup() {
     deps=false
     log "dependencies did not install in the sandbox; the agent runs without the commands that need them"
   fi
-  jq -n -c --arg user "$AGENT_USER" --arg repo "$sb" --arg path "$(agent_path)" --argjson deps "$deps" \
-    '{user: $user, repo: $repo, path: $path, dependencies_installed: $deps}' > "$SYNC_OUT/sandbox.json"
+  local stop_hook
+  stop_hook="$(install_stop_hook "$([ "$deps" = true ] && echo 1 || echo 0)")"
+  jq -n -c --arg user "$AGENT_USER" --arg repo "$sb" --arg path "$(agent_path)" --argjson deps "$deps" --argjson stop "$stop_hook" \
+    '{user: $user, repo: $repo, path: $path, dependencies_installed: $deps, stop_hook: $stop}' > "$SYNC_OUT/sandbox.json"
   gh_out ready true
 }
 
@@ -142,5 +195,6 @@ cmd_collect() {
 case "${1:-}" in
   setup) cmd_setup ;;
   collect) cmd_collect ;;
-  *) die "usage: agent-sandbox.sh setup|collect" ;;
+  install-stop-hook) install_stop_hook "${2:-1}" ;;
+  *) die "usage: agent-sandbox.sh setup|collect|install-stop-hook [0|1]" ;;
 esac

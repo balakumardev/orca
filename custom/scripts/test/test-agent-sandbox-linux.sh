@@ -17,6 +17,11 @@
 #   C2 collect against chmod-000 dirs, symlinks, a fifo, a setuid file, a newline in a name, a file turned into a directory
 #   D the wall clock (exit 124), a CLI that ignores SIGTERM, a process that outruns a single pkill (random: 0 to 3 of 10 rounds)
 #   E umask, sudo's PATH, npm cache ownership, copy and chown timing
+#   F the stop check (agent-stop-check.sh) as setup installs it: its files and the managed settings are root-owned and 15 write/delete/move/
+#     chmod attempts as agentrun change nothing; the hook run as agentrun blocks on conflict markers and lets go when they are gone
+#   G the REAL pinned Claude Code (npm, no key) as agentrun with the production flags (--safe-mode included) against a local fake model
+#     (agent-stop-hook-fake-model.mjs): the managed settings run the stop check, a block makes a second request that carries its reason,
+#     the cap lets go, a clean tree makes one request, and without the managed file the check never runs
 # Output: ok / FAIL / GAP / info lines. FAIL = something that must hold does not (exit 1). GAP = a robustness hole that is not a key leak.
 #
 # Run: bash custom/scripts/test/test-agent-sandbox-linux.sh        (KEEP_CONTAINER=1 leaves the container for debugging; it names it)
@@ -30,6 +35,9 @@ docker info >/dev/null 2>&1 || { echo "docker is not running (OrbStack: orbctl s
 pin="$(sed -n 's/^  "packageManager": "\(pnpm@[^"]*\)".*/\1/p' "$repo_root/package.json")"
 [ -n "$pin" ] || { echo "package.json has no packageManager pin"; exit 2; }
 
+claude_pin="$(sed -n "s/^  CLAUDE_CODE_VERSION: '\\([^']*\\)'.*/\\1/p" "$repo_root/.github/workflows/custom-agent.yml")"
+[ -n "$claude_pin" ] || { echo "custom-agent.yml has no CLAUDE_CODE_VERSION pin"; exit 2; }
+
 name="orca-agent-sandbox-linux-$$"
 cleanup() {
   if [ "${KEEP_CONTAINER:-0}" = 1 ]; then echo "container left running: docker rm -f $name"
@@ -37,7 +45,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-inside() { docker exec -e ORCA_SANDBOX_TEST_CONTAINER=1 -e PNPM_PIN="$pin" "$name" bash /stage/custom/scripts/test/agent-sandbox-linux-inside.sh "$@"; }
+inside() { docker exec -e ORCA_SANDBOX_TEST_CONTAINER=1 -e PNPM_PIN="$pin" -e CLAUDE_PIN="$claude_pin" "$name" bash /stage/custom/scripts/test/agent-sandbox-linux-inside.sh "$@"; }
 
 t0="$(date +%s)"
 echo "container $name (ubuntu:24.04, --init so killed processes are reaped)"

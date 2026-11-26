@@ -198,6 +198,39 @@ is_delete_request() { # PATH
   [ -f "$1" ] && [ "$(wc -c < "$1" | tr -d ' ')" -le 64 ] && [ "$(tr -d '[:space:]' < "$1")" = "$DELETE_SENTINEL" ]
 }
 
+# allowed_edit_tsv FACTS REPAIR UPSTREAM_SHA: the files a model round may edit, one `<kind><TAB><path>` per line, sorted by path, from the facts
+# of the candidate and (reading $SYNC_OUT/our-files.txt and $SYNC_OUT/extra-edit-files.txt) the repair extras. REPAIR is 1 or empty.
+# kind: the conflict kind (content, both-added, deleted-by-them, deleted-by-us, other), `owned` (a file our customization commits own) or
+# `moved` (a file the hunk-survival gate named). ONE list for two readers, so they cannot drift apart: sync-merge.sh finish enforces it
+# (only the paths), and agent-round.sh prepare hands it to the stop check the agent runs inside (agent-stop-check.sh).
+# Resolve round: exactly the files the merge left conflicted. Repair round: those plus the files our customization commits own, never fork
+# infrastructure (our-wins paths) or upstream CI, and the new paths of moved files, each checked again against the new release's tree.
+allowed_edit_tsv() {
+  local facts="$1" repair="$2" upstream_sha="$3" p
+  {
+    jq -r '.conflicts[] | select(.resolution == "pending" or .resolution == "agent" or .resolution == "unresolved") | "\(.kind)\t\(.path)"' "$facts"
+    if [ -n "$repair" ]; then
+      if [ -f "$SYNC_OUT/our-files.txt" ]; then
+        while IFS= read -r p; do
+          [ -n "$p" ] || continue
+          if our_wins_path "$p" || foreign_ci_path "$p"; then continue; fi
+          printf 'owned\t%s\n' "$p"
+        done < "$SYNC_OUT/our-files.txt"
+      fi
+      if [ -s "$SYNC_OUT/extra-edit-files.txt" ]; then
+        while IFS= read -r p; do
+          [ -n "$p" ] || continue
+          if release_edit_path_ok "$upstream_sha" "$p"; then
+            printf 'moved\t%s\n' "$p"
+          else
+            log "ignoring $(printf '%s' "$p" | tr -c '[:print:]' '?' | cut -c1-200) in extra-edit-files.txt: not an editable file of the new release"
+          fi
+        done < "$SYNC_OUT/extra-edit-files.txt"
+      fi
+    fi
+  } | awk -F'\t' '!seen[$2]++' | LC_ALL=C sort -t "$(printf '\t')" -k2,2
+}
+
 # round_score ALL_DIR N: print how bad round N's candidate is (lower wins); return 1 when the round left no candidate (no
 # sync-facts.json or no merge.bundle, e.g. its job crashed). ALL_DIR holds the downloaded round-N/ and gates-N-*/ directories.
 # Resolved merge: the number of failed gates; 1000 when its gates never reported. Unresolved merge: 1000 plus the number of files

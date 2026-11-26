@@ -366,6 +366,44 @@ if (agentRounds.length > 0) {
   for (const r of agentRounds) {
     modelBlock += `| ${r.round} | ${r.mode} | \`${r.model}\` | ${r.turns}${r.max_turns ? `/${r.max_turns}` : ''} | ${r.input_tokens}${r.cached_tokens === undefined ? '' : ` (${r.cached_tokens} cached)`} / ${r.output_tokens} | $${Number(r.estimated_cost_usd).toFixed(3)} | ${r.wall_s}s | ${esc(exitCell(r))} |\n`
   }
+  // The stop check is a script (agent-stop-check.sh), not the model: it refuses the model's stop while conflict markers, a file over its line cap
+  // or `pnpm tc` are red. Its green is NOT the gates, which still decide; the line says how often it refused and why it finally let go.
+  const stopEnds = {
+    green: 'every check was green at the last stop attempt',
+    'block-cap': 'gave up at its block limit, so a check may still have been red',
+    'time-budget': 'its time budget ran out, so a check may still have been red',
+    'check-timeout': 'a check hit its time limit',
+    'no-progress': 'a check failed twice in the same way and was waived',
+    'out-of-scope': 'typecheck was red only in files the round may not edit',
+    'hook-error': 'the check itself failed (it fails open)',
+    'ended-blocked':
+      'the round ended while it was refusing the stop (the wall clock or the CLI ended it)',
+    'never-ran': 'the CLI never ran it',
+    unreadable: 'what it left behind could not be read'
+  }
+  const stopGroups = ['conflict-markers', 'lint-caps', 'typecheck']
+  const stopLines = agentRounds
+    .filter((r) => r.stop_hook && r.stop_hook.installed === true)
+    .map((r) => {
+      const h = r.stop_hook
+      const groups = (Array.isArray(h.groups) ? h.groups : [])
+        .filter((g) => stopGroups.includes(g))
+        .join(', ')
+      return `round ${r.round}: ${Number(h.blocks) || 0} block(s)${groups ? ` (${groups})` : ''}, ${stopEnds[h.outcome] ?? 'ended for a reason this report does not know'}`
+    })
+  if (stopLines.length > 0) {
+    modelBlock += `\nStop check (a script, not the model; the gates still decide): ${stopLines.join('; ')}.\n`
+  }
+  for (const r of agentRounds) {
+    if (
+      r.stop_hook?.installed === true &&
+      ['never-ran', 'hook-error', 'unreadable'].includes(r.stop_hook.outcome)
+    ) {
+      caveats.push(
+        `Agent round ${r.round}: the stop check ${r.stop_hook.outcome === 'never-ran' ? 'never ran' : 'failed'}, so the round ended when the model said it was done.`
+      )
+    }
+  }
   const priced = agentRounds.filter(
     (r) => r.price_in !== undefined && Number(r.input_tokens) + Number(r.output_tokens) > 0
   )
