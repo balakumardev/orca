@@ -188,4 +188,12 @@ jq '[.[0], {"round":2,"mode":"repair","model":"m","tier":"flash","max_turns":0,"
 ROUNDS_FILE="$tmp/rounds3.json" render skipped "$tmp/dispatch-only.yml"
 has "$body" '0: skipped; no file was left that a model may resolve' && ok "a skipped round says so instead of 'no readable output'" || bad "skipped round wording: $(grep '^| 2 | repair' "$body")"
 
+# the agent-resolved label means a model round ran; round 0 also records marker-free conflicts it left as git placed them as `agent`
+# (v1.4.274, PR #75: every agent job crashed and the scripts' merge was still labelled agent-resolved)
+render labelled "$tmp/dispatch-only.yml"
+jq -e '.labels | index("agent-resolved")' "$tmp/out-labelled/pr-meta.json" > /dev/null && ok "a candidate with agent round records is labelled agent-resolved" || bad "label with rounds: $(jq -c .labels "$tmp/out-labelled/pr-meta.json")"
+printf '[]\n' > "$tmp/no-rounds.json"
+ROUNDS_FILE="$tmp/no-rounds.json" render unlabelled "$tmp/dispatch-only.yml"
+jq -e '(.labels | index("agent-resolved")) == null' "$tmp/out-unlabelled/pr-meta.json" > /dev/null && ok "no agent round record (round 0's 'agent' entries alone): not labelled agent-resolved" || bad "label without rounds: $(jq -c .labels "$tmp/out-unlabelled/pr-meta.json")"
+
 exit "$([ "$fails" -eq 0 ] && echo 0 || echo 1)"

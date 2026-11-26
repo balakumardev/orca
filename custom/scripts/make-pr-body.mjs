@@ -10,6 +10,7 @@
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { basename, dirname } from 'node:path'
+import { keyLeakReport, roundPairs } from './pr-body-key-leaks.mjs'
 
 const args = process.argv.slice(2)
 const opt = (name) => {
@@ -317,42 +318,15 @@ if (repairEdits.length > 0) {
     `Repair round(s) edited ${repairEdits.length} file(s) that were not conflicted: ${list(repairEdits)}. The resolution diff below does not show them; the full diff is in the \`${process.env.FULL_DIFF_ARTIFACT || 'sync-review'}\` artifact.${tests.length > 0 ? ` ${tests.length} of them ${tests.length === 1 ? 'is a test or spec' : 'are tests or specs'} (${list(tests)}): a model can turn a gate green by weakening a test, so read those edits first.` : ''}`
   )
 }
-// Key leaks, from two independent sources: the round records (they carry the file names) and the workflow's own job outputs
-// (AGENT_KEY_LEAKS="1=0 2=3 3=", set by the run step, so they exist even when `finish` died and wrote no record).
-// A value of "unknown" means the leak check itself did not complete.
-const leakEnv = Object.fromEntries(
-  (process.env.AGENT_KEY_LEAKS || '')
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((kv) => kv.split('='))
-)
-const leaks = new Map()
-for (const r of agentRounds) {
-  if (Number(r.key_leaks) > 0) {
-    leaks.set(Number(r.round), { files: Array.isArray(r.key_leak_files) ? r.key_leak_files : [] })
-  }
-}
-for (const [round, value] of Object.entries(leakEnv)) {
-  const n = Number(round)
-  if (value === 'unknown') {
-    leaks.set(n, { files: leaks.get(n)?.files ?? [], unknown: !leaks.has(n) })
-  } else if (Number(value) > 0 && !leaks.has(n)) {
-    leaks.set(n, { files: [] })
-  }
-}
-const leakRounds = [...leaks.keys()].sort((a, b) => a - b)
-if (leakRounds.length > 0) {
-  caveats.push(
-    `Key leak in agent round ${leakRounds.join(', ')}: see the warning at the top of this description.`
-  )
-}
-// What the model rounds actually did, from the workflow's own job results (data, not model text).
-const roundResults = Object.fromEntries(
-  (process.env.AGENT_RESULTS || '')
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((kv) => kv.split('='))
-)
+// Key leaks: the caveats here and the banner at the top of the body (pr-body-key-leaks.mjs). The job results are data, not model text.
+const roundResults = roundPairs(process.env.AGENT_RESULTS)
+const keyLeaks = keyLeakReport({
+  agentRounds,
+  leakEnv: roundPairs(process.env.AGENT_KEY_LEAKS),
+  roundResults,
+  roundsDir: process.env.ROUNDS_DIR || ''
+})
+caveats.push(...keyLeaks.caveats)
 for (const [round, result] of Object.entries(roundResults)) {
   if (result === 'failure' || result === 'cancelled') {
     caveats.push(
@@ -376,28 +350,7 @@ if (isTest) {
 }
 
 // ---- key-leak banner: the first thing in the body ----------------------------------------------------------------
-// Round numbers and file NAMES only. The names were chosen by the model, so they are stripped of control characters and
-// backticks, capped, and shown as inline code; nothing the model wrote is shown here.
-// Drops exactly U+0000-U+001F, U+007F and the backtick (the set the regex it replaced removed), without a control-character regex.
-const isPlainChar = (ch) => ch !== '`' && ch.charCodeAt(0) > 0x1f && ch.charCodeAt(0) !== 0x7f
-const leakName = (n) => `\`${[...String(n)].filter(isPlainChar).join('').slice(0, 120)}\``
-const confirmedLeaks = leakRounds.filter((n) => !leaks.get(n).unknown)
-const unknownLeaks = leakRounds.filter((n) => leaks.get(n).unknown)
-const leakBanner =
-  leakRounds.length === 0
-    ? ''
-    : `> [!CAUTION]
-${confirmedLeaks.length > 0 ? "> **The agent's output contained the API key; its edits were discarded. Rotate DEEPINFRA_API_KEY.**\n" : ''}${unknownLeaks.length > 0 ? `> **The agent's key-leak check did not complete${confirmedLeaks.length > 0 ? ' in another round' : ''}. Treat DEEPINFRA_API_KEY as exposed and rotate it.**\n` : ''}${leakRounds
-        .map((n) => {
-          const { files, unknown } = leaks.get(n)
-          if (unknown) {
-            return `> - Round ${n}: the leak check did not complete`
-          }
-          return `> - Round ${n}: ${files.length > 0 ? files.slice(0, 20).map(leakName).join(', ') : '(no file names recorded)'}${files.length > 20 ? `, and ${files.length - 20} more` : ''}`
-        })
-        .join('\n')}
-
-`
+const leakBanner = keyLeaks.banner
 
 // ---- model-written block -----------------------------------------------------------------------------------
 let modelBlock = ''
@@ -649,7 +602,9 @@ ${checklist}
 writeFileSync(`${outDir}/pr-body.md`, body)
 writeFileSync(`${outDir}/pr-title.txt`, `${title}\n`)
 const labels = ['upstream-sync']
-if (agentResolved.length > 0 || agentRounds.length > 0) {
+// Only when a model round ran: round 0 (sync-merge.sh finish, no model) records the marker-free conflicts it leaves as git placed them
+// with resolution `agent` too, which labelled the crashed v1.4.274 sync (PR #75, no agent round record at all) agent-resolved.
+if (agentRounds.length > 0) {
   labels.push('agent-resolved')
 }
 if (state !== 'clean' || caveats.length > 0 || failedGates.length > 0) {
