@@ -13,7 +13,10 @@ import { structuredAgentSessionPaneKey } from '../../../../../shared/agent-sessi
 import { resetStructuredAgentSessionStatusFeedsForTests } from '@/runtime/native-chat/status/structured-agent-session-status-feed'
 import type { AgentStatusEntry } from '../../../../../shared/agent-status/contracts/agent-status-types'
 import { makePaneKey } from '../../../../../shared/workspace-layout/stable-pane-id'
-import { clearActivityThread } from '../thread-list/activity-clear-completed'
+import {
+  clearActivityThread,
+  isClearableActivityThread
+} from '../thread-list/activity-clear-completed'
 import { activityThreadStatusId } from './activity-thread-presentation'
 import { useAgentPaneThreads } from './use-agent-pane-threads'
 
@@ -213,16 +216,23 @@ it.each(['local', 'ssh:intbox', 'runtime:managed', 'runtime:paired'] as const)(
         .map((thread) => [thread.tab.id, activityThreadStatusId(thread), thread.unread])
         .sort(([left], [right]) => String(left).localeCompare(String(right)))
 
+    // An unread finished turn stays Done under live idle presence until it is read.
     expect(rows()).toEqual([
-      ['finished', 'idle', true],
+      ['finished', 'done', true],
+      ['manual', 'idle', false],
+      ['opened', 'idle', false]
+    ])
+    const findFinished = () =>
+      activity.result.current.visibleThreads.find((thread) => thread.tab.id === 'finished')!
+    expect(isClearableActivityThread(findFinished())).toBe(true)
+    act(() => useAppStore.getState().acknowledgeAgents([makePaneKey('finished', LEAF_ID)]))
+    expect(rows()).toEqual([
+      ['finished', 'idle', false],
       ['manual', 'idle', false],
       ['opened', 'idle', false]
     ])
     act(() => {
-      const finished = activity.result.current.visibleThreads.find(
-        (thread) => thread.tab.id === 'finished'
-      )!
-      expect(clearActivityThread(finished)).toBe(true)
+      expect(clearActivityThread(findFinished())).toBe(true)
     })
     expect(rows()).toEqual([
       ['finished', 'idle', false],

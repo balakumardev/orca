@@ -15,15 +15,19 @@ export type ClearCompletedActivityPlan = {
 /** Finished outcomes are clearable only without fresh live work/monitoring/attention. */
 export function isClearableActivityThread(thread: AgentPaneThread): boolean {
   const id = activityThreadStatusId(thread)
+  const finishedOutcome =
+    id === 'done' || id === 'failed' || id === 'interrupted' || id === 'unconfirmed'
   // Clearing a finished turn keeps its still-running agent's idle presence.
   if (thread.currentAgentState === 'idle') {
-    return id === 'idle' && thread.events.some((event) => event.state === 'done')
+    return (
+      (id === 'idle' || finishedOutcome) && thread.events.some((event) => event.state === 'done')
+    )
   }
   // A failed main agent can still own running subagents; retain that live thread.
   if (thread.currentAgentState) {
     return false
   }
-  return id === 'done' || id === 'failed' || id === 'interrupted' || id === 'unconfirmed'
+  return finishedOutcome
 }
 
 export function planClearCompletedActivity(
