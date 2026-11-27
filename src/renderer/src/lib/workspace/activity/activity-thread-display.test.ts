@@ -44,7 +44,7 @@ describe('getActivityThreadTaskTitle', () => {
         })
       ).toBe('Investigate the flaky login test')
     }
-    for (const title of ['✳ Claude Code', 'Gemini CLI ready']) {
+    for (const title of ['✳ Claude Code', 'Claude Code ready']) {
       expect(
         getActivityThreadTaskTitle({
           entry: { prompt: 'Investigate the flaky login test', stateHistory: [] },

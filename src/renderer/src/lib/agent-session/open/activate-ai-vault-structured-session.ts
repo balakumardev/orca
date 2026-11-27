@@ -30,6 +30,7 @@ import type { RuntimeTargetGuard } from '@/runtime/rpc/targets/runtime-target-gu
 import { nativeChatRestartStillStarting } from '@/components/native-chat-recovery/offers/native-chat-restart-runtimes'
 import { showChatOpenUnavailable, type ChatOpenUnavailable } from './chat-open-failure-toast'
 import { parseOrcaSessionAddress } from '../../../../../shared/agent-session/identity/orca-session-address'
+import { cancelPendingBotThreadOpen } from './bot-thread-open-lifecycle'
 
 type StructuredSessionActivationDeps = StructuredSessionOpenAdapterDeps & {
   unavailable: (agent?: string, context?: ChatOpenUnavailable) => void
@@ -75,10 +76,26 @@ export const structuredSessionOpenFeedback: StructuredSessionOpenFeedback = {
   hostCannotOpen: () => toast.error(structuredSessionOpenFeedbackText.hostCannotOpen())
 }
 
+/** A caller may hand over the adapter deps alone, or pair them with its own retry remedy. */
+type StructuredSessionActivationArgs =
+  | StructuredSessionActivationDeps
+  | { deps?: StructuredSessionActivationDeps; retry?: () => Promise<unknown> }
+
+function structuredSessionActivationArgs(value: StructuredSessionActivationArgs | undefined): {
+  deps?: StructuredSessionActivationDeps
+  retry?: () => Promise<unknown>
+} {
+  if (!value) {
+    return {}
+  }
+  // Only the adapter itself carries the required activation callbacks.
+  return 'activate' in value ? { deps: value } : value
+}
+
 /** Read only structuredSession so history clicks and drag payloads follow the same reveal path. */
 export async function activateAiVaultStructuredSession(
   session: Pick<AiVaultSession, 'structuredSession'> & { agent?: string },
-  deps?: StructuredSessionActivationDeps,
+  args?: StructuredSessionActivationArgs,
   target?: RuntimeClientTarget,
   current?: () => boolean,
   expectedEnvironmentRuntimeId?: string,
@@ -87,9 +104,13 @@ export async function activateAiVaultStructuredSession(
   if (!session.structuredSession) {
     return false
   }
+  const { deps, retry } = structuredSessionActivationArgs(args)
   // A group member's session reopens the room it talks in, not the member's own chat.
   const room = botGroupRoomOfRow(readBotGroups(), session)
   if (room) {
+    if (!deps?.signal) {
+      cancelPendingBotThreadOpen()
+    }
     await openBotGroupRoom(room.group, room.roomId, room.label)
     return true
   }
@@ -101,15 +122,17 @@ export async function activateAiVaultStructuredSession(
       current,
       expectedEnvironmentRuntimeId,
       targetGuard,
-      retry: () =>
-        activateAiVaultStructuredSession(
-          session,
-          deps,
-          target,
-          current,
-          expectedEnvironmentRuntimeId,
-          targetGuard
-        )
+      retry:
+        retry ??
+        (() =>
+          activateAiVaultStructuredSession(
+            session,
+            deps,
+            target,
+            current,
+            expectedEnvironmentRuntimeId,
+            targetGuard
+          ))
     }
   )
   return true
@@ -140,6 +163,10 @@ export function openDesktopStructuredSession(
     expectedEnvironmentRuntimeId,
     targetGuard
   } = options
+  // Without a signal to bound it, a newer open supersedes whatever bot thread was pending.
+  if (!deps?.signal) {
+    cancelPendingBotThreadOpen()
+  }
   // Read when the open starts: the selection may move before it settles.
   const pairedHostId = openingPairedHostId(source, target)
   const retryOpen = retry === 'open' ? () => openDesktopStructuredSession(source, options) : retry
