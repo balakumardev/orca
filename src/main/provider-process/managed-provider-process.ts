@@ -1,6 +1,8 @@
 import { awaitProviderChildSpawn, directOwnerUnreaped, type ProviderChild } from './provider-child'
 import { DirectProviderChild } from './direct-provider-child'
 import { registerAgentProcess } from '../memory/agent-process-registry'
+import { assertSourceUpdateSessionStartAllowed } from '../updater/custom/source-update-session-admission'
+import { track } from '../updater/custom/source-update-chat-work'
 import { spawnProviderProcess, type ProviderProcessSpawner } from './provider-process-spawn'
 import { RetryableProcessExitProof } from '@orca/process-host/retryable-process-exit-proof'
 import type { ProviderProcessLaunch } from './provider-process-launch'
@@ -115,6 +117,8 @@ export function spawnManagedProviderProcess(
       `Supervised provider graceful exit must wait at least ${PROVIDER_SUPERVISOR_MAX_STOP_MS} ms; received ${policy.gracefulExitMs} ms`
     )
   }
+  // Independent rename/copy/probe children also start outside the Chat router's acquisition path.
+  assertSourceUpdateSessionStartAllowed()
   const child = spawnProviderProcess(spec, options.spawnImpl, options.allowHost)
   const listeners = new Set<(exit: ProviderProcessExit) => void>()
   let observed: ProviderProcessExit | null = null
@@ -154,6 +158,8 @@ export function spawnManagedProviderProcess(
   const exitPromise = new Promise<void>((resolve) => {
     resolveExit = resolve
   })
+  // A task or pipe can finish before its child exits; keep unproven roots in the update census.
+  track(exitPromise)
   // Once the process exits or its pipes close, its pid can name another process.
   let releaseAgentMemory: (() => void) | null = null
   let agentMemoryRetired = false

@@ -10,6 +10,7 @@ import type { StructuredAgentSessionEndedEvent } from '../providers/structured-a
 import { sameProviderChild } from '../host/structured-agent-session-provider-child'
 import type { StructuredAgentSessionProviderChildIdentity } from '../host/structured-agent-session-host-types'
 import type { StructuredAgentSessionResumeOutcome } from './structured-agent-session-agent-start'
+import { track } from '../../../updater/custom/source-update-chat-work'
 
 export type StructuredAgentSessionStartFlight = {
   readonly abort: () => void
@@ -29,6 +30,8 @@ export class StructuredAgentSessionStartFlights {
   private readonly attempts = new Map<string, Set<Promise<unknown>>>()
 
   trackAttempt(sessionId: string, attempt: Promise<unknown>): void {
+    // A cancelled logical start can still have a child acquisition unwinding.
+    track(attempt)
     const live = this.attempts.get(sessionId) ?? new Set()
     live.add(attempt)
     this.attempts.set(sessionId, live)

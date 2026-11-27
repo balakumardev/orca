@@ -6,6 +6,8 @@ import { recordAgentSessionRuntimeEnd } from '../records/agent-session-runtime-e
 export type InstalledRuntime = {
   host: StructuredAgentSessionHost
   adapter: { closeAll(): Promise<void> }
+  /** Census stays with the installed router, which owns unpublished acquisitions too. */
+  hasSourceUpdateWork?: () => boolean
   /** Closed last, once every conversation has drained into it. */
   journalDatabase: JournalSqlDatabase
   // Wait for observed adapter exits to publish and all recovery callbacks they raised to settle.

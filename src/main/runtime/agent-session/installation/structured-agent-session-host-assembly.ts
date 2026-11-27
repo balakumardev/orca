@@ -197,6 +197,8 @@ export async function installOnJournal(
   return {
     host,
     adapter,
+    // Include starts before child publication and ownership retained after a failed close.
+    hasSourceUpdateWork: () => host.chatSessionCount() > 0 || adapter.hasPendingSessionOwnership(),
     journalDatabase,
     waitForRecovery: lifecycle.drain,
     stopBackgroundWork: () => {
