@@ -49,7 +49,7 @@ git init -q -b old "$repo"
 cd "$repo"
 mkdir -p src/old src/stay src/ours custom
 for f in src/old/Moved.tsx src/old/Kept.tsx src/old/Renamed.ts src/old/Gone.ts src/old/KeptOld.ts src/stay/Same.ts src/stay/Partial.ts \
-  src/stay/NoiseOnly.ts src/stay/Indent.ts src/stay/Special.ts src/stay/Many.ts; do lines "$f" "$(basename "$f" | cut -d. -f1)" 60; done
+  src/stay/NoiseOnly.ts src/stay/Indent.ts src/stay/Special.ts src/stay/Many.ts src/stay/Comma.ts src/stay/Helper.ts src/stay/Lookalike.ts; do lines "$f" "$(basename "$f" | cut -d. -f1)" 60; done
 echo 'lock a' > pnpm-lock.yaml; echo '# notes' > CLAUDE.md; echo 'echo hi' > custom/x.sh
 commit_all "old release"; git tag v1.0.0; old="$(git rev-parse HEAD)"
 
@@ -66,6 +66,10 @@ insert_after src/stay/NoiseOnly.ts 10 "import { aThing } from './a-thing-with-a-
 insert_after src/stay/Indent.ts 10 "const indentOne = computeOurIndentedThing(inputValue)" "renderOurIndentedThing(indentOne, extraOptions)"
 insert_after src/stay/Special.ts 10 '  const el = <div className="a">{`${value} @someone`}</div>' "  console.log('a \`backtick\` and <b>markup</b> and @everyone here')"
 insert_after src/stay/Many.ts 10 "  manyLine01(ourManyValueNumberOne)" "  manyLine02(ourManyValueNumberTwo)" "  manyLine03(ourManyValueNumberThree)" "  manyLine04(ourManyValueNumberFour)" "  manyLine05(ourManyValueNumberFive)" "  manyLine06(ourManyValueNumberSix)" "  manyLine07(ourManyValueNumberSeven)" "  manyLine08(ourManyValueNumberEight)" "  manyLine09(ourManyValueNumberNine)"
+# lines the merge will EDIT in place (a trailing comma and a new argument, a renamed helper) and one it will replace by a lookalike
+insert_after src/stay/Comma.ts 10 "      parseOurPaneKey(paneKeyValue)?.leafIdentifier"
+insert_after src/stay/Helper.ts 10 "  const usageAccountId = outgoingAccountId ?? oldSystemDefaultUsageId(effectiveTarget)"
+insert_after src/stay/Lookalike.ts 10 "  await forgetOurAccount('claude', accountId)"
 lines src/ours/NewFile.ts newfile 10 # new in custom: ours entirely, never checked
 echo 'lock a
 lock ours added line' > pnpm-lock.yaml
@@ -82,7 +86,7 @@ git mv src/old/Kept.tsx src/new/dir/Kept.tsx; edit_line src/new/dir/Kept.tsx 5 "
 git mv src/old/Renamed.ts src/other/Different.ts
 for i in 3 6 9 12 15 18 21 24 27 30 33 36 39 42 45 48 51 54 57 60; do edit_line src/other/Different.ts "$i" "upstream rewrote line $i"; done # about 2/3 similar
 git rm -q src/old/Gone.ts src/old/KeptOld.ts
-for f in src/stay/Same.ts src/stay/Partial.ts src/stay/NoiseOnly.ts src/stay/Indent.ts src/stay/Special.ts src/stay/Many.ts; do edit_line "$f" 40 "upstream changed line 40"; done
+for f in src/stay/Same.ts src/stay/Partial.ts src/stay/NoiseOnly.ts src/stay/Indent.ts src/stay/Special.ts src/stay/Many.ts src/stay/Comma.ts src/stay/Helper.ts src/stay/Lookalike.ts; do edit_line "$f" 40 "upstream changed line 40"; done
 commit_all "new release"; git tag v1.0.1; new="$(git rev-parse HEAD)"
 link="$(git commit-tree "$new^{tree}" -p "$new" -p "$old" -m "Link upstream v1.0.1 to v1.0.0")"
 
@@ -95,6 +99,9 @@ insert_after src/stay/Partial.ts 10 "  partialKept(await loadOurThing(partialCon
 insert_after src/stay/Indent.ts 10 "      const indentOne = computeOurIndentedThing(inputValue)   " "	renderOurIndentedThing(indentOne, extraOptions)"
 mkdir -p src/old; git show "$ours:src/old/KeptOld.ts" > src/old/KeptOld.ts # the agent kept the file the upstream deleted
 insert_after src/stay/Many.ts 10 "  manyLine01(ourManyValueNumberOne)" # 8 of 9 missing: shows 5 samples
+insert_after src/stay/Comma.ts 10 "      parseOurPaneKey(paneKeyValue)?.leafIdentifier," "      undefined" # upstream added an argument: our line gained a comma
+insert_after src/stay/Helper.ts 10 "  const usageAccountId = outgoingAccountId ?? hostSystemDefaultUsageId('claude', effectiveTarget)" # upstream renamed the helper
+insert_after src/stay/Lookalike.ts 10 "  await forgetOurAccount('codex', accountId)" # our line is gone; a similar call for another agent is not it
 commit_all "merge tree"
 merged="$(git commit-tree "$(git rev-parse 'HEAD^{tree}')" -p "$ours" -p "$link" -m "Merge upstream v1.0.1 into custom")"
 git checkout -q --detach "$merged"
@@ -119,17 +126,20 @@ l="$(line_for 'src/stay/Special.ts')"
 want1='`const el = <div className="a">{'"'"'${value} @someone'"'"'}</div>`'
 want2="\`console.log('a 'backtick' and <b>markup</b> and @everyone here')\`"
 check "samples are code spans: a backtick in the line becomes an apostrophe; mentions and markup stay inside the span" bash -c '[[ "$1" == *"$2"* && "$1" == *"$3"* ]]' _ "$l" "$want1" "$want2"
-for kept in 'src/old/Kept.tsx' 'src/old/Renamed.ts' 'src/stay/Same.ts' 'src/old/KeptOld.ts' 'src/stay/NoiseOnly.ts' 'src/stay/Indent.ts' 'src/ours/NewFile.ts' 'pnpm-lock.yaml' 'CLAUDE.md' 'custom/x.sh'; do
+l="$(line_for 'src/stay/Lookalike.ts')"
+check "a line whose only lookalike is the same call for another argument stays missing (three of four words are not enough)" bash -c '[[ "$1" == *": 1 of 1 significant"* && "$1" == *"forgetOurAccount('"'"'claude'"'"'"* ]]' _ "$l"
+for kept in 'src/stay/Comma.ts' 'src/stay/Helper.ts' 'src/old/Kept.tsx' 'src/old/Renamed.ts' 'src/stay/Same.ts' 'src/old/KeptOld.ts' 'src/stay/NoiseOnly.ts' 'src/stay/Indent.ts' 'src/ours/NewFile.ts' 'pnpm-lock.yaml' 'CLAUDE.md' 'custom/x.sh'; do
   check "not reported: $kept" lacks "$out" "\`$kept\`"
 done
 check "a file whose hunk survived when only its path changed (exact content, 98% similar) is not reported" lacks "$out" 'Kept.tsx'
 check "a file git pairs by similarity (about 2/3, different base name) is mapped and, its lines intact, not reported" lacks "$out" 'Different.ts'
-check "five files are reported in all (Moved, Gone, Partial, Many, Special)" test "$(grep -c . <<<"$out")" -eq 5
+check "a trailing comma plus a new argument, and a renamed helper, are lines edited in place: not reported" lacks "$out" 'Comma.ts'
+check "six files are reported in all (Moved, Gone, Partial, Many, Special, Lookalike)" test "$(grep -c . <<<"$out")" -eq 6
 check "worst first: Many (8 missing) before Moved (2)" bash -c 'a="$(grep -n "Many.ts" <<<"$1" | cut -d: -f1)"; b="$(grep -n "Moved.tsx" <<<"$1" | cut -d: -f1)"; [ "$a" -lt "$b" ]' _ "$out"
 check "the whole output stays within 6000 bytes" test "$(printf '%s' "$out" | wc -c | tr -d ' ')" -le 6000
 
 echo "the JSON side file"
-check "json: valid, 11 files checked (scaffolding and the new file left out), 5 affected" bash -c '[[ "$(jq -c "[.checked, .affected]" "$1")" == "[11,5]" ]]' _ "$tmp/hs.json"
+check "json: valid, 14 files checked (scaffolding and the new file left out), 6 affected" bash -c '[[ "$(jq -c "[.checked, .affected]" "$1")" == "[14,6]" ]]' _ "$tmp/hs.json"
 check "json: the moved file has both paths and is not marked removed" bash -c '[[ "$(jq -r ".files[] | select(.old == \"src/old/Moved.tsx\") | [.mapped, .removed, .missing, .total] | @tsv" "$1")" == "$(printf "src/new/dir/Moved.tsx\tfalse\t2\t2")" ]]' _ "$tmp/hs.json"
 check "json: the deleted file is marked removed" bash -c '[[ "$(jq -r ".files[] | select(.old == \"src/old/Gone.ts\") | .removed" "$1")" == true ]]' _ "$tmp/hs.json"
 
@@ -168,9 +178,9 @@ rg() { # NAME MODE [SCRIPTS_DIR] [extra args...] -> $tmp/out-NAME/gates.json, se
 rg sync sync "$scripts"
 gj="$tmp/out-sync/gates.json"
 check "sync: gate status pass and the run exits 0 (no --exit-zero)" bash -c '[[ "$2" == 0 && "$(jq -r ".gates[0] | [.id, .status] | @tsv" "$1")" == "$(printf "hunk-survival\tpass")" ]]' _ "$gj" "$rg_rc"
-check "sync: five warnings, one per file" test "$(jq '.gates[0].warnings | length' "$gj")" -eq 5
+check "sync: six warnings, one per file" test "$(jq '.gates[0].warnings | length' "$gj")" -eq 6
 check "sync: the moved file is named in a warning" bash -c 'jq -e ".gates[0].warnings[] | select(contains(\"src/new/dir/Moved.tsx\"))" "$1"' _ "$gj"
-check "sync: the note counts files" bash -c '[[ "$(jq -r ".gates[0].note" "$1")" == "11 upstream file(s) we modified checked, 5 with lines of ours lost"* ]]' _ "$gj"
+check "sync: the note counts files" bash -c '[[ "$(jq -r ".gates[0].note" "$1")" == "14 upstream file(s) we modified checked, 6 with lines of ours lost"* ]]' _ "$gj"
 check "sync: hunk-survival.json is kept next to gates.json for the repair round" test -s "$tmp/out-sync/hunk-survival.json"
 check "sync: gates.json counts no failure" bash -c '[[ "$(jq "[.gates[] | select(.status == \"fail\")] | length" "$1")" == 0 ]]' _ "$gj"
 

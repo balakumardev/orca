@@ -22,7 +22,12 @@
 #   3. where the file lives in the NEW release: the same path when it exists there; else git's rename detection (-M30%, the sync's own
 #      threshold) limited to OUR missing files against the files the release added (so no unrelated blob is fetched); else the one file
 #      the release added with the same base name;
-#   4. each significant line must occur, trimmed and verbatim, in the merged file at that path (or at the old path when the merge kept it).
+#   4. each significant line must occur, trimmed and verbatim, in the merged file at that path (or at the old path when the merge kept it);
+#   5. a line that does not occur verbatim is still kept when the merge EDITED it in place: some line of the merged file holds at least
+#      ADAPT_PCT percent of its words (identifiers and numbers, punctuation ignored). Upstream adding an argument, a trailing comma or a
+#      renamed helper changes the text of a call of ours, not its presence; counting that as lost made `land` stop green sync PRs (v1.4.278:
+#      three of four flagged files were exactly that). A line whose words are mostly gone stays missing, and so does one whose only
+#      lookalike is a different call (`f('claude', id)` is not kept by `f('codex', id)`: three of four words).
 # Reported per file: how many lines are missing and up to 5 of them; `file removed upstream` when nothing is left to look in.
 # shellcheck source=lib.sh
 . "$(dirname "$0")/lib.sh"
@@ -44,6 +49,7 @@ done
 OUT_CAP=6000
 SAMPLES=5
 MIN_LEN=12
+ADAPT_PCT=80
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/added" "$tmp/res"
@@ -85,6 +91,26 @@ significant_lines() {
     | { grep -E '[A-Za-z0-9]' || true; } | sort -u
 }
 
+# unadapted_lines MERGED_LINES_FILE: stdin = lines not found verbatim, stdout = the ones no merged line is a close edit of. A merged line is a
+# close edit when it has at least ADAPT_PCT percent of the words of the missing line (words: runs of letters, digits, `_` and `$`).
+unadapted_lines() {
+  awk -v pct="$ADAPT_PCT" '
+    function wordlist(s, out,   n, t, i, k) {
+      gsub(/[^A-Za-z0-9_$]+/, " ", s); n = split(s, t, " "); k = 0; split("", out)
+      for (i = 1; i <= n; i++) if (!(t[i] in out)) { out[t[i]] = 1; k++ }
+      return k
+    }
+    FILENAME == ARGV[1] { lines++; wordlist($0, w); for (x in w) has[lines, x] = 1; next } # not NR == FNR: the merged file may be empty
+    {
+      k = wordlist($0, w); keep = 1
+      if (k > 0) {
+        need = int((k * pct + 99) / 100)
+        for (i = 1; i <= lines && keep; i++) { hit = 0; for (x in w) if ((i, x) in has) hit++; if (hit >= need) keep = 0 }
+      }
+      if (keep) print
+    }' "$1" -
+}
+
 # 3. The path in the new release. Only for files that are not there any more.
 "${G[@]}" ls-tree -r --name-only "$NEW" | sort > "$tmp/new-paths.txt"
 { grep -F -x -v -f "$tmp/new-paths.txt" "$tmp/files.txt" || true; } > "$tmp/missing.txt"
@@ -114,6 +140,7 @@ fi
 
 # 4. Compare.
 affected=0
+adapted_total=0
 while IFS="$(printf '\t')" read -r n p; do
   [ -n "$n" ] && [ -f "$tmp/added/$n" ] || continue # a file we only trimmed or changed the mode of has no added line
   significant_lines < "$tmp/added/$n" > "$tmp/sig.txt"
@@ -136,7 +163,9 @@ while IFS="$(printf '\t')" read -r n p; do
   if [ "$found" -eq 0 ]; then
     removed=true; cp "$tmp/sig.txt" "$tmp/missing-lines.txt"; : "${mapped:=$p}"
   else
-    { grep -F -x -v -f "$tmp/set.txt" "$tmp/sig.txt" || true; } > "$tmp/missing-lines.txt"
+    { grep -F -x -v -f "$tmp/set.txt" "$tmp/sig.txt" || true; } > "$tmp/missing-exact.txt"
+    if [ -s "$tmp/missing-exact.txt" ]; then unadapted_lines "$tmp/set.txt" < "$tmp/missing-exact.txt" > "$tmp/missing-lines.txt"; else : > "$tmp/missing-lines.txt"; fi
+    adapted_total=$((adapted_total + $(wc -l < "$tmp/missing-exact.txt") - $(wc -l < "$tmp/missing-lines.txt")))
   fi
   missing="$(wc -l < "$tmp/missing-lines.txt" | tr -d ' ')"
   [ "$missing" -gt 0 ] || continue
@@ -150,7 +179,7 @@ if [ "$affected" -gt 0 ]; then jq -s -c 'sort_by(-.missing, .old)' "$tmp"/res/*.
 if [ -n "$JSON" ]; then
   jq -n -c --argjson checked "$checked" --argjson affected "$affected" --slurpfile files "$tmp/all.json" '{checked: $checked, affected: $affected, files: $files[0]}' > "$JSON"
 fi
-log "hunk survival: $checked file(s) of upstream's that we modified, $affected lost significant lines"
+log "hunk survival: $checked file(s) of upstream's that we modified, $affected lost significant lines, $adapted_total line(s) of ours edited in place by the merge (not lost)"
 
 # One line per file for the gate's warnings (and so the PR caveats): paths and samples are code spans, so JSX, `@name` and backticks in
 # the lines cannot become markup or a mention. The whole text stays within OUT_CAP bytes.
