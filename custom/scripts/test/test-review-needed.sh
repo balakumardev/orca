@@ -44,6 +44,7 @@ eq "a moved file is judged by its new path" "$(review_needed "$(lost '{"round":1
 R0REP='{"outcome":"clean","conflicts":[],"agent":{"rounds":[{"round":2,"mode":"repair","lost_lines":["LOST-LINES src/a.ts: restored in src/a.ts","LOST-LINES src/b.tsx: already provided by src/c.tsx"]}]}}'
 eq "a repair of round 0 that accounted for every flagged file: nothing to review" "$(review_needed "$(facts "$R0REP")" "$(gates "$HUNK_LOST")")" ""
 eq "round 0 published after its repairs lost: the flagged files are a reason" "$(review_needed "$(facts '{"outcome":"clean","conflicts":[]}')" "$(gates "$HUNK_LOST")")" "lines of our customizations are missing from a merged file and the model did not account for it: src/a.ts, src/b.tsx"
+eq "a moved file as the real gate writes it (one code span per path) is judged by its new path" "$(review_needed "$(lost '{"round":1,"lost_lines":["LOST-LINES src/new.ts: restored in src/new.ts"]}')" "$(gates '{"gates":[{"id":"hunk-survival","warnings":["`src/old.ts` -> `src/new.ts`: 3 of 3 missing"]}]}')")" ""
 eq "warnings of another gate are not" "$(review_needed "$(facts "$CLEAN")" "$(gates '{"gates":[{"id":"unit","warnings":["Not counted: 1"]}]}')")" ""
 LONG='src/main/claude-accounts/selection/claude-account-selection.ts'
 GATE_LONG="$(gates "{\"gates\":[{\"id\":\"hunk-survival\",\"warnings\":[\"\`$LONG\`: 1 of 3 missing\"]}]}")"

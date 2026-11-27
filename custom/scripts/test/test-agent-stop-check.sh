@@ -57,6 +57,7 @@ TAB="$(printf '\t')"
 install_hook() {
   rm -rf "${tmp:?}/tools" "${tmp:?}/sb/stop-hook-state" "${tmp:?}/etc"
   printf '%b' "$2" > "$out/stop-check-files.tsv"
+  printf '%b' "${3:-}" > "$out/stop-check-lost-files.txt"
   jq -n -c --arg u "$up" '{upstream_sha: $u}' > "$out/sync-facts.json"
   AGENT_SANDBOX_SUDO=none AGENT_TOOLS_DIR="$tmp/tools" AGENT_SANDBOX_DIR="$tmp/sb" AGENT_CLAUDE_MANAGED_DIR="$tmp/etc" SYNC_OUT="$out" \
     bash "$scripts/agent-sandbox.sh" install-stop-hook "$1" > "$tmp/install.json" 2> "$tmp/install.err"
@@ -65,6 +66,13 @@ install_hook() {
 run_hook() {
   h_rc=0
   h_out="$(cd / && printf '{"cwd":"/","hook_event_name":"Stop","stop_hook_active":false}' | env PATH="$stubs:$PATH" "$@" bash "$hook" 2> "$tmp/hook.err")" || h_rc=$?
+  printf '%s' "$h_out" > "$tmp/h.out"
+}
+# run_hook_msg MESSAGE [ENV=VALUE...]: a stop attempt whose JSON carries the model's last message, as the pinned CLI sends it.
+run_hook_msg() {
+  local msg="$1"; shift
+  h_rc=0
+  h_out="$(cd / && jq -n -c --arg m "$msg" '{cwd: "/", hook_event_name: "Stop", stop_hook_active: false, last_assistant_message: $m}' | env PATH="$stubs:$PATH" "$@" bash "$hook" 2> "$tmp/hook.err")" || h_rc=$?
   printf '%s' "$h_out" > "$tmp/h.out"
 }
 blocked() { [ "$h_rc" = 0 ] && jq -e '.decision == "block"' "$tmp/h.out" >/dev/null 2>&1; }
@@ -201,6 +209,39 @@ check "state records the waiver" jq -e '.waived | index("lint-caps") != null' "$
 set_tc green; run_hook
 if silent && [ "$(st .outcome)" = no-progress ]; then ok "attempt 3: with typecheck fixed the stop is allowed, as no-progress (not green)"; else bad "no-progress end: rc=$h_rc out=[$h_out] outcome $(st .outcome)"; fi
 rm -f "${repo:?}/src/big.ts"
+
+echo "group 4: the report must account for the vanished-lines entries"
+LONGA='src/main/claude-accounts/selection/claude-account-selection.ts'
+LONGB='src/renderer/src/lib/agent-session/open/open-existing-structured-session.ts'
+install_hook 1 "content${TAB}src/a.ts\n" "$LONGA\n$LONGB\n"; set_tc green
+check "the installer stages the list the report must account for" bash -c "test -s '$tmp/tools/stop-hook/lost-files.txt' && test -f '$tmp/tools/stop-hook/lost-lines-claims.sh'"
+run_hook_msg "All checks are green. Done."
+check "a final message with no LOST-LINES line is refused" blocked
+check "...and the reason names both files, the shape of the line and says why" reason_has "$LONGA" "$LONGB" 'LOST-LINES <file>: restored in' 'lost-lines'
+check "state records the group" test "$(st '(.groups | join(","))')" = lost-lines
+run_hook_msg "$(printf 'report\nLOST-LINES %s: already provided by x (renamed)\n' "$LONGA")"
+check "one file accounted for, the other not: still refused, and only the missing one is named" bash -c "jq -e --arg a '$LONGA' --arg b '$LONGB' '.reason | contains(\$b) and (contains(\$a) | not)' '$tmp/h.out' >/dev/null"
+run_hook_msg "$(printf 'LOST-LINES src/main/claude-acounts/selection/claude-acount-selection.ts: already provided by x\nLOST-LINES %s: left, because upstream dropped it\n' "$LONGB")"
+check "a path that lost letters counts, and so does any verdict (the decision is the model's; review-needed judges it): allowed" silent
+check "state: green" test "$(st .outcome)" = green
+install_hook 1 "content${TAB}src/a.ts\n" "$LONGA\n"; set_tc green
+run_hook_msg "$(printf '   LOST-LINES %s: restored in %s (x)\n' "$LONGA" "$LONGA")"
+check "a line with leading blanks is read the way agent-round.sh reads it: allowed" silent
+install_hook 1 "content${TAB}src/a.ts\n" "$LONGA\n"; set_tc green
+run_hook_msg "- \`LOST-LINES $LONGA: restored in x\`"
+check "a bullet or backticks in front hides the line from agent-round.sh, so it does not count here either: refused" blocked
+install_hook 1 "content${TAB}src/a.ts\n" "$LONGA\n"; set_tc green
+run_hook
+check "the CLI's JSON has no last_assistant_message: nothing to judge, the stop is allowed" silent
+install_hook 1 "content${TAB}src/a.ts\n" ""; set_tc green
+run_hook_msg "no LOST-LINES at all"
+check "a round with no entries is not asked for any" silent
+install_hook 1 "content${TAB}src/a.ts\n" "$LONGA\n"; set_tc green
+run_hook_msg "nothing"; run_hook_msg "nothing"
+if silent && [ "$(st .outcome)" = no-progress ]; then ok "the same refusal twice in a row is waived (no progress), so a model that will not write the line cannot loop"; else bad "waiver: rc=$h_rc out=[$h_out] outcome $(st .outcome)"; fi
+install_hook 1 "content${TAB}src/a.ts\n" "$LONGA\n"; set_tc red-in
+run_hook_msg "nothing"
+check "typecheck still comes first: a red typecheck blocks before the report is judged" reason_has typecheck
 
 echo "fail open"
 install_hook 1 "content${TAB}src/a.ts\n"; set_tc red-in
