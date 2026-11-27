@@ -194,6 +194,8 @@ if [ -s "$tmp/r1b.out/merge.bundle" ] && round r3 repair noop 3 flash r1b "$tmp/
   allowed3="$tmp/r3.out/allowed-edit-files.txt"
   check "allowed-edit-files: the moved file's new path is allowed too" test "$(tr '\n' ' ' < "$allowed3")" = "src/alpha.ts src/epsilon.ts src/gamma.ts src/zeta.ts "
   check "a removed file, fork scaffolding and a path that leaves the repository are not made editable" test -z "$(grep -E -- 'deleted.ts|CLAUDE.md|outside|escape' "$allowed3" || true)"
+  check "the stop check is told which files the report must account for: the NEW path of a moved file" test "$(cat "$tmp/r3.out/stop-check-lost-files.txt")" = "src/gamma.ts"
+  check "a round with no advisory has an empty list" test ! -s "$tmp/r2.out/stop-check-lost-files.txt"
   check "round 2 (no hunk-survival gate) has no advisory block" test -z "$(grep -F 'Advisory, not a failing check' "$tmp/r2.out/agent-prompt.txt" || true)"
 fi
 

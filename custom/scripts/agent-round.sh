@@ -123,6 +123,7 @@ cmd_prepare() {
   # The files this round may edit, for the stop check the agent runs inside (agent-stop-check.sh, installed by agent-sandbox.sh setup): the
   # list sync-merge.sh finish enforces, so the check judges exactly what can reach the candidate.
   allowed_edit_tsv "$SYNC_OUT/sync-facts.json" "$([ "$MODE" = repair ] && echo 1 || true)" "$(facts_get .upstream_sha)" > "$SYNC_OUT/stop-check-files.tsv"
+  : > "$SYNC_OUT/stop-check-lost-files.txt"
 
   # Previous check output, as data. Gate output comes from our scripts; unresolved markers come from the facts.
   check=""
@@ -148,6 +149,10 @@ $(failing_gates_block 28000 "${gate_files[@]}" | trunc_bytes 28000)"
     local advisory=""
     if [ "$MODE" = repair ] && [ "${#gate_files[@]}" -gt 0 ]; then
       advisory="$(jq -r -s '[.[].gates[]? | select(.id == "hunk-survival") | .warnings[]?] | .[]' "${gate_files[@]}" 2>/dev/null | trunc_bytes 6000)" || advisory=""
+      # The stop check (agent-stop-check.sh) keeps the model from finishing before its report has a LOST-LINES line for each of these files
+      # (the new path when upstream moved the file: the same name review-needed.sh uses). Staged next to files.tsv by agent-sandbox.sh setup.
+      jq -r -s '.[].gates[]? | select(.id == "hunk-survival") | (.warnings // [])[] | (capture("^`(?<a>[^`]+)`(?: -> `(?<b>[^`]+)`)?") // empty) | (.b // .a) | sub("^.* -> "; "")' "${gate_files[@]}" 2>/dev/null \
+        | awk 'NF && !seen[$0]++' > "$SYNC_OUT/stop-check-lost-files.txt" || : > "$SYNC_OUT/stop-check-lost-files.txt"
     fi
     if [ -n "$advisory" ]; then
       check="$check

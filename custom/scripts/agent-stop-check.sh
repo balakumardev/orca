@@ -5,6 +5,10 @@
 #   2 lint-caps         the oxlint line caps of those files (lint-caps.mjs, the same estimate as the `lint-caps` gate)
 #   3 typecheck         `pnpm tc` (skipped when the sandbox has no dependencies); only errors in files the round may edit block, because
 #                       the model cannot fix the others and a round must not burn its turns on them
+#   4 lost-lines        a repair round that was shown vanished-lines entries (lost-files.txt) must end with a report that holds a
+#                       `LOST-LINES <file>: ...` line for each of them (any verdict: the decision is the model's, review-needed.sh judges it
+#                       later). The text is the `last_assistant_message` the CLI puts in the hook's JSON; a CLI that does not send it skips the check.
+#                       Without this a small model skips the lines and a green sync PR waits for a person (v1.4.278, v1.4.280).
 # It stops at the first red group and blocks with `{"decision":"block","reason":...}` on stdout (Claude Code feeds the reason back and the
 # turn goes on); a green run prints nothing and allows the stop. A green stop check is NOT the gates: they still decide.
 #
@@ -48,6 +52,8 @@ trap on_exit EXIT
 . "$HOOK_DIR/lib.sh"
 # shellcheck source=gate-details.sh
 . "$HOOK_DIR/gate-details.sh"
+# shellcheck source=lost-lines-claims.sh
+. "$HOOK_DIR/lost-lines-claims.sh"
 
 conf_get() { awk -F= -v k="$1" '$1 == k { sub(/^[^=]*=/, ""); print; exit }' "$HOOK_DIR/hook.conf"; }
 num_or() { case "$1" in '' | *[!0-9]*) printf '%s' "$2" ;; *) printf '%s' "$1" ;; esac; }
@@ -178,10 +184,26 @@ check_typecheck() {
 $errs"
 }
 
+check_lost_lines() {
+  local claims missing
+  CHECK=pass; FAIL_TEXT=""
+  [ -s "$HOOK_DIR/lost-files.txt" ] || return 0
+  # No message in the JSON (an older CLI, or no stdin): there is nothing to judge, and a missing field is never a reason to refuse a stop.
+  if ! jq -e '(.last_assistant_message | type) == "string"' <<<"$HOOK_INPUT" >/dev/null 2>&1; then CHECK=skip; return 0; fi
+  # The same lines agent-round.sh run stores as `lost_lines`.
+  claims="$(jq -r '.last_assistant_message' <<<"$HOOK_INPUT" | LC_ALL=C tr -d '\000-\010\013\014\016-\037' | { grep -a -E '^[[:space:]]*LOST-LINES [^ ]+: ' || true; } | sed -E 's/^[[:space:]]+//')"
+  missing="$(unaccounted_files "$HOOK_DIR/lost-files.txt" <(printf '%s\n' "$claims") any)" || { CHECK=skip; return 0; }
+  if [ -n "$missing" ]; then
+    CHECK=fail
+    FAIL_TEXT="your last message has no LOST-LINES line for these files:
+$(printf '%s\n' "$missing" | sed 's/^/- /' | trunc_bytes 3000)"
+  fi
+}
+
 sig_of() { printf '%s' "$1" | cksum | tr -d ' ' ; }
 
 START="$(date +%s)"
-cat > /dev/null || true # the CLI's JSON on stdin; not used: the cwd of the session can be anywhere, the files to check are the sandbox copy's
+HOOK_INPUT="$(cat || true)" # the CLI's JSON on stdin. Only last_assistant_message is read: the cwd of the session can be anywhere, the files to check are the sandbox copy's
 REPO="$(conf_get REPO)"
 [ -n "$REPO" ] && [ -d "$REPO" ] || exit 1
 cd "$REPO"
@@ -207,7 +229,7 @@ if [ "$S_BLOCKS" -ge "$MAX_BLOCKS" ]; then allow block-cap "the limit of $MAX_BL
 if [ "$S_SPENT" -ge "$BUDGET" ]; then allow time-budget "the time budget of ${BUDGET}s for all stop checks is used up; the checks were not run"; exit 0; fi
 
 result=green
-for g in conflict_markers lint_caps typecheck; do
+for g in conflict_markers lint_caps typecheck lost_lines; do
   name="${g//_/-}"
   if jq -e --arg g "$name" '.waived | index($g)' <<<"$S_JSON" >/dev/null; then result=no-progress; continue; fi
   CHECK=pass; FAIL_TEXT=""
@@ -237,6 +259,7 @@ $FAIL_TEXT
       case "$g" in
         conflict_markers) reason="${reason}Fix each file listed (every marker line must go; delete a file only with the delete marker where the task allows it), then finish again." ;;
         lint_caps) reason="${reason}Bring each file under its cap without splitting it or dropping behaviour: merge duplicated lines and remove dead code, then run pnpm exec oxfmt --write on it. If you cannot get under the cap after an honest try, finish again unchanged and say so in your report." ;;
+        lost_lines) reason="${reason}Your report is checked by a script. Put your FINAL message (the report) in this exact shape, one line per file above, each line starting at the beginning of a line with no bullet and no backticks: LOST-LINES <file>: restored in <path> | already provided by <path> | left, because <reason>. Copy <file> letter for letter from the list above, never from memory. Read upstream's new file first and decide; do not write a line you have not checked." ;;
         typecheck) reason="${reason}Fix these errors in the files you may edit (for a missing import, find where upstream defines it), run pnpm tc again, then finish. If an error is outside what you may edit, say so in your report." ;;
       esac
       DECIDED=1

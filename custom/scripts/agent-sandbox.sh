@@ -44,8 +44,8 @@ as_agent() { # CMD...: run as the unprivileged user with an empty environment bu
 # The stop check (agent-stop-check.sh): a command hook that Claude Code runs when the agent tries to end its turn and that refuses the stop
 # while a cheap deterministic check is red (its own bounds are in that script). Files and registration are ROOT-OWNED, so the agent (another
 # OS user, no sudo) can neither edit the script, its inputs nor the registration; only its state directory is the agent's.
-#   - the hook directory $AGENT_TOOLS_DIR/stop-hook: the script, lib.sh, gate-details.sh, lint-caps.mjs, files.tsv (the files the round may
-#     edit, written by agent-round.sh prepare) and hook.conf (state dir, whether dependencies exist, the upstream commit);
+#   - the hook directory $AGENT_TOOLS_DIR/stop-hook: the script, lib.sh, gate-details.sh, lint-caps.mjs, lost-lines-claims.sh, files.tsv (the files the round may
+#     edit, written by agent-round.sh prepare), lost-files.txt (the files the round's report must account for) and hook.conf (state dir, whether dependencies exist, the upstream commit);
 #   - the registration: $AGENT_CLAUDE_MANAGED_DIR/managed-settings.json. NOT `--settings`: the run uses --safe-mode, which switches off every
 #     hook that comes from `--settings` (measured with the pinned CLI, 2.1.325), while the managed settings, which --safe-mode documents as
 #     still applying, do run hooks.
@@ -56,8 +56,9 @@ install_stop_hook_core() { # DEPS(0|1): prints the stop_hook object, or the reas
   case "$hook_dir$state_dir$settings" in *[!A-Za-z0-9_./-]*) echo "an unsafe character in a path"; return 1 ;; esac
   if as_root test -e "$settings"; then echo "a managed settings file already exists at $settings"; return 1; fi
   stage="$(mktemp -d)"
-  for f in agent-stop-check.sh lib.sh gate-details.sh lint-caps.mjs; do cp "$SCRIPTS_HERE/$f" "$stage/$f" || { echo "cannot read $f"; return 1; }; done
+  for f in agent-stop-check.sh lib.sh gate-details.sh lint-caps.mjs lost-lines-claims.sh; do cp "$SCRIPTS_HERE/$f" "$stage/$f" || { echo "cannot read $f"; return 1; }; done
   if [ -s "$SYNC_OUT/stop-check-files.tsv" ]; then cp "$SYNC_OUT/stop-check-files.tsv" "$stage/files.tsv"; else : > "$stage/files.tsv"; fi
+  if [ -s "$SYNC_OUT/stop-check-lost-files.txt" ]; then cp "$SYNC_OUT/stop-check-lost-files.txt" "$stage/lost-files.txt"; else : > "$stage/lost-files.txt"; fi
   up="$(jq -r '.upstream_sha // ""' "$SYNC_OUT/sync-facts.json" 2>/dev/null || true)"
   [[ "$up" =~ ^[0-9a-f]{40}$ ]] || up=""
   # RUN_AS: the managed settings apply to every claude on the machine, so the hook does nothing unless it runs as the sandbox user (empty when
