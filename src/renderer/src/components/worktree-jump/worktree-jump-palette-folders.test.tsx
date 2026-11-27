@@ -40,7 +40,14 @@ function installFolderBridge(entries: FolderSearchEntry[]): void {
 
 function usePalette() {
   const createLookupGuard = useMemo(() => createWorktreePaletteRequestGuard(), [])
-  return useWorktreeJumpPaletteController({ visible: true, lingering: true, createLookupGuard })
+  const revealResultsNow = useMemo(() => () => {}, [])
+  return useWorktreeJumpPaletteController({
+    visible: true,
+    lingering: true,
+    resultsReady: true,
+    revealResultsNow,
+    createLookupGuard
+  })
 }
 
 /** What the palette shows and arms for Enter after the query settles. */

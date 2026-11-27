@@ -142,9 +142,12 @@ export function replaceProjectCreateRuntime(): void {
 
 export function usePalette() {
   const createLookupGuard = useMemo(() => createWorktreePaletteRequestGuard(), [])
+  const revealResultsNow = useMemo(() => () => {}, [])
   const controller = useWorktreeJumpPaletteController({
     visible: true,
     lingering: true,
+    resultsReady: true,
+    revealResultsNow,
     createLookupGuard
   })
   return {

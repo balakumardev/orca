@@ -14,6 +14,7 @@ import {
   waitForActiveWorktree,
   waitForSessionReady
 } from './desktop/renderer-probes/store'
+import { clickRow } from './helpers/activity-follow-agents'
 import {
   readActiveWorkspaceRowIds,
   readRenderedAgentOrder,
@@ -79,7 +80,6 @@ test.describe('Activity pane shortcuts', () => {
     await expect(threadRows(orcaPage)).toHaveCount(3)
     const order = await readRenderedAgentOrder(orcaPage, agents)
     expect([...order].sort()).toEqual([0, 1, 2])
-    await focusActiveTerminalInput(orcaPage)
 
     const expectSelected = async (position: number): Promise<void> => {
       const agentIndex = order[position]
@@ -98,7 +98,12 @@ test.describe('Activity pane shortcuts', () => {
       })
     }
 
-    // No selection yet: previous starts at the last row, then next wraps to the first.
+    // Activity highlights the focused pane's agent as soon as it opens, so pick the first row
+    // explicitly: previous then wraps to the last row, and next wraps back to the first.
+    await clickRow(orcaPage, agents[order[0]])
+    await expect.poll(() => readSelectedAgentIndex(orcaPage, agents)).toBe(order[0])
+    await focusActiveTerminalInput(orcaPage)
+
     await orcaPage.keyboard.press(PREVIOUS_CHORD)
     await expectSelected(2)
     await orcaPage.keyboard.press(NEXT_CHORD)

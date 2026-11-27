@@ -86,7 +86,8 @@ function withPaneLiveTitles(
     const paneLiveTitle = resolveAgentRowPaneLiveTitle(
       layouts.terminalLayoutsByTabId[tabId],
       layouts.runtimePaneTitlesByTabId[tabId],
-      parsePaneKey(thread.paneKey)?.leafId
+      parsePaneKey(thread.paneKey)?.leafId,
+      undefined
     )
     // Same source as the build: the live turn names the row, else its newest event does.
     const paneTitle =

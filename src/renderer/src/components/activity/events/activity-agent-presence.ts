@@ -47,7 +47,8 @@ function terminalPresenceAgent(args: {
   if (!live) {
     return null
   }
-  const paneTitle = resolveAgentRowPaneLiveTitle(layout, args.titles, pane.leafId)
+  // Presence rows are keyed by stable leaf, not a runtime slot, so the leaf lookup applies.
+  const paneTitle = resolveAgentRowPaneLiveTitle(layout, args.titles, pane.leafId, undefined)
   // An unknown split title must not borrow a sibling's shell title and retire confirmed presence.
   const title =
     paneTitle === null

@@ -6,6 +6,8 @@ import type {
   StructuredSessionOpenSource,
   StructuredSessionOpenResult,
   StructuredSessionOpenDeps,
+  StructuredSessionOpenInventoryRecheck,
+  StructuredSessionOpenTarget,
   StructuredSessionOpenTab
 } from '../../../../../shared/agent-session/view/open-structured-agent-session'
 import {
@@ -14,40 +16,51 @@ import {
 } from '../structured-agent-session-tab-activation'
 import { useAppStore } from '@/store/index'
 import { runtimeEnvironmentIdOrLocalUnlessTwin } from '../../workspace/ownership/worktree-runtime-owner'
-import { callRuntimeRpc } from '@/runtime/rpc/calls/runtime-rpc-call'
 import { runtimeTargetForOwnerEnvironment } from '@/runtime/rpc/targets/runtime-client-target'
 import { executionHostIdForStructuredTarget } from '@/runtime/native-chat/session-ownership/structured-agent-session-owner'
-import type { OrchestrationPartyLocationResult } from '../../../../../shared/orchestration/orchestration-caller-status'
 import type { RuntimeClientTarget } from '../../../../../shared/remote-runtime/host-catalog/runtime-client-target'
+import { callRuntimeRpc } from '@/runtime/rpc/calls/runtime-rpc-call'
+import type { OrchestrationPartyLocationResult } from '../../../../../shared/orchestration/orchestration-caller-status'
 import {
-  STRUCTURED_SESSION_RESTORE_TIMEOUT_MS,
+  refreshStructuredSessionTabs as refreshGuarded,
+  revealStructuredSession as revealGuarded
+} from './structured-session-host-requests'
+import {
   refreshStructuredSessionTabs,
   revealStructuredSession,
-  withStructuredSessionRestoreTimeout,
-  type StructuredSessionRevealOutcome
-} from './structured-session-host-requests'
+  STRUCTURED_SESSION_RESTORE_TIMEOUT_MS,
+  type StructuredSessionRevealOutcome,
+  withStructuredSessionRestoreTimeout
+} from './structured-session-restore'
+import { pairedBotThreadRecovery } from './paired-bot-thread-recovery'
 
-export { revealStructuredSession, type StructuredSessionRevealOutcome }
+/** A guarded restore keeps the search-selected runtime through its queued host requests. */
+type StructuredSessionOpenGuard = {
+  current?: () => boolean
+  expectedEnvironmentRuntimeId?: string
+}
 
 export type StructuredSessionOpenAdapterDeps = {
   activate: typeof activateStructuredAgentSessionById
+  locate?: StructuredSessionOpenDeps['locate']
   tabs: (
     target: { sessionId: string; worktreeId: string },
     owner: RuntimeClientTarget
   ) => readonly StructuredSessionOpenTab[]
   refresh: (
-    worktreeId: string,
-    target?: RuntimeClientTarget,
-    current?: () => boolean,
-    expectedEnvironmentRuntimeId?: string
+    target: StructuredSessionOpenTarget,
+    owner: RuntimeClientTarget,
+    guard?: StructuredSessionOpenGuard
   ) => Promise<void>
-  reveal: (target: {
-    worktreeId: string
-    sessionId: string
-    target?: RuntimeClientTarget
-    current?: () => boolean
-    expectedEnvironmentRuntimeId?: string
-  }) => Promise<StructuredSessionRevealOutcome>
+  reveal: (
+    target: {
+      worktreeId: string
+      sessionId: string
+      target?: RuntimeClientTarget
+    } & StructuredSessionOpenGuard
+  ) => Promise<StructuredSessionRevealOutcome | StructuredSessionOpenInventoryRecheck>
+  current?: () => boolean
+  signal?: AbortSignal
 }
 
 const defaultDeps: StructuredSessionOpenAdapterDeps = {
@@ -60,8 +73,65 @@ const defaultDeps: StructuredSessionOpenAdapterDeps = {
     })
     return tab ? [{ id: tab.id, sessionId: tab.entityId, agent: tab.agentSessionAgent }] : []
   },
-  refresh: refreshStructuredSessionTabs,
-  reveal: revealStructuredSession
+  refresh: async (target, owner, guard) =>
+    guard?.current || guard?.expectedEnvironmentRuntimeId
+      ? refreshGuarded(target.worktreeId, owner, guard.current, guard.expectedEnvironmentRuntimeId)
+      : refreshStructuredSessionTabs(target.worktreeId, owner),
+  reveal: async (target) =>
+    target.current || target.expectedEnvironmentRuntimeId
+      ? revealGuarded(target)
+      : revealStructuredSession(target)
+}
+
+export function pairedBotThreadOpenDeps(
+  linkedWorkspaceId: string,
+  linkedSessionId: string,
+  target: RuntimeClientTarget,
+  signal: AbortSignal,
+  current: () => boolean,
+  activate: StructuredSessionOpenAdapterDeps['activate']
+): StructuredSessionOpenAdapterDeps {
+  const recovery =
+    target.kind === 'environment'
+      ? pairedBotThreadRecovery(target, linkedWorkspaceId, linkedSessionId, signal)
+      : undefined
+  return {
+    ...defaultDeps,
+    current,
+    signal,
+    activate,
+    locate: recovery?.locate,
+    reveal: recovery?.reveal ?? ((target) => revealStructuredSession({ ...target, signal })),
+    refresh: async ({ worktreeId, sessionId }, owner) => {
+      if (await recovery?.resumePending()) {
+        return
+      }
+      if (!current()) {
+        return
+      }
+      if (owner.kind === 'environment' && worktreeId === linkedWorkspaceId) {
+        const timeout = new AbortController()
+        const requestSignal = AbortSignal.any([signal, timeout.signal])
+        await withStructuredSessionRestoreTimeout(
+          import('@/runtime/web-session-tabs-sync/inventory/paired-chat-tab-reply').then(
+            ({ readPairedChatTab }) =>
+              readPairedChatTab({
+                environmentId: owner.environmentId,
+                worktreeId,
+                sessionId,
+                timeoutMs: STRUCTURED_SESSION_RESTORE_TIMEOUT_MS,
+                minimumReceivedFrame: recovery?.minimumInventoryFrame(),
+                signal: requestSignal,
+                current
+              })
+          ),
+          { onTimeout: () => timeout.abort() }
+        )
+      } else {
+        await defaultDeps.refresh({ worktreeId, sessionId }, owner)
+      }
+    }
+  }
 }
 
 export type StructuredSessionOpenOutcome = 'activated' | 'gone' | 'host-cannot-open' | 'unavailable'
@@ -81,24 +151,21 @@ export function structuredSessionOpenOutcome(
   return 'unavailable'
 }
 
-type DesktopInteractionOptions = {
+type DesktopInteractionOptions = StructuredSessionOpenGuard & {
   target?: RuntimeClientTarget
   deps?: StructuredSessionOpenAdapterDeps
   locate?: StructuredSessionOpenDeps['locate']
   initialize?: () => boolean
-  current?: () => boolean
-  expectedEnvironmentRuntimeId?: string
   present: (result: StructuredSessionOpenResult, owner: RuntimeClientTarget) => void
   onError?: () => void
 }
 
-const activationsInFlight = new Map<
-  string,
-  {
-    promise: Promise<StructuredSessionOpenResult>
-    current?: () => boolean
-  }
->()
+type InFlightActivation = {
+  promise: Promise<StructuredSessionOpenResult>
+  current?: () => boolean
+}
+
+const activationsInFlight = new Map<string, InFlightActivation>()
 
 /** Admission precedes every owner effect; joiners only observe the rich settlement. */
 export async function openDesktopStructuredSessionInteraction(
@@ -126,13 +193,14 @@ export async function openDesktopStructuredSessionInteraction(
     throw error
   }
   const key =
-    source.kind === 'history'
+    source.kind === 'history' && !options.deps?.signal
       ? `${executionHostIdForStructuredTarget(owner)}\0${source.structuredSession.workspaceId}\0${source.structuredSession.sessionId}`
       : undefined
   const pending = key === undefined ? undefined : activationsInFlight.get(key)
   if (pending && pending.current?.() !== false) {
     return pending.promise
   }
+  const deps = options.deps ?? defaultDeps
   let initialized = true
   const execute = async (): Promise<StructuredSessionOpenResult> => {
     if (options.current?.() === false) {
@@ -140,14 +208,7 @@ export async function openDesktopStructuredSessionInteraction(
     }
     initialized = options.initialize?.() !== false
     return initialized
-      ? executeDesktopStructuredSession(
-          source,
-          owner,
-          options.deps ?? defaultDeps,
-          options.locate,
-          options.current,
-          options.expectedEnvironmentRuntimeId
-        )
+      ? executeDesktopStructuredSession(source, owner, deps, options)
       : {
           kind: 'failed' as const,
           failure: { reason: 'unreachable' as const, beforeEffects: true }
@@ -159,7 +220,7 @@ export async function openDesktopStructuredSessionInteraction(
         if (options.current?.() === false) {
           return { kind: 'superseded' as const }
         }
-        if (initialized) {
+        if (initialized && (deps.current?.() ?? true)) {
           options.present(result, owner)
         }
         return result
@@ -198,15 +259,12 @@ async function executeDesktopStructuredSession(
   source: StructuredSessionOpenSource,
   owner: RuntimeClientTarget,
   deps: StructuredSessionOpenAdapterDeps,
-  locate?: StructuredSessionOpenDeps['locate'],
-  current?: () => boolean,
-  expectedEnvironmentRuntimeId?: string
+  options: DesktopInteractionOptions
 ): Promise<StructuredSessionOpenResult> {
-  const beforeSend = () => {
-    if (current?.() === false) {
-      throw new Error('structured_session_host_changed')
-    }
-  }
+  const { locate, current, expectedEnvironmentRuntimeId } = options
+  // Either the caller's own guard or the adapter's fences effects on a retired pairing.
+  const stillCurrent = deps.current ?? current
+  const guard: StructuredSessionOpenGuard = { current: stillCurrent, expectedEnvironmentRuntimeId }
   const party =
     (method: 'orchestration.partyLocation' | 'orchestration.partyOpen') =>
     async (address: string, messageIds: readonly string[]) => {
@@ -218,37 +276,35 @@ async function executeDesktopStructuredSession(
             { address, ...(messageIds.length ? { messageIds } : {}) },
             {
               timeoutMs: STRUCTURED_SESSION_RESTORE_TIMEOUT_MS,
-              // Unguarded callers retain their existing RPC options.
-              ...(current ? { beforeSend } : {}),
+              signal: deps.signal,
+              // The selected runtime and its pairing both fence a request queued behind a restart.
+              beforeSend: () => {
+                if (stillCurrent?.() === false) {
+                  throw new Error('structured_session_host_changed')
+                }
+              },
               ...(expectedEnvironmentRuntimeId ? { expectedEnvironmentRuntimeId } : {})
             }
-          )
+          ),
+          { signal: deps.signal }
         )
       } catch (error) {
         return structuredSessionOpenFailure(error)
       }
     }
   return openStructuredAgentSession(source, {
-    current,
-    locate: locate ?? party('orchestration.partyLocation'),
+    current: stillCurrent,
+    locate: locate ?? deps.locate ?? party('orchestration.partyLocation'),
     ...(locate ? {} : { open: party('orchestration.partyOpen') }),
     tabs: (target) => deps.tabs(target, owner),
     activate: (tab, target) =>
       deps
         .tabs(target, owner)
         .some((row) => row.id === tab.id && row.sessionId === target.sessionId) &&
-      deps.activate({ ...target, target: owner, current, expectedEnvironmentRuntimeId }),
-    refresh: (target) =>
-      current?.() === false
-        ? Promise.resolve()
-        : deps.refresh(target.worktreeId, owner, current, expectedEnvironmentRuntimeId),
+      deps.activate({ ...target, target: owner, ...guard }),
+    refresh: (target) => deps.refresh(target, owner, guard),
     reveal: async (target) => {
-      const outcome = await deps.reveal({
-        ...target,
-        target: owner,
-        current,
-        expectedEnvironmentRuntimeId
-      })
+      const outcome = await deps.reveal({ ...target, target: owner, ...guard })
       return typeof outcome === 'object'
         ? outcome
         : {

@@ -39,7 +39,8 @@ describe('terminal history owner', () => {
 
     expect(startup.command).not.toContain('desktop-claude')
     expect(startup.launchConfig?.agentArgs).toBe('--model remote-model')
-    expect(startup.env).toEqual({})
+    // Upstream suppresses claude's update screen on every resume; desktop env defaults stay off.
+    expect(startup.env).toEqual({ DISABLE_AUTOUPDATER: '1' })
   })
 
   it('does not send a preparing resume after the captured host retires', async () => {
