@@ -190,7 +190,8 @@ export function buildAgentPaneThreads(
     return resolveAgentRowPaneLiveTitle(
       args.terminalLayoutsByTabId?.[tabId],
       args.runtimePaneTitlesByTabId?.[tabId],
-      parsePaneKey(paneKey)?.leafId
+      parsePaneKey(paneKey)?.leafId,
+      undefined
     )
   }
   // Panes list in first-event order, then live-only panes in live order.

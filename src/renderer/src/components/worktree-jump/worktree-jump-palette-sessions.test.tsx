@@ -76,7 +76,13 @@ function setSearchEnabled(enabled: boolean): void {
 
 function usePalette() {
   const createLookupGuard = useMemo(() => createWorktreePaletteRequestGuard(), [])
-  return useWorktreeJumpPaletteController({ visible: true, lingering: true, createLookupGuard })
+  return useWorktreeJumpPaletteController({
+    visible: true,
+    lingering: true,
+    resultsReady: true,
+    revealResultsNow: () => {},
+    createLookupGuard
+  })
 }
 
 const settle = (ms: number) =>

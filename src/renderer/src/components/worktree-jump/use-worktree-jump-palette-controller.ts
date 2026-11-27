@@ -25,13 +25,17 @@ import { useMemo } from 'react'
 export function useWorktreeJumpPaletteController({
   visible,
   lingering,
+  resultsReady,
+  revealResultsNow,
   createLookupGuard
 }: {
   visible: boolean
   lingering: boolean
+  resultsReady: boolean
+  revealResultsNow: () => void
   createLookupGuard: WorktreePaletteRequestGuard
 }) {
-  const storeState = useWorktreeJumpPaletteStoreState({ visible, lingering })
+  const storeState = useWorktreeJumpPaletteStoreState({ visible, lingering, resultsReady })
   const localState = useWorktreeJumpPaletteLocalState({ createLookupGuard, visible })
   // Showing only bots, every other section keeps the inputs it had, so none of its work reruns.
   const scoped = localState.scope === 'bots'
@@ -189,6 +193,7 @@ export function useWorktreeJumpPaletteController({
     value: localState.query
   })
   const createAction = useWorktreeJumpPaletteCreateAction({
+    revealResultsNow,
     ...storeState,
     ...localState,
     ...filter,

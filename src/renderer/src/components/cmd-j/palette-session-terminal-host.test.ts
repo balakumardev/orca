@@ -39,7 +39,9 @@ describe('terminal history owner', () => {
 
     expect(startup.command).not.toContain('desktop-claude')
     expect(startup.launchConfig?.agentArgs).toBe('--model remote-model')
-    expect(startup.env).toEqual({})
+    // Upstream v1.4.280 suppresses every agent's startup update prompt on resume; the
+    // desktop-only env must still not be borrowed.
+    expect(startup.env).toEqual({ DISABLE_AUTOUPDATER: '1' })
   })
 
   it('does not send a preparing resume after the captured host retires', async () => {

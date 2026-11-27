@@ -98,21 +98,23 @@ test.describe('Activity pane shortcuts', () => {
       })
     }
 
-    // No selection yet: previous starts at the last row, then next wraps to the first.
+    // Upstream keeps the new split's leaf active once its shell binds, so the list already
+    // follows the focused (last) row; the chords walk from there and wrap at both ends.
+    await expectSelected(2)
     await orcaPage.keyboard.press(PREVIOUS_CHORD)
+    await expectSelected(1)
+    await orcaPage.keyboard.press(NEXT_CHORD)
     await expectSelected(2)
     await orcaPage.keyboard.press(NEXT_CHORD)
     await expectSelected(0)
     await orcaPage.keyboard.press(NEXT_CHORD)
     await expectSelected(1)
-    await orcaPage.keyboard.press(NEXT_CHORD)
-    await expectSelected(2)
-    await orcaPage.keyboard.press(PREVIOUS_CHORD)
-    await expectSelected(1)
     await orcaPage.keyboard.press(PREVIOUS_CHORD)
     await expectSelected(0)
     await orcaPage.keyboard.press(PREVIOUS_CHORD)
     await expectSelected(2)
+    await orcaPage.keyboard.press(PREVIOUS_CHORD)
+    await expectSelected(1)
   })
 
   test('the workspace list follows the agent the chords select', async ({ orcaPage }) => {

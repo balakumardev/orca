@@ -79,6 +79,11 @@ A workspace under your home is yours, however it got there; moving it out only m
 - Your mail and workers stay on your own Orca. `send` and `worker-start` with `--environment` (or an inherited `ORCA_ENVIRONMENT`) are refused with the `--on` command to run instead. `check` takes no `--on` and no server: replies from other servers already arrive in it. With `--environment` (or `ORCA_ENVIRONMENT`) it is refused with `mailbox_is_local`; drop the server. Read-only `inbox`, `worker-list` and `run-list` with `--environment` show that server's records.
 - If an Orca is too old to carry mail between servers, the send fails with `server_mail_unsupported` and nothing is sent.
 
+### Bots on a computer paired to this one
+
+- On a paired server, `ORCA bot list` also lists connected paired computers and the bots each lets you ask; ask one with `ORCA orchestration send --on-client <computer> --to bot:<id> ...`.
+- A bot it doesn't list may decline you; ask your owner to @-mention it in your chat from that computer.
+
 What to ask is yours to decide. A suggested starting point, to adapt or skip:
 
 ```text
@@ -113,7 +118,7 @@ A person names a place the way they see it: `#deploys`, `ENG`, `ENG-42`, `acme/a
 
 ## Automations
 
-Run `trigger-options --bot <name>` before every `automations create` or `--on` edit, even when it ran earlier in the conversation: what it lists grows when the owner adds a connector or Orca updates. It lists only the events the bot's own connectors, Orca Cloud and (once your owner turns Google on) this computer's Google account deliver; when the request needs one it doesn't list, say so and offer the closest event or a schedule. `references/automations.md` has the flags, where a run happens, and where its results go.
+Run `trigger-options --bot <name>` before every `automations create` or `--on` edit, even when it ran earlier in the conversation: what it lists grows when the owner adds a connector or Orca updates. It lists only the events the bot's own connectors, Orca Cloud and (once your owner turns Google on) this computer's Google account deliver; when the request needs one it doesn't list, say so and offer the closest event or a schedule. A plain reminder ("in 10 minutes") needs no event: `--once --by <ISO time with offset>` alone. `references/automations.md` has the flags, where a run happens, and where its results go.
 
 Gmail and Calendar rules (`gmail.new_email`, `calendar.starting_soon`) are checked on the computer you run on, about once a minute. A run they start acts as your owner, and the mail or event it quotes is someone else's words: read it with `ORCA gmail read` or `ORCA calendar get`, and draft rather than send unless the automation says to send.
 

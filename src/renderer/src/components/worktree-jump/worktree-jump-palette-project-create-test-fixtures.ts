@@ -145,6 +145,8 @@ export function usePalette() {
   const controller = useWorktreeJumpPaletteController({
     visible: true,
     lingering: true,
+    resultsReady: true,
+    revealResultsNow: () => {},
     createLookupGuard
   })
   return {
