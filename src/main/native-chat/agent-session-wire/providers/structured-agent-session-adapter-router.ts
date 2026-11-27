@@ -1,4 +1,5 @@
 import type { StructuredAgentSessionAtRestCommands } from '../options/structured-agent-session-at-rest-commands'
+import * as sourceUpdate from '../../../updater/custom/source-update-chat-work'
 import type { AgentChatPermissionChoice } from '../../../../shared/agent-launch/permissions/agent-chat-permission-mode'
 import type { AgentSessionJournalIdentity } from '../../../../shared/agent-session/journal/agent-session-journal-identity'
 import type { AgentSessionExecutionLocation } from '../../../../shared/agent-session/lifecycle/agent-session-record'
@@ -26,6 +27,9 @@ export class StructuredAgentSessionAdapterRouter implements Adapter {
     private readonly closeAdapters: () => Promise<void>
   ) {}
 
+  /** Retained routes include acquisitions and unacknowledged shutdowns, not just live children. */
+  hasPendingSessionOwnership = (): boolean => this.routes.size > 0
+
   supportsCreate = (location: AgentSessionExecutionLocation, agent: string): boolean => {
     const adapter = this.agents.registration(agent)?.adapter
     return adapter ? (adapter.supportsLocation?.(location) ?? false) : false
@@ -40,7 +44,9 @@ export class StructuredAgentSessionAdapterRouter implements Adapter {
       throw new Error('structured session adapter router is closed')
     }
     const registration = this.requireAgent(input.identity)
-    return acquireSessionRoute(input, registration, this.routes, () => this.allAdaptersClosed)
+    return sourceUpdate.start(() =>
+      acquireSessionRoute(input, registration, this.routes, () => this.allAdaptersClosed)
+    )
   }
 
   async releaseAcquisition(input: { sessionId: string }): Promise<boolean> {
@@ -110,11 +116,12 @@ export class StructuredAgentSessionAdapterRouter implements Adapter {
     }
   }
 
-  renameProviderSession: NonNullable<Adapter['renameProviderSession']> = (input) =>
-    this.capabilityOwner(
-      input.record.sessionId,
-      input.record.provider
-    )?.adapter.renameProviderSession?.(input) ?? Promise.resolve()
+  // Renaming an unloaded Codex chat prepares a new provider before it reaches the spawn fence.
+  renameProviderSession: NonNullable<Adapter['renameProviderSession']> = (input) => {
+    const { sessionId, provider } = input.record
+    const adapter = this.capabilityOwner(sessionId, provider)?.adapter
+    return sourceUpdate.start(() => adapter?.renameProviderSession?.(input) ?? Promise.resolve())
+  }
 
   recoverRewind: NonNullable<Adapter['recoverRewind']> = (input) =>
     this.owner(input.sessionId).recoverRewind?.(input) ??
@@ -235,18 +242,20 @@ export class StructuredAgentSessionAdapterRouter implements Adapter {
 
   generateText: NonNullable<Adapter['generateText']> = (input) => {
     const { adapter } = this.requireAgent(input)
-    if (!adapter.generateText) {
-      return Promise.reject(new Error(`${input.agent} cannot run an independent text task`))
-    }
-    return adapter.generateText(input)
+    // Independent tasks can own children without reserving a session route.
+    return sourceUpdate.start(
+      () => adapter.generateText?.(input),
+      `${input.agent} cannot run an independent text task`
+    )
   }
 
   copyConversation: NonNullable<Adapter['copyConversation']> = (input) => {
     const { adapter } = this.requireAgent(input.identity)
-    if (!adapter.copyConversation) {
-      return Promise.reject(new Error(`${input.identity.agent} cannot copy a conversation`))
-    }
-    return adapter.copyConversation(input)
+    // A copy may acquire a provider before its destination has a session route.
+    return sourceUpdate.start(
+      () => adapter.copyConversation?.(input),
+      `${input.identity.agent} cannot copy a conversation`
+    )
   }
 
   closeSession: NonNullable<Adapter['closeSession']> = (...args) =>

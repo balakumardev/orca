@@ -8,10 +8,7 @@ import {
   type InstalledRuntime
 } from './structured-agent-session-runtime-teardown'
 import type { StructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/host/structured-agent-session-host'
-import {
-  getStructuredAgentSessionHost,
-  setStructuredAgentSessionHost
-} from '../../../native-chat/agent-session-wire/host/structured-agent-session-registry'
+import { setStructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/host/structured-agent-session-registry'
 import { stopAgentSessionAttachments } from './structured-agent-session-attachment-wiring'
 import {
   closeAgentSessionRecordStoreDatabase,
@@ -25,6 +22,7 @@ import {
 } from '../../../native-chat/agent-session-wire/host/structured-agent-session-logger'
 import { migrateLegacyNativeChatVisualsFolders } from '../../../native-chat/conversation-files/native-chat-scratch-folder-migration'
 import { assertSourceUpdateSessionStartAllowed } from '../../../updater/custom/source-update-session-admission'
+import { pending as hasPendingChatWork } from '../../../updater/custom/source-update-chat-work'
 
 import type { StructuredAgentSessionRuntimeDeps } from './structured-agent-session-runtime-contract'
 
@@ -34,11 +32,17 @@ import {
 } from '../model-catalog/structured-agent-model-catalog-wiring'
 
 let installing: Promise<InstalledRuntime> | null = null
+let installedRuntime: InstalledRuntime | null = null
 let stopping: Promise<void> | null = null
 
-/** An installed Chat host can start children internally; defer even when its children are idle. */
+/** A resolved install promise is not work; an empty host is safe while provider starts are fenced. */
 export function hasStructuredAgentSessionProcesses(): boolean {
-  return stopping !== null || installing !== null || getStructuredAgentSessionHost() !== null
+  return (
+    stopping !== null ||
+    hasPendingChatWork() ||
+    (installing !== null && installedRuntime === null) ||
+    (installedRuntime !== null && installedRuntime.hasSourceUpdateWork?.() !== false)
+  )
 }
 
 export const CLAUDE_STRUCTURED_AUTH_POLICY_REQUIRED =
@@ -54,19 +58,26 @@ export const STRUCTURED_AGENT_SESSION_LOGGER_REQUIRED =
 export function ensureStructuredAgentSessionHost(
   deps: StructuredAgentSessionRuntimeDeps | (() => StructuredAgentSessionRuntimeDeps)
 ): Promise<StructuredAgentSessionHost> {
-  // With no host admitted before the census, internal Chat starts cannot race a source handoff.
+  // Provider acquisition also checks this gate when reusing an already-installed host.
   assertSourceUpdateSessionStartAllowed()
   if (stopping) {
     return stopping.then(() => ensureStructuredAgentSessionHost(deps))
   }
   // A failed open must not poison the slot forever — the next call retries.
   if (!installing) {
-    const pending = install(typeof deps === 'function' ? deps() : deps).catch((error) => {
-      if (installing === pending) {
-        installing = null
-      }
-      throw error
-    })
+    const pending = install(typeof deps === 'function' ? deps() : deps)
+      .then((runtime) => {
+        if (installing === pending) {
+          installedRuntime = runtime
+        }
+        return runtime
+      })
+      .catch((error) => {
+        if (installing === pending) {
+          installing = null
+        }
+        throw error
+      })
     installing = pending
   }
   return installing.then((installed) => installed.host)
@@ -100,6 +111,7 @@ async function finishStop(trigger: AgentSessionResumeTrigger): Promise<void> {
   stopPRWatchRuntime()
   const pending = installing
   installing = null
+  installedRuntime = null
   setStructuredAgentSessionHost(null)
   stopAgentSessionAttachments()
   const outstanding = new Set<InstalledRuntime>()

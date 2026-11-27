@@ -322,6 +322,12 @@ done
         prompt: 'before-update'
       })
     const before = await client.call('status.get')
+    // A read initializes Chat without starting a provider; that alone must not veto an update.
+    const visual = await client.call('agentSession.readVisual', {
+      sessionId: randomUUID(),
+      file: 'chart.html'
+    })
+    expect(visual.result).toEqual({ ok: false, error: 'session_not_found' })
     const firstProcess = first.app.process()
     const response = await client.call<SourceUpdateHandoffResult>(
       'updater.quitForSourceUpdate',

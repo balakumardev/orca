@@ -1,4 +1,5 @@
 import { runKeyedSerializedOperation } from '../../../../shared/concurrency/keyed-serialized-operations'
+import { track } from '../../../updater/custom/source-update-chat-work'
 import type { AgentSessionExecutionLocation } from '../../../../shared/agent-session/lifecycle/agent-session-record'
 
 export class StructuredAgentSessionTaskQueue {
@@ -13,7 +14,8 @@ export class StructuredAgentSessionTaskQueue {
   >()
 
   serialize<T>(sessionId: string, task: () => Promise<T>): Promise<T> {
-    return runKeyedSerializedOperation(this.chains, sessionId, task)
+    // Queued preparation must block a source update before it reaches provider acquisition.
+    return track(runKeyedSerializedOperation(this.chains, sessionId, task))
   }
 
   /** Own preparation through founding separately from the destination's journal mutations. */
@@ -32,6 +34,8 @@ export class StructuredAgentSessionTaskQueue {
     operation: Promise<T>,
     pending?: { sessionId: string; location: AgentSessionExecutionLocation }
   ): Promise<T> {
+    // Attaches also run outside the per-conversation queue.
+    track(operation)
     this.attaching.add(operation)
     if (pending) {
       this.pendingLocations.set(operation, pending)
