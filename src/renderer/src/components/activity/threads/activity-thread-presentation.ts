@@ -23,7 +23,11 @@ import type {
 } from '../../../../../shared/agent-status/contracts/agent-status-types'
 import type { TerminalTab } from '../../../../../shared/workspace-layout/terminal-tab-types'
 import { isHistoricalActivityState } from '../events/activity-event-state'
-import { isFailedLiveMainAgent, outstandingInputState } from './activity-thread-idle-presence'
+import {
+  isFailedLiveMainAgent,
+  outstandingInputState,
+  threadShowsLiveState
+} from './activity-thread-idle-presence'
 import type {
   ActivityEvent,
   ActivityLiveAgentState,
@@ -173,7 +177,7 @@ export function activityThreadStatusId(thread: AgentPaneThread): ActivityThreadS
   const state = threadCurrentState(thread) ?? 'done'
   const verdictEntry = threadVerdictEntry(thread)
   const verdictDot = verdictEntry ? agentVerdictDisplayMark(verdictEntry) : null
-  if (!thread.currentAgentState && state === 'done' && verdictDot) {
+  if (!threadShowsLiveState(thread) && state === 'done' && verdictDot) {
     return verdictDot
   }
   return state
@@ -195,7 +199,7 @@ function threadCurrentState(
 ): ActivityLiveAgentState | AgentStatusState | null {
   return (
     outstandingInputState(thread) ??
-    thread.currentAgentState ??
+    (threadShowsLiveState(thread) ? thread.currentAgentState : null) ??
     paneActivityEntry(thread)?.state ??
     thread.latestEvent?.state ??
     null

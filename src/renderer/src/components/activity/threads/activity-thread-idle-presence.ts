@@ -11,6 +11,16 @@ export function isFailedLiveMainAgent(thread: AgentPaneThread): boolean {
   )
 }
 
+/** Idle presence must not hide a finished turn nobody has read yet; once it is read, the thread reads Idle. */
+function idlePresenceYieldsToUnreadFinish(thread: AgentPaneThread): boolean {
+  return thread.currentAgentState === 'idle' && thread.paneEntry?.state === 'done' && thread.unread
+}
+
+/** The live state the row shows: any live state, except idle presence over an unread finished turn. */
+export function threadShowsLiveState(thread: AgentPaneThread): boolean {
+  return Boolean(thread.currentAgentState) && !idlePresenceYieldsToUnreadFinish(thread)
+}
+
 /** Process presence cannot answer an outstanding input request. */
 export function outstandingInputState(thread: AgentPaneThread): 'blocked' | 'waiting' | null {
   const state = thread.currentAgentEntry?.state
