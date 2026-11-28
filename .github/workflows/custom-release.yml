@@ -284,6 +284,7 @@ jobs:
           set -euo pipefail
           pnpm run build:keyboard-layout-macos
           pnpm run build:process-footprint-macos
+          pnpm run build:socket-owner-macos
           pnpm run build:notification-status-macos
 
       - name: Ensure the Electron runtime
