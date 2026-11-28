@@ -14,6 +14,8 @@ import { LidAwakeStatusSegment } from '../lid-awake/LidAwakeStatusSegment'
 import { ProjectAgentAccountStatusSegment } from '../project-agent-accounts/ProjectAgentAccountStatusSegment'
 import { PluginsStatusSegment } from './plugins/PluginsStatusSegment'
 import { PluginStatusBarItems } from './plugins/PluginStatusBarItems'
+import { useAppStore } from '@/store/index'
+import { shouldShowPluginsStatusSegment } from '@/components/app-rail/plugins-rail-page-visibility'
 import { RemoteServerUpdateStatusSegment } from './updates/RemoteServerUpdateStatusSegment'
 import { TOGGLE_FLOATING_TERMINAL_EVENT } from '@/components/floating-terminal/workspace/floating-workspace-open-intent'
 import { FloatingTerminalIconContextMenu } from '@/components/floating-terminal/trigger/FloatingTerminalIconContextMenu'
@@ -67,6 +69,7 @@ export function StatusBarSurface({
   // Memoized labels still need to follow language changes.
   useTranslation()
   const controller = useStatusBarController(floatingTerminalOpen)
+  const showPluginsSegment = useAppStore((s) => shouldShowPluginsStatusSegment(s.settings))
   if (!controller) {
     return null
   }
@@ -113,7 +116,7 @@ export function StatusBarSurface({
             <>
               {/* Why: upstream dropped the density-driven icon-only mode, so segments keep their labels. */}
               <ProjectAgentAccountStatusSegment iconOnly={false} />
-              <PluginsStatusSegment />
+              {showPluginsSegment ? <PluginsStatusSegment /> : null}
               <PluginStatusBarItems />
               <CaffeinateStatusSegment />
               <LidAwakeStatusSegment iconOnly={false} />

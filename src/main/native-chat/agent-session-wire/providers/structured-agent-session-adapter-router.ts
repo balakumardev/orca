@@ -67,6 +67,9 @@ export class StructuredAgentSessionAdapterRouter implements Adapter {
     await this.liveOwnerOrNull(input.sessionId)?.applyPermissionMode?.(input)
   }
 
+  permissionPickedWhileStarting: NonNullable<Adapter['permissionPickedWhileStarting']> = (input) =>
+    this.liveOwnerOrNull(input.sessionId)?.permissionPickedWhileStarting?.(input)
+
   runningPermissionMode: NonNullable<Adapter['runningPermissionMode']> = (sessionId) =>
     this.liveOwnerOrNull(sessionId)?.runningPermissionMode?.(sessionId)
 
@@ -103,11 +106,8 @@ export class StructuredAgentSessionAdapterRouter implements Adapter {
       input.record.provider
     )?.adapter.nameProviderConversation?.(input)
 
-  stopProviderNaming = (): void => {
-    for (const adapter of this.adapters()) {
-      adapter.stopProviderNaming?.()
-    }
-  }
+  stopProviderNaming = (): void =>
+    this.adapters().forEach((adapter) => adapter.stopProviderNaming?.())
 
   // Every adapter, so a session still starting hears it; only one that holds the session acts.
   promptSuggestionInterestChanged = (sessionId: string, wanted: boolean): void => {
@@ -118,8 +118,7 @@ export class StructuredAgentSessionAdapterRouter implements Adapter {
 
   // Renaming an unloaded Codex chat prepares a new provider before it reaches the spawn fence.
   renameProviderSession: NonNullable<Adapter['renameProviderSession']> = (input) => {
-    const { sessionId, provider } = input.record
-    const adapter = this.capabilityOwner(sessionId, provider)?.adapter
+    const adapter = this.capabilityOwner(input.record.sessionId, input.record.provider)?.adapter
     return sourceUpdate.start(() => adapter?.renameProviderSession?.(input) ?? Promise.resolve())
   }
 
@@ -158,6 +157,9 @@ export class StructuredAgentSessionAdapterRouter implements Adapter {
     this.liveOwnerOrNull(id)?.relayOpenWork?.(id, rootTurnRunning) ?? null
 
   liveTurnId = (id: string) => this.liveOwnerOrNull(id)?.liveTurnId?.(id)
+
+  keptLaunchOutgrown = (id: string, toolsOutdated: boolean, owesWork: () => Promise<boolean>) =>
+    this.liveOwnerOrNull(id)?.keptLaunchOutgrown?.(id, toolsOutdated, owesWork)
 
   steeringMode = (id: string) => this.liveOwnerOrNull(id)?.steeringMode?.(id)
 
